@@ -3,29 +3,121 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Color Bars</title>
+  <title>Mark Hiner</title>
+
+  <!-- JOST FONT -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Jost:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+
   <style>
     html, body {
       margin: 0;
       padding: 0;
       height: 100%;
-      width: 100%;
-      background-color: black;
-      overflow: hidden;
+      background: black;
+      font-family: "Jost", sans-serif;
+      color: white;
+      overflow-x: hidden;
     }
-    img {
+
+    /* BACKGROUND IMAGE */
+    .hero {
+      position: relative;
+      height: 100vh;
+      background: url('images/tvs.png') center center / cover no-repeat;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+    }
+
+    .overlay {
       position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      min-width: 100%;
-      min-height: 100%;
-      object-fit: cover;
-      background-color: black;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 2;
+    }
+
+    h1 {
+      font-size: clamp(3rem, 6vw, 5rem);
+      font-weight: 900;
+      margin-bottom: 0.4em;
+      letter-spacing: 0.02em;
+    }
+
+    p.contact {
+      font-size: clamp(1rem, 2vw, 1.3rem);
+      font-weight: 400;
+      margin: 0.2em 0;
+    }
+
+    p.contact a {
+      color: white;
+      text-decoration: none;
+    }
+
+    /* RESUME SECTION */
+    .resume-section {
+      background: #000;
+      padding: 3rem 1rem 5rem;
+      text-align: center;
+    }
+
+    iframe {
+      width: 85%;
+      height: 90vh;
+      border: none;
+      margin: 2rem 0;
+      box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+    }
+
+    .icons {
+      margin-top: 1rem;
+    }
+
+    .print-icon, .linkedin-icon {
+      display: inline-block;
+      margin: 0 1rem;
+      color: white;
+      text-decoration: none;
+      font-size: 1.2rem;
+    }
+
+    .print-icon:hover, .linkedin-icon:hover {
+      text-decoration: underline;
+    }
+
+    @media (max-width: 700px) {
+      iframe {
+        width: 95%;
+        height: 80vh;
+      }
     }
   </style>
 </head>
+
 <body>
-  <img src="images/color_barsv2.png" alt="Color Bars">
+  <section class="hero">
+    <div class="overlay"></div>
+    <div class="hero-content">
+      <h1>MARK HINER</h1>
+      <p class="contact">New York | <a href="mailto:mark@hiner.nyc">mark@hiner.nyc</a> | 804-248-6735</p>
+    </div>
+  </section>
+
+  <section class="resume-section">
+    <iframe src="resume7.pdf"></iframe>
+
+    <div class="icons">
+      <a class="print-icon" href="resume7.pdf" target="_blank">🖨 Print / Download PDF</a>
+      <a class="linkedin-icon" href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank">🔗 View LinkedIn</a>
+    </div>
+  </section>
 </body>
 </html>
