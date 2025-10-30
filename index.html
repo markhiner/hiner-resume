@@ -1,230 +1,245 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mark Hiner | Executive Producer</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mark Hiner Résumé</title>
+<link rel="icon" type="image/png" href="images/favicon.png" sizes="180x180">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cal+Sans:wght@700&family=Jost:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+<style>
+* {margin:0;padding:0;box-sizing:border-box;}
+body {
+  font-family: "Jost", sans-serif;
+  color:white;
+  background-color:black;
+  overflow-x:hidden;
+}
+section {
+  position:relative;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:left;
+  padding:100px 20px;
+}
+.parallax {
+  background-image:url('images/retro-ctrl-rm.png');
+  background-attachment:fixed;
+  background-size:contain;
+  background-repeat:no-repeat;
+  background-position:center top;
+}
+.hero {
+  background:url('images/tvs.png') center center/cover fixed;
+}
+.hero-content {
+  display:flex;
+  align-items:flex-start;
+  justify-content:center;
+  max-width:900px;
+  margin:auto;
+}
+.hero-content img {
+  width:140px;
+  height:auto;
+  border-radius:10px;
+  margin-right:25px;
+}
+.hero-text {
+  text-align:left;
+}
+.hero h1 {
+  font-family:"Cal Sans", sans-serif;
+  font-size:60px;
+  font-weight:700;
+  color:white;
+  line-height:1;
+}
+.hero p {
+  margin-top:15px;
+  font-size:20px;
+  max-width:600px;
+  color:white;
+}
 
-  <!-- FONTS -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cal+Sans:wght@700&family=Jost:wght@400;600;900&display=swap" rel="stylesheet">
+.contact-bar {
+  background:black;
+  color:white;
+  padding:10px 0;
+  text-align:center;
+  font-size:16px;
+}
 
-  <!-- FAVICON -->
-  <link rel="apple-touch-icon" href="images/favicon.png" sizes="180x180">
-  <link rel="icon" type="image/png" href="images/favicon.png" sizes="180x180">
-  <meta name="theme-color" content="#000000">
+.content {
+  width:80%;
+  max-width:1000px;
+}
 
-  <style>
-    :root { color-scheme: dark; }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+.text-box {
+  background:rgba(0,0,0,0.65);
+  border-left:4px solid #FFD500;
+  padding:30px;
+  border-radius:10px;
+  box-shadow:0 10px 30px rgba(0,0,0,0.5);
+  margin:auto;
+}
 
-    html, body {
-      font-family: "Jost", sans-serif;
-      background: #000;
-      color: #fff;
-      overflow-x: hidden;
-      scroll-behavior: smooth;
-    }
+.text-box h2 {
+  font-family:"Cal Sans", sans-serif;
+  font-size:24px;
+  font-weight:700;
+  color:#FFD500;
+  margin-bottom:10px;
+}
 
-    h1, h2, h3 {
-      font-family: "Cal Sans", sans-serif;
-      color: #fff;
-    }
+.text-box h3 {
+  font-family:"Cal Sans", sans-serif;
+  font-size:22px;
+  font-weight:700;
+  color:white;
+  margin-bottom:15px;
+}
 
-    /* HERO */
-    .hero {
-      height: 100vh;
-      background: url('images/tvs.png') center/cover no-repeat fixed;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      text-align: center;
-      position: relative;
-    }
-    .hero::after {
-      content: "";
-      position: absolute; inset: 0;
-      background: rgba(0,0,0,0.5);
-    }
-    .hero-content {
-      position: relative; z-index: 2;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 1.2rem;
-    }
-    .headshot {
-      width: 110px; height: auto;
-      border-radius: 10px;
-      box-shadow: 0 0 20px rgba(0,0,0,0.8);
-    }
-    .hero h1 {
-      font-size: clamp(2.8rem, 5vw, 4.8rem);
-      font-weight: 700;
-    }
-    .hero p {
-      position: relative;
-      z-index: 2;
-      font-size: 1.3rem;
-      color: #eee;
-      max-width: 900px;
-      margin-top: 1.5rem;
-      line-height: 1.5;
-      text-shadow: 0 0 12px rgba(0,0,0,0.8);
-    }
+.text-box ul {
+  list-style:none;
+  padding-left:0;
+}
 
-    /* CONTACT STRIP */
-    .profile {
-      background: #000;
-      padding: .7rem 0;
-      text-align: center;
-      border-top: 2px solid #222;
-      border-bottom: 2px solid #222;
-    }
-    .profile p {
-      color: #ccc;
-      letter-spacing: .05em;
-      font-size: 1rem;
-    }
-    .profile a {
-      color: #ccc;
-      text-decoration: none;
-    }
+.text-box ul li {
+  margin-bottom:8px;
+  line-height:1.5;
+}
 
-    /* EXPERIENCE */
-    .experience {
-      background: url('images/retro-ctrl-rm.png') center center / contain no-repeat fixed;
-      background-color: #000;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 6rem 2rem;
-    }
+.logo-row {
+  display:flex;
+  gap:20px;
+  justify-content:center;
+  align-items:center;
+  margin-bottom:20px;
+}
 
-    .section {
-      background: rgba(0,0,0,0.65);
-      border-left: 4px solid #ffcc00;
-      border-radius: 12px;
-      padding: 2rem 2.5rem;
-      margin-bottom: 3rem;
-      max-width: 850px;
-      box-shadow: 0 0 18px rgba(0,0,0,0.8);
-    }
+.logo-row img {
+  height:auto;
+}
 
-    .section h2 {
-      font-size: 1.2rem;
-      letter-spacing: .05em;
-      color: #ffcc00;
-      margin-bottom: .5rem;
-    }
+.thumbs {
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  gap:20px;
+  margin:30px 0;
+}
 
-    .section h3 {
-      font-size: 1.5rem;
-      margin-bottom: 1rem;
-    }
+.thumbs img {
+  width:45%;
+  border-radius:10px;
+  box-shadow:0 10px 20px rgba(0,0,0,0.8);
+  transition:transform 0.3s ease;
+}
+.thumbs img:hover {transform:scale(1.05);}
 
-    .section ul {
-      list-style: none;
-      padding: 0;
-      line-height: 1.7;
-    }
-
-    .section ul li::before {
-      content: "• ";
-      color: #ffcc00;
-    }
-
-    .thumb-pair {
-      display: flex;
-      justify-content: center;
-      gap: 2rem;
-      margin-bottom: 3rem;
-    }
-    .thumb-pair img {
-      border-radius: 10px;
-      height: 220px;
-      width: auto;
-      box-shadow: 0 0 22px rgba(0,0,0,0.9);
-    }
-
-    /* FOOTER */
-    footer {
-      background: #000;
-      padding: 1.5rem 1rem;
-      text-align: center;
-      border-top: 2px solid #222;
-    }
-    footer a {
-      color: #ffcc00;
-      font-weight: 600;
-      margin: 0 1rem;
-      text-decoration: none;
-    }
-  </style>
+.footer {
+  background:black;
+  color:white;
+  padding:15px;
+  text-align:center;
+  border-top:3px solid #FFD500;
+}
+.footer a {
+  color:#FFD500;
+  text-decoration:none;
+  font-weight:500;
+}
+.footer a:hover {text-decoration:underline;}
+</style>
 </head>
 
 <body>
-  <!-- HERO -->
-  <section class="hero">
-    <div class="hero-content">
-      <img src="images/headshot.png" alt="Mark Hiner" class="headshot">
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-content">
+    <img src="images/headshot.png" alt="Mark Hiner headshot">
+    <div class="hero-text">
       <h1>Mark Hiner</h1>
+      <p>Two decades of driving editorial from pitch to prompter — commanding control rooms when breaking news changes everything.</p>
     </div>
-    <p>Two decades of driving editorial from pitch to prompter — commanding control rooms when breaking news changes everything</p>
-  </section>
+  </div>
+</section>
 
-  <!-- CONTACT -->
-  <section class="profile">
-    <p>New York City&nbsp;|&nbsp;<a href="mailto:mark@hiner.nyc">mark@hiner.nyc</a>&nbsp;|&nbsp;804-248-6735</p>
-  </section>
+<div class="contact-bar">
+  New York City | mark@hiner.nyc | 804-248-6735
+</div>
 
-  <!-- EXPERIENCE -->
-  <section class="experience">
-    <div class="section">
-      <h2>FOX NEWS CHANNEL | New York City</h2>
+<!-- EXPERIENCE -->
+<section class="parallax">
+  <div class="content">
+
+    <div class="logo-row">
+      <img src="images/fnc-logo.png" style="width:100px;">
+      <img src="images/ar-logo.png" style="width:130px;">
+    </div>
+
+    <div class="text-box">
+      <h2>FOX NEWS CHANNEL | NEW YORK CITY</h2>
       <h3>Executive Producer, Breaking News & Network Events</h3>
       <ul>
-        <li>Led control room during extended breaking news coverage, guiding talent and crew through last-second changes cleanly without a planned rundown</li>
+        <li>Led control rooms during extended breaking news coverage, guiding talent and crew through last-second changes cleanly without a planned rundown</li>
         <li>Oversaw FOX Broadcast Network news events from planning through live broadcast, including inaugurations, SOTUs, Congressional hearings, and high-profile funerals</li>
         <li>Launched and executive produced <em>America Reports</em>, consistently winning its time slot and growing audience year-to-year</li>
         <li>Managed and mentored show team of producers, bookers, writers, and production assistants</li>
       </ul>
     </div>
 
-    <div class="thumb-pair">
-      <img src="images/shep-breaking.png" alt="Shepard Smith Breaking News">
-      <img src="images/elex2016.png" alt="Election 2016 Coverage">
+    <div class="thumbs">
+      <img src="images/shep-breaking.png" alt="Breaking News">
+      <img src="images/elex2016.png" alt="Election 2016">
     </div>
 
-    <div class="section">
-      <h2>Previously at FOX NEWS</h2>
+    <div class="logo-row">
+      <img src="images/ss-reporting-logo.png" style="width:120px;">
+      <img src="images/fox-report.png" style="width:120px;">
+    </div>
+
+    <div class="text-box">
+      <h2>PREVIOUSLY</h2>
+      <h3>Senior Producer, <em>Shepard Smith Reporting</em></h3>
       <ul>
-        <li><strong>Senior Producer, <em>Shepard Smith Reporting</em></strong> — Led editorial planning, developed rundowns, and managed production through live execution; lead producer for 2016 Election Night coverage on FOX Broadcast Network.</li>
-        <li><strong>Line Producer, <em>Shepard Smith Reporting</em></strong> — Built rundowns, timed shows, coordinated live changes with control room crew.</li>
-        <li><strong>Writer, <em>FOX Report with Shepard Smith</em></strong> — Crafted scripts meeting the anchor’s exacting editorial and stylistic standards.</li>
+        <li>Developed daily editorial and crafted rundown, then oversaw show team throughout daily production to ensure meeting editorial vision and journalistic standards</li>
+        <li>Lead producer of 2016 election night coverage on FOX Broadcast Network</li>
       </ul>
+      <h3>Line Producer, <em>Shepard Smith Reporting</em></h3>
+      <ul><li>Built rundown, timed show, and trafficked changes to talent and tech crew</li></ul>
+      <h3>Writer, <em>FOX Report with Shepard Smith</em></h3>
+      <ul><li>Wrote scripts to exacting grammar, style, and journalistic standards of the network’s lead news anchor</li></ul>
     </div>
 
-    <div class="thumb-pair">
-      <img src="images/nightteam.png" alt="WSVN Nightteam">
-      <img src="images/team-cvg-boxes.png" alt="Team Coverage Boxes">
+    <div class="thumbs">
+      <img src="images/nightteam.png" alt="Nightteam">
+      <img src="images/team-cvg-boxes.png" alt="Coverage Boxes">
     </div>
 
-    <div class="section">
-      <h2>Early Career</h2>
-      <ul>
-        <li><strong>10PM Nightteam Producer | WSVN-7 News | Miami</strong></li>
-        <li><strong>6PM News Producer | WCSC-Live 5 News | Charleston, SC</strong></li>
-      </ul>
+    <div class="logo-row">
+      <img src="images/wsvn-logo.png" style="width:110px;">
+      <img src="images/wcsc-logo.png" style="width:110px;">
     </div>
-  </section>
 
-  <!-- FOOTER -->
-  <footer>
-    <a href="images/mark-hiner-resume.pdf" download>Download Résumé</a> |
-    <a href="https://www.linkedin.com/in/mark-hiner-50b42656">LinkedIn</a>
-  </footer>
+    <div class="text-box">
+      <h2>EARLY CAREER</h2>
+      <h3>10PM Nightteam Producer | WSVN – 7News | Miami</h3>
+      <h3>6PM News Producer | WCSC – Live 5 News | Charleston, SC</h3>
+    </div>
+
+  </div>
+</section>
+
+<div class="footer">
+  <a href="mark-hiner.pdf" target="_blank">Download/Print Résumé</a>  |  <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank">LinkedIn</a>
+</div>
+
 </body>
-</html>
+</html>s
