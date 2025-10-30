@@ -2,230 +2,189 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mark Hiner | Executive Producer</title>
 
+  <!-- FONTS -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cal+Sans:wght@700&family=Jost:wght@400;600;900&display=swap" rel="stylesheet">
 
-<link rel="icon" type="image/png" sizes="32x32" href="images/favicon.png">
-<link rel="icon" type="image/png" sizes="192x192" href="images/favicon.png">
-<link rel="apple-touch-icon" href="images/favicon.png">
-<meta name="theme-color" content="#000000">
+  <!-- FAVICON -->
+  <link rel="apple-touch-icon" href="images/favicon.png" sizes="180x180">
+  <link rel="icon" type="image/png" href="images/favicon.png" sizes="180x180">
+  <meta name="theme-color" content="#000000">
+
   <style>
     :root { color-scheme: dark; }
-    * { box-sizing: border-box; }li
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     html, body {
-      margin: 0;
-      padding: 0;
       font-family: "Jost", sans-serif;
-      color: #fff;
       background: #000;
+      color: #fff;
       overflow-x: hidden;
       scroll-behavior: smooth;
     }
 
-    section {
-      position: relative;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      min-height: 100vh;
+    h1, h2, h3 {
+      font-family: "Cal Sans", sans-serif;
+      color: #fff;
     }
 
+    /* HERO */
     .hero {
       height: 100vh;
       background: url('images/tvs.png') center/cover no-repeat fixed;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      text-align: center;
+      position: relative;
     }
     .hero::after {
       content: "";
       position: absolute; inset: 0;
-      background: rgba(0,0,0,0.45);
+      background: rgba(0,0,0,0.5);
     }
     .hero-content {
-      position: relative; z-index: 1;
-      max-width: 900px; padding: 0 1rem;
-    }
-    .hero h1 {
-      font-family: "Cal Sans", sans-serif;
-      font-size: clamp(3rem, 6vw, 5rem);
-      font-weight: 700; margin: 0 0 .6rem;
-      text-shadow: 0 0 20px rgba(0,0,0,0.6);
-    }
-    .hero p {
-      font-size: clamp(1.2rem, 2.5vw, 1.6rem);
-      margin: 0; color: #eee;
-      text-shadow: 0 0 10px rgba(0,0,0,0.8);
-    }
-.hero-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1.2rem;
-}
-
-.headshot {
-  width: 120px;
-  height: auto;
-  border-radius: 10px;
-  box-shadow: 0 0 20px rgba(0,0,0,0.6);
-}
-.headshot {
-  width: 120px;
-  height: auto;
-  border-radius: 10px;
-  margin-bottom: 1rem;
-  box-shadow: 0 0 20px rgba(0,0,0,0.6);
-}
-
-    .profile {
-      height: 60px !important;
-      min-height: 60px !important;
+      position: relative; z-index: 2;
       display: flex;
       align-items: center;
       justify-content: center;
+      gap: 1.2rem;
+    }
+    .headshot {
+      width: 110px; height: auto;
+      border-radius: 10px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.8);
+    }
+    .hero h1 {
+      font-size: clamp(2.8rem, 5vw, 4.8rem);
+      font-weight: 700;
+    }
+    .hero p {
+      position: relative;
+      z-index: 2;
+      font-size: 1.3rem;
+      color: #eee;
+      max-width: 900px;
+      margin-top: 1.5rem;
+      line-height: 1.5;
+      text-shadow: 0 0 12px rgba(0,0,0,0.8);
+    }
+
+    /* CONTACT STRIP */
+    .profile {
       background: #000;
+      padding: .7rem 0;
       text-align: center;
-      padding: 0 1rem;
+      border-top: 2px solid #222;
+      border-bottom: 2px solid #222;
     }
-    .profile p { margin: 0; color: #ccc; letter-spacing: .04em; font-size: 1rem; }
+    .profile p {
+      color: #ccc;
+      letter-spacing: .05em;
+      font-size: 1rem;
+    }
+    .profile a {
+      color: #ccc;
+      text-decoration: none;
+    }
 
+    /* EXPERIENCE */
     .experience {
-      display: grid !important;
-      grid-template-columns: minmax(220px, 240px) minmax(0, 1fr);
-      align-items: start;
-      column-gap: 3rem;
-      padding: 6rem 3rem;
-      min-height: 100vh;
-      background: url('images/retro-ctrl-rm.png') center/contain no-repeat fixed;
+      background: url('images/retro-ctrl-rm.png') center center / contain no-repeat fixed;
       background-color: #000;
-    }
-
-    .thumbs {
-      grid-column: 1;
-      align-self: start;
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
-      will-change: transform;
-      transform: translate3d(0,0,0);
+      align-items: center;
+      padding: 6rem 2rem;
     }
 
-    .thumbs img {
-      width: 200px;
-      height: auto;
+    .section {
+      background: rgba(0,0,0,0.65);
+      border-left: 4px solid #ffcc00;
+      border-radius: 12px;
+      padding: 2rem 2.5rem;
+      margin-bottom: 3rem;
+      max-width: 850px;
+      box-shadow: 0 0 18px rgba(0,0,0,0.8);
+    }
+
+    .section h2 {
+      font-size: 1.2rem;
+      letter-spacing: .05em;
+      color: #ffcc00;
+      margin-bottom: .5rem;
+    }
+
+    .section h3 {
+      font-size: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .section ul {
+      list-style: none;
+      padding: 0;
+      line-height: 1.7;
+    }
+
+    .section ul li::before {
+      content: "• ";
+      color: #ffcc00;
+    }
+
+    .thumb-pair {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      margin-bottom: 3rem;
+    }
+    .thumb-pair img {
       border-radius: 10px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.9), 0 0 40px rgba(255,255,255,0.18);
-      transition: transform .25s ease, box-shadow .25s ease;
+      height: 220px;
+      width: auto;
+      box-shadow: 0 0 22px rgba(0,0,0,0.9);
     }
 
-    .thumbs img:hover { 
-      transform: scale(1.05); 
-      box-shadow: 0 12px 32px rgba(0,0,0,0.95), 0 0 60px rgba(255,255,255,0.25);
-    }
-
-    .section-content {
-      grid-column: 2;
-      align-self: start;
-      max-width: 760px; width: 100%;
-      background: rgba(0,0,0,0.65);
-      padding: 2rem;
-      border-left: 4px solid yellow;
-      border-radius: 12px;
-    }
-    .section-content h2 {
-      color: yellow; font-weight: 800; font-size: 1.1rem; letter-spacing: .08em; margin: 0 0 .4rem;
-    }
-    .section-content h3 {
-      margin: 0 0 1rem; font-weight: 600; font-size: 1.6rem; color: #fff;
-    }
-    .section-content ul { list-style: none; padding: 0; margin: 0; line-height: 1.7; }
-    .section-content ul li { margin: .25rem 0; }
-    .section-content ul li::before { content: "• "; color: yellow; }
-
-    .early-career {
-      grid-column: 2;
-      align-self: start;
-      max-width: 760px;
-      width: 100%;
-      background: rgba(0,0,0,0.65);
-      padding: 2rem;
-      margin-top: 3rem;
-      border-left: 4px solid yellow;
-      border-radius: 12px;
-    }
-
-    .station-logo {
-      width: 100px;
-      height: auto;
-      margin-right: 10px;
-      vertical-align: middle;
-      display: inline-block;
-    }
-
+    /* FOOTER */
     footer {
-      width: 100%;
       background: #000;
+      padding: 1.5rem 1rem;
       text-align: center;
-      padding: 1rem 0;
-      color: #ccc;
+      border-top: 2px solid #222;
     }
     footer a {
-      color: #33a8ff;
-      text-decoration: none;
+      color: #ffcc00;
+      font-weight: 600;
       margin: 0 1rem;
-    }
-
-    @media (max-width: 900px) {
-      .experience {
-        grid-template-columns: 1fr;
-        padding: 3.5rem 1.25rem;
-        background-attachment: scroll;
-      }
-      .thumbs {
-        flex-direction: row;
-        flex-wrap: wrap;
-        justify-content: center;
-      }
-      .thumbs img { width: 140px; }
-      .section-content { margin-top: 1.5rem; }
+      text-decoration: none;
     }
   </style>
 </head>
-<body>
 
+<body>
+  <!-- HERO -->
   <section class="hero">
     <div class="hero-content">
-<div class="hero-content">
-      <div class="hero-header">
-  <img src="images/headshot.png" alt="Mark Hiner" class="headshot">
-  <h1>Mark Hiner</h1>
-</div>
-      <p>Two decades of driving editorial from pitch to prompter &mdash; and commanding the control room when breaking news changes everything.</p>
+      <img src="images/headshot.png" alt="Mark Hiner" class="headshot">
+      <h1>Mark Hiner</h1>
     </div>
+    <p>Two decades of driving editorial from pitch to prompter — commanding the control room when breaking news changes everything</p>
   </section>
 
+  <!-- CONTACT -->
   <section class="profile">
-    <p>New York City&nbsp;|&nbsp;<a href="mailto:mark@hiner.nyc" style="color:#ccc;text-decoration:none">mark@hiner.nyc</a>&nbsp;|&nbsp;804-248-6735</p>
+    <p>New York City&nbsp;|&nbsp;<a href="mailto:mark@hiner.nyc">mark@hiner.nyc</a>&nbsp;|&nbsp;804-248-6735</p>
   </section>
 
-  <section class="experience" id="experience">
-    <div class="thumbs" id="thumbs">
-      <img src="images/fnc-logo.png" alt="Fox News logo">
-      <img src="images/ar-logo.png" alt="America Reports logo">
-      <img src="images/shep-breaking.png" alt="Shepard Smith Breaking News">
-      <img src="images/elex2016.png" alt="Election 2016 coverage">
-      <img src="images/nightteam.png" alt="Nightteam control room">
-      <img src="images/team-cvg-boxes.png" alt="Team coverage boxes">
-    </div>
-
-    <div class="section-content">
+  <!-- EXPERIENCE -->
+  <section class="experience">
+    <div class="section">
       <h2>FOX NEWS CHANNEL | New York City</h2>
-      <h3>Executive Producer, Breaking News &amp; Network Events</h3>
+      <h3>Executive Producer, Breaking News & Network Events</h3>
       <ul>
         <li>Led control room during extended breaking news coverage, guiding talent and crew through last-second changes cleanly without a planned rundown</li>
         <li>Oversaw FOX Broadcast Network news events from planning through live broadcast, including inaugurations, SOTUs, Congressional hearings, and high-profile funerals</li>
@@ -234,45 +193,38 @@
       </ul>
     </div>
 
-    <div class="section-content" style="margin-top: 3rem;">
-      <h3>Previously at FOX</h3>
+    <div class="thumb-pair">
+      <img src="images/shep-breaking.png" alt="Shepard Smith Breaking News">
+      <img src="images/elex2016.png" alt="Election 2016 Coverage">
+    </div>
+
+    <div class="section">
+      <h2>Previously at FOX NEWS</h2>
       <ul>
-        <li><strong>Senior Producer, <em>Shepard Smith Reporting</em></strong> — Developed daily editorial and crafted rundown, then oversaw show team to ensure editorial precision and journalistic standards</li>
-        <li>Lead producer of 2016 election night coverage on FOX Broadcast Network</li>
-        <li><strong>Line Producer, <em>Shepard Smith Reporting</em></strong> — Built rundown, timed show, and coordinated live changes with talent and tech crew</li>
-        <li><strong>Writer, <em>FOX Report with Shepard Smith</em></strong> — Wrote scripts to exacting grammar, style, and journalistic standards of network’s lead news anchor</li>
+        <li><strong>Senior Producer, <em>Shepard Smith Reporting</em></strong> — Led editorial planning, developed rundowns, and managed production through live execution; lead producer for 2016 Election Night coverage on FOX Broadcast Network.</li>
+        <li><strong>Line Producer, <em>Shepard Smith Reporting</em></strong> — Built rundowns, timed shows, coordinated live changes with control room crew.</li>
+        <li><strong>Writer, <em>FOX Report with Shepard Smith</em></strong> — Crafted scripts meeting the anchor’s exacting editorial and stylistic standards.</li>
       </ul>
     </div>
 
-    <div class="early-career">
-      <h3>
-        <img src="images/wsvn-logo.png" class="station-logo" alt="WSVN logo">10pm Nightteam Producer | WSVN - 7News | Miami
-      </h3>
-      <p>Four promotions in three years, from junior weekend producer to lead producer of flagship 10pm newscast, a high-energy hour regularly beating prime time network dramas in Miami market ratings.</p>
-      <h3>
-        <img src="images/wcsc-logo.png" class="station-logo" alt="WCSC logo">6pm Newscast Producer | WCSC - Live 5 News | Charleston, SC
-      </h3>
-      <p>Built rundown, wrote all scripts, edited video, and produced live broadcasts for Lowcountry’s leading evening newscast.</p>
+    <div class="thumb-pair">
+      <img src="images/nightteam.png" alt="WSVN Nightteam">
+      <img src="images/team-cvg-boxes.png" alt="Team Coverage Boxes">
+    </div>
+
+    <div class="section">
+      <h2>Early Career</h2>
+      <ul>
+        <li><strong>10PM Nightteam Producer | WSVN-7 News | Miami</strong></li>
+        <li><strong>6PM News Producer | WCSC-Live 5 News | Charleston, SC</strong></li>
+      </ul>
     </div>
   </section>
 
+  <!-- FOOTER -->
   <footer>
-    <a href="images/mark-hiner-resume.pdf" download>Download Résumé</a>
-    <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank">LinkedIn</a>
+    <a href="images/mark-hiner-resume.pdf" download>Download Résumé</a> |
+    <a href="https://www.linkedin.com/in/mark-hiner-50b42656">LinkedIn</a>
   </footer>
-
-  <script>
-    const thumbs = document.getElementById('thumbs');
-    const exp = document.getElementById('experience');
-    window.addEventListener('scroll', () => {
-      const rect = exp.getBoundingClientRect();
-      if (rect.top < window.innerHeight && rect.bottom > 0) {
-        const progress = (window.innerHeight - rect.top) / (window.innerHeight + rect.height);
-        const offset = progress * 60;
-        thumbs.style.transform = `translateY(${offset}px)`;
-      }
-    });
-  </script>
-
 </body>
 </html>
