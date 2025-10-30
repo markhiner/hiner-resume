@@ -1,143 +1,283 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mark Hiner</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mark Hiner | Executive Producer</title>
 
-  <!-- JOST FONT -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Jost:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cal+Sans:wght@400;600;700&family=Jost:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
 
   <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+
     html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      background: black;
+      margin: 0; padding: 0;
       font-family: "Jost", sans-serif;
-      color: white;
-      overflow-x: hidden;
+      color: #fff; background: #000;
+      overflow-x: hidden; scroll-behavior: smooth;
     }
 
-    /* BACKGROUND IMAGE + ANIMATED GLOW */
+    h1, h2, h3, strong {
+      font-family: "Cal Sans", sans-serif;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    em { font-style: italic; color: #e6e6e6; }
+
+    /* HERO */
     .hero {
-      position: relative;
       height: 100vh;
-      background: url('images/tvs.png') center center / cover no-repeat;
+      background: url('images/tvs.png') center/cover no-repeat fixed;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center; position: relative;
+    }
+    .hero::after {
+      content: ""; position: absolute; inset: 0;
+      background: rgba(0,0,0,0.45);
+    }
+    .hero-content {
+      position: relative; z-index: 1;
       display: flex;
-      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.75rem;
+      max-width: 900px;
+      padding: 0 1rem;
+      text-align: left;
+    }
+    .hero-headshot {
+      width: clamp(110px, 16vw, 140px);
+      border-radius: 8px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.25);
+    }
+    .hero-text {
+      max-width: 600px;
+    }
+    .hero h1 {
+      font-size: clamp(3rem, 6vw, 5rem);
+      font-weight: 700;
+      margin: 0 0 .4rem;
+      text-shadow: 0 2px 6px rgba(0,0,0,.35);
+    }
+    .hero p {
+      font-size: clamp(1.2rem, 2.5vw, 1.6rem);
+      margin: 0; color: #eee;
+    }
+
+    /* CONTACT STRIP */
+    .profile {
+      display: flex; align-items: center; justify-content: center;
+      height: 60px; background: #000;
+      text-align: center; padding: 0 1rem;
+    }
+    .profile p { margin: 0; color: #ccc; letter-spacing: .04em; font-size: 1rem; }
+
+    /* EXPERIENCE */
+    .experience {
+      display: grid !important;
+      grid-template-columns: 240px 1fr;
+      column-gap: 3rem;
+      align-items: start;
+      text-align: left;
+      padding: 6rem 3rem;
+      background: #000 url('images/retro-ctrl-rm.png') center center / contain no-repeat;
+      background-attachment: fixed;
+    }
+
+    .thumbs {
+      grid-column: 1;
+      align-self: start;
+      display: flex; flex-direction: column;
+      gap: 1.25rem;
+      will-change: transform;
+    }
+    .thumbs img {
+      width: 200px; height: auto;
+      border-radius: 10px;
+      box-shadow: 0 0 12px rgba(255,255,255,0.12);
+      transition: transform .25s ease, box-shadow .25s ease;
+    }
+
+    /* BOX STYLING */
+    .section-content, .previous, .early {
+      background: rgba(0,0,0,0.55);
+      border-left: 3px solid #ffcc00;
+      box-shadow: -2px 0 10px rgba(255,204,0,0.4);
+      border-radius: 12px;
+      padding: 2rem;
+      max-width: 760px;
+      margin-bottom: 1.5rem;
+    }
+
+    .section-content h2, .previous h2, .early h2 {
+      color: #ffcc00;
+      font-size: 1.1rem;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin: 0 0 .5rem;
+    }
+    .section-content h3 { margin: 0 0 1rem; font-weight: 600; font-size: 1.6rem; color: #fff; }
+
+    .section-content ul, .previous ul, .early ul {
+      list-style: none; padding: 0; margin: 0; line-height: 1.6;
+    }
+    .section-content ul li::before, .previous ul li::before, .early ul li::before {
+      content: "• "; color: #ffcc00;
+    }
+
+    /* INLINE IMAGE PAIRS */
+    .inline-images {
+      grid-column: 2;
+      display: flex;
       justify-content: center;
       align-items: center;
-      text-align: center;
-      overflow: hidden;
+      gap: 2rem;
+      margin: 1rem 0 1rem;
+    }
+    .inline-images img {
+      height: 230px;
+      width: auto;
+      border-radius: 10px;
+      box-shadow: 0 0 16px rgba(255,255,255,0.15);
+      object-fit: cover;
     }
 
-    .overlay {
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(circle at center, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0.75) 100%);
-      mix-blend-mode: overlay;
-      animation: glow 8s ease-in-out infinite alternate;
+    .early-wrapper { grid-column: 2; margin-top: 2rem; }
+    .early-role {
+      display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;
+    }
+    .station-logo {
+      width: 70px; height: auto; flex-shrink: 0; opacity: 0.9;
     }
 
-    @keyframes glow {
-      0% {
-        background: radial-gradient(circle at 40% 45%, rgba(255,255,255,0.07) 0%, rgba(0,0,0,0.8) 100%);
-        filter: brightness(1);
-      }
-      50% {
-        background: radial-gradient(circle at 60% 55%, rgba(255,255,255,0.12) 0%, rgba(0,0,0,0.8) 100%);
-        filter: brightness(1.1);
-      }
-      100% {
-        background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0.75) 100%);
-        filter: brightness(1);
-      }
-    }
-
-    .hero-content {
-      position: relative;
-      z-index: 2;
-      text-shadow: 0 0 25px rgba(0, 0, 0, 0.9);
-    }
-
-    h1 {
-      font-size: clamp(3rem, 6vw, 5rem);
-      font-weight: 900;
-      margin-bottom: 0.4em;
-      letter-spacing: 0.03em;
-    }
-
-    p.contact {
-      font-size: clamp(1rem, 2vw, 1.3rem);
-      font-weight: 400;
-      margin: 0.2em 0;
-    }
-
-    p.contact a {
-      color: white;
-      text-decoration: none;
-    }
-
-    /* RESUME SECTION */
-    .resume-section {
+    .footer-bar {
       background: #000;
-      padding: 3rem 1rem 5rem;
       text-align: center;
+      padding: 2.25rem 0 1.5rem;
+      font-size: 1rem;
+      border-top: 2px solid #ffcc00;
     }
-
-    iframe {
-      width: 85%;
-      height: 90vh;
-      border: none;
-      margin: 2rem 0;
-      box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+    .footer-bar a {
+      color: #ffcc00; text-decoration: none; margin: 0 1.2rem;
     }
+    .footer-bar a:hover { text-decoration: underline; }
 
-    .icons {
-      margin-top: 1rem;
-    }
-
-    .print-icon, .linkedin-icon {
-      display: inline-block;
-      margin: 0 1rem;
-      color: white;
-      text-decoration: none;
-      font-size: 1.2rem;
-    }
-
-    .print-icon:hover, .linkedin-icon:hover {
-      text-decoration: underline;
-    }
-
-    @media (max-width: 700px) {
-      iframe {
-        width: 95%;
-        height: 80vh;
-      }
+    @media (max-width: 900px) {
+      .hero-content { flex-direction: column; text-align: center; }
+      .hero-headshot { margin-bottom: 1rem; }
+      .experience { grid-template-columns: 1fr; padding: 3.5rem 1.25rem; }
+      .inline-images { flex-direction: column; gap: 1.25rem; }
+      .inline-images img { height: 180px; }
     }
   </style>
 </head>
-
 <body>
+
+  <!-- HERO -->
   <section class="hero">
-    <div class="overlay"></div>
     <div class="hero-content">
-      <h1>MARK HINER</h1>
-      <p class="contact">
-        New York | <a href="mailto:mark@hiner.nyc">mark@hiner.nyc</a> | 804-248-6735
-      </p>
+      <img src="images/headshot.png" alt="Mark Hiner headshot" class="hero-headshot">
+      <div class="hero-text">
+        <h1>Mark Hiner</h1>
+        <p>Two decades of driving editorial from pitch to prompter — and commanding the control room when breaking news changes everything.</p>
+      </div>
     </div>
   </section>
 
-  <section class="resume-section">
-    <iframe src="resume7.pdf"></iframe>
-    <div class="icons">
-      <a class="print-icon" href="resume7.pdf" target="_blank">🖨 Print / Download PDF</a>
-      <a class="linkedin-icon" href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank">🔗 View LinkedIn</a>
+  <section class="profile">
+    <p>New York City | <a href="mailto:mark@hiner.nyc" style="color:#ccc;text-decoration:none">mark@hiner.nyc</a> | 804-248-6735</p>
+  </section>
+
+  <!-- EXPERIENCE -->
+  <section class="experience" id="experience">
+    <div class="thumbs" id="thumbs">
+      <img src="images/fnc-logo.png" alt="Fox News logo">
+      <img src="images/ar-logo.png" alt="America Reports logo">
+    </div>
+
+    <div class="section-content">
+      <h2>FOX NEWS CHANNEL | <span style="color:#ffcc00;">New York City</span></h2>
+      <h3>Executive Producer, Breaking News &amp; Network Events</h3>
+      <ul>
+        <li>Led control room during extended breaking news coverage, guiding talent and crew through last-second changes cleanly without a planned rundown</li>
+        <li>Oversaw FOX Broadcast Network news events from planning through live broadcast, including inaugurations, SOTUs, Congressional hearings, and high-profile funerals</li>
+        <li>Launched and executive produced <strong>America Reports</strong>, consistently winning its time slot and growing audience year-to-year</li>
+        <li>Managed and mentored show team of producers, bookers, writers, and production assistants</li>
+      </ul>
+    </div>
+
+    <div class="inline-images">
+      <img src="images/shep-breaking.png" alt="Shepard Smith Breaking News">
+      <img src="images/elex2016.png" alt="Election 2016 coverage">
+    </div>
+
+    <div class="section-content previous" style="grid-column: 2; margin-top: 1rem;">
+      <h2>PREVIOUSLY</h2>
+      <p><strong>Senior Producer, <em>Shepard Smith Reporting</em></strong></p>
+      <ul>
+        <li>Developed daily editorial and crafted rundown, then oversaw show team throughout daily production to ensure the editorial vision and standards were met</li>
+        <li>Lead producer of 2016 election night coverage on FOX Broadcast Network</li>
+      </ul>
+      <p><strong>Line Producer, <em>Shepard Smith Reporting</em></strong></p>
+      <ul>
+        <li>Built rundown, timed show, and trafficked changes to talent and tech crew</li>
+      </ul>
+      <p><strong>Writer, <em>FOX Report with Shepard Smith</em></strong></p>
+      <ul>
+        <li>Wrote scripts to the exacting grammar, style, and journalistic standards of the network’s lead news anchor</li>
+      </ul>
+    </div>
+
+    <div class="inline-images">
+      <img src="images/nightteam.png" alt="WSVN Nightteam coverage">
+      <img src="images/team-cvg-boxes.png" alt="Control room coverage boxes">
+    </div>
+
+    <div class="early-wrapper" style="grid-column: 2; margin-top: 2rem;">
+      <div class="early">
+        <h2>EARLY CAREER</h2>
+        <div class="early-role">
+          <img src="images/wsvn-logo.png" alt="WSVN 7News Miami logo" class="station-logo" style="margin-right:10px;">
+          <p><strong>10PM Nightteam Producer</strong> | WSVN – 7News | Miami</p>
+        </div>
+        <div class="early-role">
+          <img src="images/wcsc-logo.png" alt="WCSC Live 5 News Charleston logo" class="station-logo" style="margin-right:10px;">
+          <p><strong>6PM News Producer</strong> | WCSC – Live 5 News | Charleston, SC</p>
+        </div>
+      </div>
     </div>
   </section>
+
+  <section class="footer-bar">
+    <p>
+      <a href="resume7.pdf" download>Download/Print Résumé</a> |
+      <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank">LinkedIn</a>
+    </p>
+  </section>
+
+  <script>
+    const thumbs = document.getElementById('thumbs');
+    const exp = document.getElementById('experience');
+    const SPEED = 0.25, BASELINE = 60;
+
+    function parallaxThumbs() {
+      const scrollY = window.scrollY;
+      const sectionTop = exp.offsetTop;
+      const sectionBot = sectionTop + exp.offsetHeight;
+      const winH = window.innerHeight;
+      if (scrollY + winH > sectionTop && scrollY < sectionBot) {
+        const y = scrollY - sectionTop;
+        thumbs.style.transform = `translate3d(0, ${BASELINE + y * SPEED}px, 0)`;
+      }
+    }
+    document.addEventListener('scroll', () => requestAnimationFrame(parallaxThumbs), { passive: true });
+    parallaxThumbs();
+  </script>
 </body>
 </html>
