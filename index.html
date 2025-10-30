@@ -15,7 +15,7 @@
 <meta name="theme-color" content="#000000">
   <style>
     :root { color-scheme: dark; }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; }li
 
     html, body {
       margin: 0;
@@ -61,6 +61,26 @@
       margin: 0; color: #eee;
       text-shadow: 0 0 10px rgba(0,0,0,0.8);
     }
+.hero-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2rem;
+}
+
+.headshot {
+  width: 120px;
+  height: auto;
+  border-radius: 10px;
+  box-shadow: 0 0 20px rgba(0,0,0,0.6);
+}
+.headshot {
+  width: 120px;
+  height: auto;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  box-shadow: 0 0 20px rgba(0,0,0,0.6);
+}
 
     .profile {
       height: 60px !important;
@@ -180,7 +200,11 @@
 
   <section class="hero">
     <div class="hero-content">
-      <h1>Mark Hiner</h1>
+<div class="hero-content">
+      <div class="hero-header">
+  <img src="images/headshot.png" alt="Mark Hiner" class="headshot">
+  <h1>Mark Hiner</h1>
+</div>
       <p>Two decades of driving editorial from pitch to prompter &mdash; and commanding the control room when breaking news changes everything.</p>
     </div>
   </section>
