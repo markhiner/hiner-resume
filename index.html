@@ -8,7 +8,7 @@
 <!-- Fonts -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cal+Sans:wght@700&family=Jost:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cal+Sans:wght@700&family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
 
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -18,6 +18,8 @@ body{
   background:#000;
   overflow-x:hidden;
 }
+h1,h2,h3{font-family:"Cal Sans",sans-serif;}
+
 .hero{
   display:flex;
   align-items:flex-start;
@@ -39,7 +41,6 @@ body{
   flex-shrink:0;
 }
 .hero-text h1{
-  font-family:"Cal Sans",sans-serif;
   font-size:3.5rem;
   font-weight:700;
   margin-bottom:0.5rem;
@@ -58,37 +59,36 @@ body{
   color:#ccc;
 }
 
-section{
+.section-block{
   display:flex;
-  flex-direction:row;
   justify-content:center;
   align-items:flex-start;
-  gap:3rem;
+  gap:2.5rem;
   padding:5rem 2rem;
   background:url('images/retro-ctrl-rm.png') center/contain fixed no-repeat;
 }
-.column-logos{
+.section-block + .section-block{margin-top:4rem;}
+
+.logo-group{
   display:flex;
   flex-direction:column;
   align-items:center;
   justify-content:flex-start;
-  gap:3rem;
-  padding-top:2rem;
+  gap:2rem;
+  margin-top:1rem;
 }
-.column-logos img{
-  width:120px;
-  height:auto;
+.logo-group img{
+  width:110px;
   border-radius:6px;
-  box-shadow:0 4px 15px rgba(0,0,0,0.6);
+  box-shadow:0 4px 20px rgba(0,0,0,0.8);
 }
 
-.column-content{
+.text-col{
+  max-width:740px;
   display:flex;
   flex-direction:column;
-  gap:3rem;
-  max-width:750px;
+  gap:2rem;
 }
-
 .text-box{
   background:rgba(0,0,0,0.6);
   border-left:4px solid #FFD500;
@@ -96,20 +96,18 @@ section{
   border-radius:10px;
 }
 .text-box h2{
-  font-family:"Cal Sans",sans-serif;
   font-size:1.2rem;
   color:#FFD500;
   margin-bottom:.3rem;
   letter-spacing:.08em;
 }
 .text-box h3{
-  font-family:"Cal Sans",sans-serif;
   font-size:1.6rem;
   margin-bottom:1rem;
 }
-.text-box ul{list-style:none;margin:0;padding:0;line-height:1.6;}
-.text-box ul li{margin-bottom:.4rem;}
-.text-box ul li::before{content:"• ";color:#FFD500;}
+.text-box ul{list-style:none;line-height:1.6;}
+.text-box li{margin-bottom:.4rem;}
+.text-box li::before{content:"• ";color:#FFD500;}
 
 .thumb-row{
   display:flex;
@@ -119,7 +117,7 @@ section{
 .thumb-row img{
   width:45%;
   border-radius:10px;
-  box-shadow:0 0 18px rgba(0,0,0,0.7);
+  box-shadow:0 0 25px rgba(0,0,0,0.8);
 }
 
 .footer{
@@ -148,21 +146,16 @@ section{
 </section>
 
 <div class="profile">
-  New&nbsp;York&nbsp;City&nbsp;|&nbsp;<a href="mailto:mark@hiner.nyc" style="color:#ccc;text-decoration:none;">mark@hiner.nyc</a>&nbsp;|&nbsp;804-248-6735
+  New&nbsp;York&nbsp;City&nbsp;|&nbsp;<a href="mailto:mark@hiner.nyc" style="color:#ccc;">mark@hiner.nyc</a>&nbsp;|&nbsp;804-248-6735
 </div>
 
-<!-- EXPERIENCE -->
-<section>
-  <div class="column-logos">
-    <img src="images/fnc-logo.png" alt="Fox News logo" style="width:90px;">
-    <img src="images/ar-logo.png" alt="America Reports logo" style="width:110px;">
-    <img src="images/ss-reporting-logo.png" alt="Shepard Smith Reporting" style="width:110px;">
-    <img src="images/fox-report.png" alt="Fox Report logo" style="width:110px;">
-    <img src="images/wsvn-logo.png" alt="WSVN logo" style="width:110px;">
-    <img src="images/wcsc-logo.png" alt="WCSC logo" style="width:110px;">
+<!-- FOX NEWS SECTION -->
+<section class="section-block">
+  <div class="logo-group">
+    <img src="images/fnc-logo.png" alt="Fox News">
+    <img src="images/ar-logo.png" alt="America Reports">
   </div>
-
-  <div class="column-content">
+  <div class="text-col">
     <div class="text-box">
       <h2>FOX NEWS CHANNEL | NEW YORK CITY</h2>
       <h3>Executive Producer, Breaking News &amp; Network Events</h3>
@@ -173,12 +166,20 @@ section{
         <li>Managed and mentored show team of producers, bookers, writers, and production assistants</li>
       </ul>
     </div>
-
     <div class="thumb-row">
-      <img src="images/shep-breaking.png" alt="Breaking news control room">
-      <img src="images/elex2016.png" alt="Election 2016 coverage">
+      <img src="images/shep-breaking.png" alt="Breaking News">
+      <img src="images/elex2016.png" alt="Election 2016">
     </div>
+  </div>
+</section>
 
+<!-- PREVIOUSLY SECTION -->
+<section class="section-block">
+  <div class="logo-group">
+    <img src="images/ss-reporting-logo.png" alt="Shepard Smith Reporting">
+    <img src="images/fox-report.png" alt="Fox Report">
+  </div>
+  <div class="text-col">
     <div class="text-box">
       <h2>PREVIOUSLY AT FOX</h2>
       <h3>Senior Producer, <em>Shepard Smith Reporting</em></h3>
@@ -191,12 +192,20 @@ section{
       <h3>Writer, <em>FOX Report with Shepard Smith</em></h3>
       <ul><li>Wrote scripts to exacting grammar, style, and journalistic standards of the network’s lead news anchor</li></ul>
     </div>
-
     <div class="thumb-row">
-      <img src="images/nightteam.png" alt="WSVN Nightteam coverage">
-      <img src="images/team-cvg-boxes.png" alt="Control room montage">
+      <img src="images/nightteam.png" alt="Nightteam">
+      <img src="images/team-cvg-boxes.png" alt="Team CVG">
     </div>
+  </div>
+</section>
 
+<!-- EARLY CAREER SECTION -->
+<section class="section-block">
+  <div class="logo-group">
+    <img src="images/wsvn-logo.png" alt="WSVN">
+    <img src="images/wcsc-logo.png" alt="WCSC">
+  </div>
+  <div class="text-col">
     <div class="text-box">
       <h2>EARLY CAREER</h2>
       <h3>10PM Nightteam Producer | WSVN – 7News | Miami</h3>
@@ -206,7 +215,8 @@ section{
 </section>
 
 <div class="footer">
-  <a href="mark-hiner.pdf" target="_blank">Download / Print Résumé</a>  |  <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank">LinkedIn</a>
+  <a href="mark-hiner.pdf" target="_blank">Download / Print Résumé</a>  |
+  <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank">LinkedIn</a>
 </div>
 
 </body>
