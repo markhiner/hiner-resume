@@ -35,10 +35,10 @@ a:hover{text-decoration:underline}
 .hero {
   display:flex;
   justify-content:center;
-  align-items:flex-start;
+  align-items:center;
   height:100vh;
   background:url("images/tvs.png") center/cover fixed no-repeat;
-  padding:8rem 2rem 4rem;
+  padding:2rem;
   position:relative;
 }
 .hero::after {
@@ -50,37 +50,61 @@ a:hover{text-decoration:underline}
 .hero-content {
   display:flex;
   align-items:flex-start;
-  gap:25px;
+  gap:30px;
   width:100%;
   max-width:1000px;
   position:relative;
   z-index:2;
+  transform:translateY(40px);
 }
 .hero img {
-  width:160px;
+  width:150px;
   border-radius:10px;
   box-shadow:0 8px 28px rgba(0,0,0,.9);
 }
 .hero-text h1 {
-  font-size:3.5rem;
+  font-size:4.2rem;
   font-weight:700;
-  margin:.2rem 0 .6rem;
-  text-shadow:0 4px 18px rgba(0,0,0,0.9);
+  margin:.2rem 0 .4rem;
+  text-shadow:0 5px 20px rgba(0,0,0,0.9);
 }
 .hero-text p {
   font-weight:500;
-  font-size:1.2rem;
+  font-size:1.3rem;
   line-height:1.55;
   max-width:600px;
-  text-shadow:0 3px 12px rgba(0,0,0,0.8);
+  text-shadow:0 4px 14px rgba(0,0,0,0.8);
 }
 
-/* CONTACT STRIP */
+/* CONTACT ROW IN HERO */
+.contact-row {
+  display:flex;
+  flex-wrap:wrap;
+  gap:1.8rem;
+  margin-top:1.5rem;
+}
+.contact-item {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  text-align:center;
+  font-size:0.95rem;
+  color:#ccc;
+}
+.contact-item img {
+  width:22px;
+  height:22px;
+  margin-bottom:0.4rem;
+  filter:invert(100%);
+}
+.contact-item a, .contact-item span {
+  color:#FFD500;
+}
+
+/* BLACK STRIP */
 .profile{
   background:#000;
-  color:#ccc;
-  text-align:center;
-  padding:.75rem 1rem;
+  height:55px;
   border-top:3px solid #000;
 }
 
@@ -132,7 +156,7 @@ a:hover{text-decoration:underline}
 .thumb-row img{
   width:45%;
   border-radius:10px;
-  box-shadow:0 18px 50px rgba(0,0,0,.85);
+  box-shadow:0 22px 55px rgba(0,0,0,.9);
 }
 
 /* PREVIOUSLY SECTION BG */
@@ -163,10 +187,11 @@ a:hover{text-decoration:underline}
 
 /* RESPONSIVE */
 @media (max-width:900px){
-  .hero{padding:6rem 1.25rem 3rem}
+  .hero-content{flex-direction:column;align-items:center;text-align:center;transform:none;margin-top:2rem}
   .hero img{width:130px}
-  .hero-text h1{font-size:2.6rem}
+  .hero-text h1{font-size:2.8rem}
   .hero-text p{font-size:1.05rem}
+  .contact-row{justify-content:center;margin-top:1rem}
   .section{flex-direction:column;align-items:center;padding:3.5rem 1.25rem}
   .logo-col{flex-direction:row;justify-content:center}
   .logo-col img{width:95px}
@@ -183,14 +208,35 @@ a:hover{text-decoration:underline}
     <div class="hero-text">
       <h1>Mark Hiner</h1>
       <p>Two decades of driving news editorial from pitch to prompter — commanding control rooms when breaking news changes everything</p>
+
+      <div class="contact-row">
+        <div class="contact-item">
+          <img src="sf-symbols/building.2.svg" alt="Building icon">
+          <span>New York City</span>
+        </div>
+        <div class="contact-item">
+          <img src="sf-symbols/mail.svg" alt="Mail icon">
+          <a href="mailto:mark@hiner.nyc">mark@hiner.nyc</a>
+        </div>
+        <div class="contact-item">
+          <img src="sf-symbols/candybarphone.svg" alt="Phone icon">
+          <span>804-248-6735</span>
+        </div>
+        <div class="contact-item">
+          <img src="sf-symbols/arrow.down.doc.svg" alt="Resume icon">
+          <a href="mark-hiner.pdf" target="_blank" rel="noopener">Download Résumé</a>
+        </div>
+        <div class="contact-item">
+          <img src="sf-symbols/person.crop.rectangle.stack.svg" alt="LinkedIn icon">
+          <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank" rel="noopener">LinkedIn</a>
+        </div>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- CONTACT -->
-<div class="profile">
-  New&nbsp;York&nbsp;City&nbsp;|&nbsp;<a href="mailto:mark@hiner.nyc">mark@hiner.nyc</a>&nbsp;|&nbsp;804-248-6735
-</div>
+<!-- BLACK BAR -->
+<div class="profile"></div>
 
 <!-- EXECUTIVE PRODUCER -->
 <section class="section">
@@ -198,7 +244,6 @@ a:hover{text-decoration:underline}
     <img src="images/fnc-logo.png" alt="Fox News logo">
     <img src="images/ar-logo.png" alt="America Reports logo">
   </div>
-
   <div class="text-col">
     <div class="text-box">
       <h2>FOX NEWS CHANNEL | NEW YORK CITY</h2>
@@ -210,7 +255,6 @@ a:hover{text-decoration:underline}
         <li>Managed and mentored show team of producers, bookers, writers, and production assistants</li>
       </ul>
     </div>
-
     <div class="thumb-row">
       <img src="images/nashville-shooting.png" alt="Nashville shooting coverage">
       <img src="images/sotu.png" alt="State of the Union coverage">
@@ -224,24 +268,19 @@ a:hover{text-decoration:underline}
     <img src="images/ss-reporting-logo.png" alt="Shepard Smith Reporting logo">
     <img src="images/fox-report.png" alt="FOX Report logo">
   </div>
-
   <div class="text-col">
     <div class="text-box">
       <h2>PREVIOUSLY AT FOX</h2>
-
       <h3>Senior Producer, <em>Shepard Smith Reporting</em></h3>
       <ul>
         <li>Developed daily editorial and crafted rundown, then oversaw show team throughout daily production to ensure meeting editorial vision and journalistic standards</li>
         <li>Lead producer of 2016 election night coverage on FOX Broadcast Network</li>
       </ul>
-
       <h3>Line Producer, <em>Shepard Smith Reporting</em></h3>
       <ul><li>Built rundown, timed show, and trafficked changes to talent and tech crew</li></ul>
-
       <h3>Writer, <em>FOX Report with Shepard Smith</em></h3>
       <ul><li>Wrote scripts to exacting grammar, style, and journalistic standards of the network’s lead news anchor</li></ul>
     </div>
-
     <div class="thumb-row">
       <img src="images/shep-breaking.png" alt="Shepard Smith Breaking News">
       <img src="images/elex2016.png" alt="Election 2016 studio">
@@ -255,7 +294,6 @@ a:hover{text-decoration:underline}
     <img src="images/wsvn-logo.png" alt="WSVN logo">
     <img src="images/wcsc-logo.png" alt="WCSC logo">
   </div>
-
   <div class="text-col">
     <div class="thumb-row">
       <img src="images/nightteam.png" alt="Nightteam promo">
