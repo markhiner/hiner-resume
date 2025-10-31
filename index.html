@@ -4,157 +4,133 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mark Hiner Résumé</title>
-<link rel="icon" type="image/png" href="images/favicon.png" sizes="180x180">
+
+<!-- Fonts -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cal+Sans:wght@700&family=Jost:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+
 <style>
-* {margin:0;padding:0;box-sizing:border-box;}
-body {
-  font-family: "Jost", sans-serif;
-  color:white;
-  background-color:black;
+*{margin:0;padding:0;box-sizing:border-box;}
+body{
+  font-family:"Jost",sans-serif;
+  color:#fff;
+  background:#000;
   overflow-x:hidden;
 }
-section {
-  position:relative;
-  min-height:100vh;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  text-align:left;
-  padding:100px 20px;
-}
-.parallax {
-  background-image:url('images/retro-ctrl-rm.png');
-  background-attachment:fixed;
-  background-size:contain;
-  background-repeat:no-repeat;
-  background-position:center top;
-}
-.hero {
-  background:url('images/tvs.png') center center/cover fixed;
-}
-.hero-content {
+.hero{
   display:flex;
   align-items:flex-start;
   justify-content:center;
-  max-width:900px;
-  margin:auto;
+  background:url('images/tvs.png') center/cover fixed;
+  height:100vh;
+  padding:8rem 2rem 4rem;
 }
-.hero-content img {
-  width:140px;
-  height:auto;
+.hero-content{
+  display:flex;
+  align-items:flex-start;
+  max-width:1000px;
+  width:100%;
+}
+.hero img{
+  width:160px;
   border-radius:10px;
   margin-right:25px;
+  flex-shrink:0;
 }
-.hero-text {
-  text-align:left;
-}
-.hero h1 {
-  font-family:"Cal Sans", sans-serif;
-  font-size:60px;
+.hero-text h1{
+  font-family:"Cal Sans",sans-serif;
+  font-size:3.5rem;
   font-weight:700;
-  color:white;
-  line-height:1;
+  margin-bottom:0.5rem;
 }
-.hero p {
-  margin-top:15px;
-  font-size:20px;
-  max-width:600px;
-  color:white;
-}
-
-.contact-bar {
-  background:black;
-  color:white;
-  padding:10px 0;
-  text-align:center;
-  font-size:16px;
-}
-
-.content {
-  width:80%;
-  max-width:1000px;
-}
-
-.text-box {
-  background:rgba(0,0,0,0.65);
-  border-left:4px solid #FFD500;
-  padding:30px;
-  border-radius:10px;
-  box-shadow:0 10px 30px rgba(0,0,0,0.5);
-  margin:auto;
-}
-
-.text-box h2 {
-  font-family:"Cal Sans", sans-serif;
-  font-size:24px;
-  font-weight:700;
-  color:#FFD500;
-  margin-bottom:10px;
-}
-
-.text-box h3 {
-  font-family:"Cal Sans", sans-serif;
-  font-size:22px;
-  font-weight:700;
-  color:white;
-  margin-bottom:15px;
-}
-
-.text-box ul {
-  list-style:none;
-  padding-left:0;
-}
-
-.text-box ul li {
-  margin-bottom:8px;
+.hero-text p{
+  font-size:1.25rem;
   line-height:1.5;
+  max-width:600px;
 }
 
-.logo-row {
+.profile{
+  background:#000;
+  text-align:center;
+  padding:.75rem 0;
+  font-size:1rem;
+  color:#ccc;
+}
+
+section{
   display:flex;
-  gap:20px;
+  flex-direction:row;
   justify-content:center;
-  align-items:center;
-  margin-bottom:20px;
+  align-items:flex-start;
+  gap:3rem;
+  padding:5rem 2rem;
+  background:url('images/retro-ctrl-rm.png') center/contain fixed no-repeat;
 }
-
-.logo-row img {
+.column-logos{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:flex-start;
+  gap:3rem;
+  padding-top:2rem;
+}
+.column-logos img{
+  width:120px;
   height:auto;
+  border-radius:6px;
+  box-shadow:0 4px 15px rgba(0,0,0,0.6);
 }
 
-.thumbs {
+.column-content{
   display:flex;
-  justify-content:center;
-  align-items:center;
-  gap:20px;
-  margin:30px 0;
+  flex-direction:column;
+  gap:3rem;
+  max-width:750px;
 }
 
-.thumbs img {
+.text-box{
+  background:rgba(0,0,0,0.6);
+  border-left:4px solid #FFD500;
+  padding:2rem;
+  border-radius:10px;
+}
+.text-box h2{
+  font-family:"Cal Sans",sans-serif;
+  font-size:1.2rem;
+  color:#FFD500;
+  margin-bottom:.3rem;
+  letter-spacing:.08em;
+}
+.text-box h3{
+  font-family:"Cal Sans",sans-serif;
+  font-size:1.6rem;
+  margin-bottom:1rem;
+}
+.text-box ul{list-style:none;margin:0;padding:0;line-height:1.6;}
+.text-box ul li{margin-bottom:.4rem;}
+.text-box ul li::before{content:"• ";color:#FFD500;}
+
+.thumb-row{
+  display:flex;
+  gap:1.5rem;
+  justify-content:center;
+}
+.thumb-row img{
   width:45%;
   border-radius:10px;
-  box-shadow:0 10px 20px rgba(0,0,0,0.8);
-  transition:transform 0.3s ease;
+  box-shadow:0 0 18px rgba(0,0,0,0.7);
 }
-.thumbs img:hover {transform:scale(1.05);}
 
-.footer {
-  background:black;
-  color:white;
-  padding:15px;
+.footer{
+  background:#000;
+  color:#ccc;
   text-align:center;
+  padding:1rem 0;
   border-top:3px solid #FFD500;
 }
-.footer a {
-  color:#FFD500;
-  text-decoration:none;
-  font-weight:500;
-}
-.footer a:hover {text-decoration:underline;}
+.footer a{color:#FFD500;text-decoration:none;}
+.footer a:hover{text-decoration:underline;}
 </style>
 </head>
 
@@ -171,42 +147,40 @@ section {
   </div>
 </section>
 
-<div class="contact-bar">
-  New York City | mark@hiner.nyc | 804-248-6735
+<div class="profile">
+  New&nbsp;York&nbsp;City&nbsp;|&nbsp;<a href="mailto:mark@hiner.nyc" style="color:#ccc;text-decoration:none;">mark@hiner.nyc</a>&nbsp;|&nbsp;804-248-6735
 </div>
 
 <!-- EXPERIENCE -->
-<section class="parallax">
-  <div class="content">
+<section>
+  <div class="column-logos">
+    <img src="images/fnc-logo.png" alt="Fox News logo" style="width:90px;">
+    <img src="images/ar-logo.png" alt="America Reports logo" style="width:110px;">
+    <img src="images/ss-reporting-logo.png" alt="Shepard Smith Reporting" style="width:110px;">
+    <img src="images/fox-report.png" alt="Fox Report logo" style="width:110px;">
+    <img src="images/wsvn-logo.png" alt="WSVN logo" style="width:110px;">
+    <img src="images/wcsc-logo.png" alt="WCSC logo" style="width:110px;">
+  </div>
 
-    <div class="logo-row">
-      <img src="images/fnc-logo.png" style="width:100px;">
-      <img src="images/ar-logo.png" style="width:130px;">
-    </div>
-
+  <div class="column-content">
     <div class="text-box">
       <h2>FOX NEWS CHANNEL | NEW YORK CITY</h2>
-      <h3>Executive Producer, Breaking News & Network Events</h3>
+      <h3>Executive Producer, Breaking News &amp; Network Events</h3>
       <ul>
         <li>Led control rooms during extended breaking news coverage, guiding talent and crew through last-second changes cleanly without a planned rundown</li>
-        <li>Oversaw FOX Broadcast Network news events from planning through live broadcast, including inaugurations, SOTUs, Congressional hearings, and high-profile funerals</li>
+        <li>Oversaw FOX Broadcast Network news events from planning through live broadcast, including inaugurations, SOTUs, congressional hearings, and high-profile funerals</li>
         <li>Launched and executive produced <em>America Reports</em>, consistently winning its time slot and growing audience year-to-year</li>
         <li>Managed and mentored show team of producers, bookers, writers, and production assistants</li>
       </ul>
     </div>
 
-    <div class="thumbs">
-      <img src="images/shep-breaking.png" alt="Breaking News">
-      <img src="images/elex2016.png" alt="Election 2016">
-    </div>
-
-    <div class="logo-row">
-      <img src="images/ss-reporting-logo.png" style="width:120px;">
-      <img src="images/fox-report.png" style="width:120px;">
+    <div class="thumb-row">
+      <img src="images/shep-breaking.png" alt="Breaking news control room">
+      <img src="images/elex2016.png" alt="Election 2016 coverage">
     </div>
 
     <div class="text-box">
-      <h2>PREVIOUSLY</h2>
+      <h2>PREVIOUSLY AT FOX</h2>
       <h3>Senior Producer, <em>Shepard Smith Reporting</em></h3>
       <ul>
         <li>Developed daily editorial and crafted rundown, then oversaw show team throughout daily production to ensure meeting editorial vision and journalistic standards</li>
@@ -218,14 +192,9 @@ section {
       <ul><li>Wrote scripts to exacting grammar, style, and journalistic standards of the network’s lead news anchor</li></ul>
     </div>
 
-    <div class="thumbs">
-      <img src="images/nightteam.png" alt="Nightteam">
-      <img src="images/team-cvg-boxes.png" alt="Coverage Boxes">
-    </div>
-
-    <div class="logo-row">
-      <img src="images/wsvn-logo.png" style="width:110px;">
-      <img src="images/wcsc-logo.png" style="width:110px;">
+    <div class="thumb-row">
+      <img src="images/nightteam.png" alt="WSVN Nightteam coverage">
+      <img src="images/team-cvg-boxes.png" alt="Control room montage">
     </div>
 
     <div class="text-box">
@@ -233,12 +202,11 @@ section {
       <h3>10PM Nightteam Producer | WSVN – 7News | Miami</h3>
       <h3>6PM News Producer | WCSC – Live 5 News | Charleston, SC</h3>
     </div>
-
   </div>
 </section>
 
 <div class="footer">
-  <a href="mark-hiner.pdf" target="_blank">Download/Print Résumé</a>  |  <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank">LinkedIn</a>
+  <a href="mark-hiner.pdf" target="_blank">Download / Print Résumé</a>  |  <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank">LinkedIn</a>
 </div>
 
 </body>
