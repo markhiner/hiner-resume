@@ -1,0 +1,36 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 209.25 203.33"
+  width="209.25mm"
+  height="203.33mm"
+  stroke="#FFD500"
+  stroke-width="8"
+  fill="none"
+  stroke-linecap="round"
+  stroke-linejoin="round">
+
+  <!-- Left building -->
+  <path d="M40 200 V80 h70 v120 z" />
+
+  <!-- Right building -->
+  <path d="M110 120 h65 v80 h-65 z" />
+
+  <!-- Windows on left building -->
+  <rect x="60" y="100" width="5" height="5" />
+  <rect x="85" y="100" width="5" height="5" />
+  <rect x="60" y="125" width="5" height="5" />
+  <rect x="85" y="125" width="5" height="5" />
+  <rect x="60" y="150" width="5" height="5" />
+  <rect x="85" y="150" width="5" height="5" />
+  <rect x="60" y="175" width="5" height="5" />
+  <rect x="85" y="175" width="5" height="5" />
+
+  <!-- Windows on right building -->
+  <rect x="135" y="135" width="5" height="5" />
+  <rect x="155" y="135" width="5" height="5" />
+  <rect x="135" y="160" width="5" height="5" />
+  <rect x="155" y="160" width="5" height="5" />
+  <rect x="135" y="185" width="5" height="5" />
+  <rect x="155" y="185" width="5" height="5" />
+
+</svg>

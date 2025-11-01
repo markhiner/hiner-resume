@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="209.24577mm"
+   height="203.32553mm"
+   viewBox="0 0 209.24577 203.32553"
+   version="1.1"
+   id="svg1"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <g
+     id="layer1"
+     transform="translate(-0.95517391,-37.792391)">
+    <ellipse
+       style="fill:#ffffff;fill-opacity:0.111969;stroke:#ffd500;stroke-width:13.0642;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       id="path1"
+       cx="105.57806"
+       cy="139.45515"
+       rx="98.090782"
+       ry="95.130661" />
+    <rect
+       style="fill:#ffcc00;fill-opacity:0.4;stroke:#ffd500;stroke-width:11.633;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4.6;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect9"
+       width="74.118835"
+       height="132.99257"
+       x="67.696396"
+       y="71.64325" />
+    <path
+       style="fill:#ffcc00;fill-opacity:0;stroke:#ffd500;stroke-width:5.85473;stroke-linecap:round;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       d="m 89.424084,89.234922 30.663456,0.124837"
+       id="path9" />
+    <path
+       style="fill:#ffcc00;fill-opacity:0;stroke:#ffd500;stroke-width:5.70165;stroke-linecap:round;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       d="m 94.191888,189.39249 21.607232,-0.051"
+       id="path9-2" />
+  </g>
+</svg>
