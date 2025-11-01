@@ -11,214 +11,135 @@
 <link href="https://fonts.googleapis.com/css2?family=Cal+Sans:wght@700&family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
 
 <style>
-  html,body{margin:0;padding:0}
-  html{
-    -webkit-text-size-adjust:100%;
-    text-size-adjust:100%;
-    color-scheme:dark;
-    background:#000;
-  }
-  body{
-    font-family:"Jost",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
-    color:#fff;
-    overflow-x:hidden;
-  }
-  h1,h2,h3{
-    font-family:"Cal Sans","Jost",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif !important;
-    font-weight:700;
-    letter-spacing:0.01em;
-  }
-  a{color:#FFD500;text-decoration:none}
-  a:hover{text-decoration:underline}
+/* ===== Base ===== */
+html,body{margin:0;padding:0}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;color-scheme:dark;background:#000}
+body{font-family:"Jost",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;color:#fff;overflow-x:hidden}
+h1,h2,h3{font-family:"Cal Sans","Jost",-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif !important;font-weight:700;letter-spacing:.01em}
+a{color:#FFD500;text-decoration:none} a:hover{text-decoration:underline}
 
-  .hero{
-    display:flex;
-    justify-content:center;
-    align-items:flex-start;
-    height:100vh;
-    background:url("images/tvs.png") center/cover fixed no-repeat;
-    padding:12vh 2rem 4rem;
-    position:relative;
-  }
-  .hero::after{
-    content:"";
-    position:absolute; inset:0;
-    background:rgba(0,0,0,0.55);
-  }
-  .hero-content{
-    display:flex;
-    align-items:flex-start;
-    gap:28px;
-    width:100%;
-    max-width:1000px;
-    position:relative;
-    z-index:2;
-  }
-  .hero img{
-    width:150px;
-    border-radius:10px;
-    box-shadow:0 8px 28px rgba(0,0,0,.9);
-    flex:0 0 auto;
-  }
-  .hero-text{
-    flex:1 1 auto;
-    display:flex;
-    flex-direction:column;
-    align-items:flex-start;
-  }
-  .hero-text h1{
-    font-size:4.1rem;
-    line-height:1.03;
-    margin:.1rem 0 .5rem;
-    text-shadow:0 4px 18px rgba(0,0,0,0.95);
-  }
-  .hero-text p{
-    font-weight:500;
-    font-size:1.28rem;
-    line-height:1.6;
-    max-width:720px;
-    text-shadow:0 3px 12px rgba(0,0,0,0.9);
-    margin:0 0 1.1rem 0;
-  }
+/* ===== HERO ===== */
+.hero{
+  position:relative; display:flex; justify-content:center; align-items:flex-start;
+  min-height:100vh; padding:12vh 2rem 4rem;
+  /* THIS is the hero bg. Keep filename exactly as in /images */
+  background:url("images/tvs.png") center/cover no-repeat fixed;
+}
+@supports (-webkit-overflow-scrolling: touch){
+  /* iOS fallback – fixed backgrounds are flaky */
+  .hero{background-attachment:scroll}
+}
+.hero::after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.55)}
+.hero-content{position:relative;z-index:2;display:flex;gap:28px;width:100%;max-width:1000px;align-items:flex-start}
+.hero img{width:150px;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.9);flex:0 0 auto}
+.hero-text{flex:1 1 auto;display:flex;flex-direction:column;align-items:flex-start}
+.hero-text h1{font-size:4.1rem;line-height:1.03;margin:.1rem 0 .5rem;text-shadow:0 4px 18px rgba(0,0,0,.95)}
+.hero-text p{font-weight:500;font-size:1.28rem;line-height:1.6;max-width:720px;text-shadow:0 3px 12px rgba(0,0,0,.9);margin:0 0 1.1rem}
 
-  .contact-icons{
-    width:100%;
-    max-width:900px;
-    display:grid;
-    grid-template-columns: repeat(5, minmax(120px,1fr));
-    gap:1.25rem;
-    align-items:start;
-  }
-  .contact-item{text-align:center}
-  .icon{
-    width:34px;height:34px;
-    margin:0 auto .4rem;
-    background:#FFD500;
-    -webkit-mask-repeat:no-repeat;
-    mask-repeat:no-repeat;
-    -webkit-mask-position:center;
-    mask-position:center;
-    -webkit-mask-size:contain;
-    mask-size:contain;
-  }
-  .icon.building { -webkit-mask-image:url("sf-symbols/building.2.crop.circle.fill.svg"); mask-image:url("sf-symbols/building.2.crop.circle.fill.svg"); }
-  .icon.mail     { -webkit-mask-image:url("sf-symbols/envelope.circle.fill.svg"); mask-image:url("sf-symbols/envelope.circle.fill.svg"); }
-  .icon.phone    { -webkit-mask-image:url("sf-symbols/phone.circle.fill.svg"); mask-image:url("sf-symbols/phone.circle.fill.svg"); }
-  .icon.download { -webkit-mask-image:url("sf-symbols/document.circle.fill.svg"); mask-image:url("sf-symbols/document.circle.fill.svg"); }
-  .icon.linkedin { -webkit-mask-image:url("sf-symbols/tv.circle.fill.svg"); mask-image:url("sf-symbols/tv.circle.fill.svg"); }
+/* ===== CONTACT ICONS ROW ===== */
+.contact-icons{width:100%;max-width:900px;display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:1.25rem;align-items:start}
+.contact-item{text-align:center}
+.contact-item .label{color:#fff;font-size:.95rem;line-height:1.35}
 
-  .contact-item .label{
-    color:#fff;
-    font-size:.95rem;
-    line-height:1.35;
-  }
+/* Use the actual SF Symbol SVG files you said you committed in /sf-symbols, and tint via mask */
+.icon{
+  width:34px;height:34px;margin:0 auto .45rem;background-color:#FFD500;
+  -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
+  -webkit-mask-position:center;mask-position:center;
+  -webkit-mask-size:contain;mask-size:contain;
+}
+.icon.city{-webkit-mask-image:url("sf-symbols/building.2.crop.circle.fill.svg");mask-image:url("sf-symbols/building.2.crop.circle.fill.svg")}
+.icon.mail{-webkit-mask-image:url("sf-symbols/envelope.circle.fill.svg");mask-image:url("sf-symbols/envelope.circle.fill.svg")}
+.icon.phone{-webkit-mask-image:url("sf-symbols/phone.circle.fill.svg");mask-image:url("sf-symbols/phone.circle.fill.svg")}
+.icon.doc{-webkit-mask-image:url("sf-symbols/document.circle.fill.svg");mask-image:url("sf-symbols/document.circle.fill.svg")}
+.icon.tv{-webkit-mask-image:url("sf-symbols/tv.circle.fill.svg");mask-image:url("sf-symbols/tv.circle.fill.svg")}
 
-  .profile{
-    background:#000;
-    color:#ccc;
-    text-align:center;
-    padding:.5rem 1rem;
-    border-top:3px solid #000;
-  }
+/* ===== Divider bar (kept, but empty of text as requested) ===== */
+.profile{background:#000;color:#ccc;text-align:center;padding:.5rem 1rem;border-top:3px solid #000}
 
-  .section{
-    display:flex; justify-content:center; gap:2.5rem;
-    padding:5rem 2rem;
-    background:url("images/news-deck.png") center/contain fixed no-repeat;
-  }
-  .section + .section{margin-top:4rem}
-  .logo-col{
-    display:flex; flex-direction:column; gap:2rem;
-    align-items:center; margin-top:1rem;
-  }
-  .logo-col img{
-    width:110px; border-radius:6px;
-    box-shadow:0 8px 28px rgba(0,0,0,.85);
-  }
-  .logo-col img[alt*="Fox News"]{width:85px}
+/* ===== Sections ===== */
+/* First & Early Career sections use news-deck.png, Previously uses retro-today-ctrl.png */
+.section{
+  position:relative; display:flex; justify-content:center; gap:2.5rem; padding:5rem 2rem;
+  background:url("images/news-deck.png") center/cover no-repeat fixed;
+}
+@supports (-webkit-overflow-scrolling: touch){
+  .section{background-attachment:scroll}
+}
+.section + .section{margin-top:4rem}
 
-  .text-col{max-width:740px; display:flex; flex-direction:column; gap:2rem}
-  .text-box{
-    background:rgba(0,0,0,.6);
-    border-left:4px solid #FFD500;
-    border-radius:12px;
-    padding:2rem;
-  }
-  .text-box h2{font-size:1.15rem; color:#FFD500; margin:0 0 .35rem; letter-spacing:.08em}
-  .text-box h3{font-size:1.6rem; margin:.2rem 0 1rem}
-  .text-box ul{list-style:none; margin:0; padding:0; line-height:1.65}
-  .text-box li{margin:.35rem 0}
-  .text-box li::before{content:"• "; color:#FFD500}
+.previously{background:url("images/retro-today-ctrl.png") center/cover no-repeat fixed}
+@supports (-webkit-overflow-scrolling: touch){
+  .previously{background-attachment:scroll}
+}
+.previously::after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.45);z-index:0}
+.previously > *{position:relative;z-index:2}
 
-  .thumb-row{
-    display:flex; gap:1.5rem; justify-content:center;
-  }
-  .thumb-row img{
-    width:45%; border-radius:10px;
-    box-shadow:0 18px 50px rgba(0,0,0,.85);
-  }
+.logo-col{display:flex;flex-direction:column;gap:2rem;align-items:center;margin-top:1rem}
+.logo-col img{width:110px;border-radius:6px;box-shadow:0 8px 28px rgba(0,0,0,.85)}
+.logo-col img[alt*="Fox News"]{width:85px}
 
-  .previously{
-    position:relative;
-    background:url("images/retro-today-ctrl.png") center/cover fixed no-repeat;
-  }
-  .previously::after{
-    content:""; position:absolute; inset:0;
-    background:rgba(0,0,0,0.45); z-index:0;
-  }
-  .previously > *{ position:relative; z-index:2; }
+.text-col{max-width:740px;display:flex;flex-direction:column;gap:2rem}
+.text-box{background:rgba(0,0,0,.6);border-left:4px solid #FFD500;border-radius:12px;padding:2rem}
+.text-box h2{font-size:1.15rem;color:#FFD500;margin:0 0 .35rem;letter-spacing:.08em}
+.text-box h3{font-size:1.6rem;margin:.2rem 0 1rem}
+.text-box ul{list-style:none;margin:0;padding:0;line-height:1.65}
+.text-box li{margin:.35rem 0}
+.text-box li::before{content:"• ";color:#FFD500}
 
-  .footer{
-    background:#000; color:#ccc; text-align:center; padding:1rem 0;
-    border-top:3px solid #FFD500;
-  }
+.thumb-row{display:flex;gap:1.5rem;justify-content:center}
+.thumb-row img{width:45%;border-radius:10px;box-shadow:0 18px 50px rgba(0,0,0,.85)}
 
-  /* smaller early-career titles */
-  .text-box h3.small { font-size:1.2rem; font-weight:600; margin:.4rem 0; }
+.text-box h3.small{font-size:1.2rem;font-weight:600;margin:.4rem 0}
 
-  @media (max-width:1100px){
-    .contact-icons{grid-template-columns: repeat(3, minmax(140px,1fr));}
-  }
-  @media (max-width:900px){
-    .hero{padding:8vh 1.25rem 3rem}
-    .hero img{width:130px}
-    .hero-text h1{font-size:2.8rem}
-    .hero-text p{font-size:1.05rem}
-    .section{flex-direction:column; align-items:center; padding:3.5rem 1.25rem}
-    .logo-col{flex-direction:row; justify-content:center}
-    .logo-col img{width:95px}
-    .thumb-row img{width:48%}
-    .contact-icons{grid-template-columns: repeat(2, minmax(140px,1fr));}
-  }
+/* ===== Footer ===== */
+.footer{background:#000;color:#ccc;text-align:center;padding:1rem 0;border-top:3px solid #FFD500}
+
+/* ===== Responsive ===== */
+@media (max-width:1100px){.contact-icons{grid-template-columns:repeat(3,minmax(140px,1fr))}}
+@media (max-width:900px){
+  .hero{padding:8vh 1.25rem 3rem}
+  .hero img{width:130px}
+  .hero-text h1{font-size:2.8rem}
+  .hero-text p{font-size:1.05rem}
+  .section{flex-direction:column;align-items:center;padding:3.5rem 1.25rem}
+  .logo-col{flex-direction:row;justify-content:center}
+  .logo-col img{width:95px}
+  .thumb-row img{width:48%}
+  .contact-icons{grid-template-columns:repeat(2,minmax(140px,1fr))}
+}
 </style>
 </head>
 <body>
 
+<!-- ===== HERO ===== -->
 <section class="hero">
   <div class="hero-content">
     <img src="images/headshot.png" alt="Mark Hiner headshot">
     <div class="hero-text">
       <h1>Mark Hiner</h1>
       <p>Two decades of driving news editorial from pitch to prompter — commanding control rooms when breaking news changes everything</p>
+
+      <!-- Contacts (icons yellow, labels white) -->
       <div class="contact-icons">
         <div class="contact-item">
-          <div class="icon building"></div>
+          <div class="icon city" aria-hidden="true"></div>
           <div class="label">New&nbsp;York&nbsp;City</div>
         </div>
         <div class="contact-item">
-          <div class="icon mail"></div>
+          <div class="icon mail" aria-hidden="true"></div>
           <div class="label"><a href="mailto:mark@hiner.nyc">mark@hiner.nyc</a></div>
         </div>
         <div class="contact-item">
-          <div class="icon phone"></div>
+          <div class="icon phone" aria-hidden="true"></div>
           <div class="label"><a href="tel:+18042486735">804-248-6735</a></div>
         </div>
         <div class="contact-item">
-          <div class="icon download"></div>
+          <div class="icon doc" aria-hidden="true"></div>
           <div class="label"><a href="mark-hiner.pdf" target="_blank" rel="noopener">Download&nbsp;R&eacute;sum&eacute;</a></div>
         </div>
         <div class="contact-item">
-          <div class="icon linkedin"></div>
+          <div class="icon tv" aria-hidden="true"></div>
           <div class="label"><a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank" rel="noopener">LinkedIn</a></div>
         </div>
       </div>
@@ -226,8 +147,10 @@
   </div>
 </section>
 
+<!-- Keep the black bar, emptied -->
 <div class="profile"></div>
 
+<!-- ===== FOX / EXEC ===== -->
 <section class="section">
   <div class="logo-col">
     <img src="images/fnc-logo.png" alt="Fox News logo">
@@ -251,6 +174,7 @@
   </div>
 </section>
 
+<!-- ===== PREVIOUSLY AT FOX ===== -->
 <section class="section previously">
   <div class="logo-col">
     <img src="images/ss-reporting-logo.png" alt="Shepard Smith Reporting logo">
@@ -276,6 +200,7 @@
   </div>
 </section>
 
+<!-- ===== EARLY CAREER ===== -->
 <section class="section">
   <div class="logo-col">
     <img src="images/wsvn-logo.png" alt="WSVN logo">
