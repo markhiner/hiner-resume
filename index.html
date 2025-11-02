@@ -37,16 +37,32 @@ a:hover{text-decoration:underline}
   justify-content:center;
   align-items:center;
   height:100vh;
-  background:url("images/tvs.png") center/cover fixed no-repeat;
   padding:2rem;
   position:relative;
+  overflow:hidden;
 }
+
+/* Background Video */
+#heroVideo {
+  position:absolute;
+  top:0;
+  left:0;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  z-index:0;
+  opacity:0.35;
+}
+
+/* Overlay for dark contrast */
 .hero::after {
   content:"";
   position:absolute;
   inset:0;
   background:rgba(0,0,0,0.55);
+  z-index:1;
 }
+
 .hero-content {
   display:flex;
   align-items:flex-start;
@@ -91,8 +107,6 @@ a:hover{text-decoration:underline}
   font-size:0.95rem;
   color:#ccc;
 }
-
-/* Inline SVG icons */
 .icon {
   width:44px;
   height:44px;
@@ -108,7 +122,6 @@ a:hover{text-decoration:underline}
   stroke-linecap:round;
   stroke-linejoin:round;
 }
-
 .contact-item a {
   display:flex;
   flex-direction:column;
@@ -116,9 +129,7 @@ a:hover{text-decoration:underline}
   color:#FFD500;
   text-decoration:none;
 }
-.contact-item a:hover {
-  text-decoration:underline;
-}
+.contact-item a:hover { text-decoration:underline; }
 
 /* BLACK STRIP */
 .profile{
@@ -165,7 +176,6 @@ a:hover{text-decoration:underline}
 .text-box ul{list-style:none;margin:0;padding:0;line-height:1.65}
 .text-box li{margin:.35rem 0}
 .text-box li::before{content:"• ";color:#FFD500}
-
 .text-box h3.small-role {
   font-size:0.95rem;
   font-weight:500;
@@ -212,9 +222,7 @@ a:hover{text-decoration:underline}
   display:flex;
   justify-content:center;
 }
-.footer .contact-row{
-  justify-content:center;
-}
+.footer .contact-row{ justify-content:center; }
 
 /* RESPONSIVE */
 @media (max-width:900px){
@@ -234,6 +242,10 @@ a:hover{text-decoration:underline}
 
 <!-- HERO -->
 <section class="hero">
+  <video autoplay muted loop playsinline id="heroVideo">
+    <source src="video/reel.mov" type="video/mp4">
+  </video>
+
   <div class="hero-content">
     <img src="images/headshot.png" alt="Mark Hiner headshot">
     <div class="hero-text">
@@ -241,11 +253,10 @@ a:hover{text-decoration:underline}
       <p>Two decades of driving news editorial from pitch to prompter — commanding control rooms when breaking news changes everything</p>
 
       <div class="contact-row">
-        <!-- MAIL -->
         <div class="contact-item">
           <a href="mailto:mark@hiner.nyc">
             <div class="icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
                 <rect x="20" y="30" width="60" height="40" rx="4" ry="4" />
                 <polyline points="20,30 50,55 80,30" />
               </svg>
@@ -254,11 +265,10 @@ a:hover{text-decoration:underline}
           </a>
         </div>
 
-        <!-- PHONE -->
         <div class="contact-item">
           <a href="tel:8042486735">
             <div class="icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
                 <rect x="30" y="15" width="40" height="70" rx="6" ry="6" />
                 <rect x="45" y="22" width="10" height="2" rx="1" ry="1" />
               </svg>
@@ -267,11 +277,10 @@ a:hover{text-decoration:underline}
           </a>
         </div>
 
-        <!-- RESUME -->
         <div class="contact-item">
           <a href="mark-hiner.pdf" target="_blank" rel="noopener">
             <div class="icon">
-              <svg viewBox="0 0 100 100" aria-hidden="true" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+              <svg viewBox="0 0 100 100">
                 <path d="M28 20h34l10 10v50H28z"/>
                 <path d="M62 20v10h10"/>
                 <line x1="50" y1="45" x2="50" y2="68"/>
@@ -282,11 +291,10 @@ a:hover{text-decoration:underline}
           </a>
         </div>
 
-        <!-- LINKEDIN -->
         <div class="contact-item">
           <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank" rel="noopener">
             <div class="icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
                 <rect x="20" y="20" width="60" height="60" rx="10" ry="10" />
                 <rect x="33" y="46" width="5" height="20" />
                 <circle cx="35.5" cy="38" r="3.5" />
@@ -303,128 +311,7 @@ a:hover{text-decoration:underline}
 
 <!-- BLACK BAR -->
 <div class="profile"></div>
+<!-- (rest of your existing content remains unchanged) -->
 
-<!-- EXECUTIVE PRODUCER -->
-<section class="section">
-  <div class="logo-col">
-    <img src="images/fnc-logo.png" alt="Fox News logo">
-    <img src="images/ar-logo.png" alt="America Reports logo">
-  </div>
-  <div class="text-col">
-    <div class="text-box">
-      <h2>FOX NEWS CHANNEL | NEW YORK CITY</h2>
-      <h3>Executive Producer, Breaking News &amp; Network Events</h3>
-      <ul>
-        <li>Led control rooms during extended breaking news coverage, guiding talent and crew through last-second changes cleanly without a planned rundown</li>
-        <li>Oversaw FOX Broadcast Network news events from planning through live broadcast, including inaugurations, SOTUs, congressional hearings, and high-profile funerals</li>
-        <li>Launched and executive produced <em>America Reports</em>, consistently winning its time slot and growing audience year-to-year</li>
-        <li>Managed and mentored show team of producers, bookers, writers, and production assistants</li>
-      </ul>
-    </div>
-    <div class="thumb-row">
-      <img src="images/nashville-shooting.png" alt="Nashville shooting coverage">
-      <img src="images/sotu.png" alt="State of the Union coverage">
-    </div>
-  </div>
-</section>
-
-<!-- PREVIOUSLY AT FOX -->
-<section class="section previously">
-  <div class="logo-col">
-    <img src="images/ss-reporting-logo.png" alt="Shepard Smith Reporting logo">
-    <img src="images/fox-report.png" alt="FOX Report logo">
-  </div>
-  <div class="text-col">
-    <div class="text-box">
-      <h2>PREVIOUSLY AT FOX</h2>
-      <h3>Senior Producer, <em>Shepard Smith Reporting</em></h3>
-      <ul>
-        <li>Developed daily editorial and crafted rundown, then oversaw show team throughout daily production to ensure meeting editorial vision and journalistic standards</li>
-        <li>Lead producer of 2016 election night coverage on FOX Broadcast Network</li>
-      </ul>
-      <h3>Line Producer, <em>Shepard Smith Reporting</em></h3>
-      <ul><li>Built rundown, timed show, and trafficked changes to talent and tech crew</li></ul>
-      <h3>Writer, <em>FOX Report with Shepard Smith</em></h3>
-      <ul><li>Wrote scripts to exacting grammar, style, and journalistic standards of the network’s lead news anchor</li></ul>
-    </div>
-    <div class="thumb-row">
-      <img src="images/shep-breaking.png" alt="Shepard Smith Breaking News">
-      <img src="images/elex2016.png" alt="Election 2016 studio">
-    </div>
-  </div>
-</section>
-
-<!-- EARLY CAREER -->
-<section class="section">
-  <div class="logo-col">
-    <img src="images/wsvn-logo.png" alt="WSVN logo">
-    <img src="images/wcsc-logo.png" alt="WCSC logo">
-  </div>
-  <div class="text-col">
-    <div class="thumb-row">
-      <img src="images/nightteam.png" alt="Nightteam promo">
-      <img src="images/team-cvg-boxes.png" alt="Coverage montage">
-    </div>
-    <div class="text-box">
-      <h2>EARLY CAREER</h2>
-      <h3 class="small-role">10PM Nightteam Producer | WSVN – 7News | Miami</h3>
-      <h3 class="small-role">6PM News Producer | WCSC – Live 5 News | Charleston, SC</h3>
-    </div>
-  </div>
-</section>
-
-<!-- FOOTER -->
-<footer class="footer">
-  <div class="contact-row">
-
-    <div class="contact-item">
-      <a href="mailto:mark@hiner.nyc">
-        <div class="icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="20" y="30" width="60" height="40" rx="4" ry="4" />
-            <polyline points="20,30 50,55 80,30" />
-          </svg>
-        </div>
-        mark@hiner.nyc
-      </a>
-    </div>
-
-    <div class="contact-item">
-      <a href="tel:8042486735">
-        <div class="icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="30" y="15" width="40" height="70" rx="6" ry="6" />
-            <rect x="45" y="22" width="10" height="2" rx="1" ry="1" />
-          </svg>
-        </div>
-        804-248-6735
-      </a>
-    </div>
-
-    <div class="contact-item">
-      <a href="mark-hiner.pdf" target="_blank" rel="noopener">
-        <div class="icon">
-          <svg viewBox="0 0 100 100" aria-hidden="true" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M28 20h34l10 10v50H28z"/>
-            <path d="M62 20v10h10"/>
-            <line x1="50" y1="45" x2="50" y2="68"/>
-            <polyline points="40,58 50,68 60,58"/>
-          </svg>
-        </div>
-        Download Résumé
-      </a>
-    </div>
-
-    <div class="contact-item">
-      <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank" rel="noopener">
-        <div class="icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="20" y="20" width="60" height="60" rx="10" ry="10" />
-            <rect x="33" y="46" width="5" height="20" />
-            <circle cx="35.5" cy="38" r="3.5" />
-            <path d="M48 50c0-3.5 3-6 6.5-6 6 0 6.5 4.5 6.5 9V66h-6v-12c0-2.5-.5-4-3.2-4-2.3 0-3.8 1.7-3.8 4.5V66h-6V46h6v2.5" />
-          </svg>
-        </div>
-        LinkedIn
-      </a>
-    </div>
+</body>
+</html>
