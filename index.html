@@ -77,12 +77,12 @@ a:hover{text-decoration:underline}
 }
 
 /* CONTACT ROW IN HERO */
-    .contact-row {
-      display:flex;
-      flex-wrap:wrap;
-      gap:1.8rem;
-      margin-top:3rem;   /* increased spacing */
-    }
+.contact-row {
+  display:flex;
+  flex-wrap:wrap;
+  gap:1.8rem;
+  margin-top:3rem;
+}
 .contact-item {
   display:flex;
   flex-direction:column;
@@ -109,8 +109,15 @@ a:hover{text-decoration:underline}
   stroke-linejoin:round;
 }
 
-.contact-item a, .contact-item span {
+.contact-item a {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
   color:#FFD500;
+  text-decoration:none;
+}
+.contact-item a:hover {
+  text-decoration:underline;
 }
 
 /* BLACK STRIP */
@@ -160,11 +167,12 @@ a:hover{text-decoration:underline}
 .text-box li::before{content:"• ";color:#FFD500}
 
 .text-box h3.small-role {
-  font-size:1.4rem;
-  font-weight:800;
+  font-size:0.95rem;
+  font-weight:500;
   color:#ddd;
   margin:.2rem 0 .4rem;
 }
+
 /* THUMBNAILS */
 .thumb-row{
   display:flex;
@@ -201,8 +209,11 @@ a:hover{text-decoration:underline}
   text-align:center;
   padding:1rem 0;
   border-top:3px solid #FFD500;
-  display: flex;
-  justify-content: center;
+  display:flex;
+  justify-content:center;
+}
+.footer .contact-row{
+  justify-content:center;
 }
 
 /* RESPONSIVE */
@@ -230,92 +241,61 @@ a:hover{text-decoration:underline}
       <p>Two decades of driving news editorial from pitch to prompter — commanding control rooms when breaking news changes everything</p>
 
       <div class="contact-row">
-
-
         <!-- MAIL -->
         <div class="contact-item">
-          <div class="icon">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 100 100"
-                fill="none"
-                stroke="#FFD500"
-                stroke-width="4"
-                stroke-linecap="round"
-                stroke-linejoin="round">
-
-                <!-- Larger envelope body -->
+          <a href="mailto:mark@hiner.nyc">
+            <div class="icon">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="20" y="30" width="60" height="40" rx="4" ry="4" />
-                
-                <!-- Envelope flap -->
                 <polyline points="20,30 50,55 80,30" />
-
               </svg>
-          </div>
-          <a href="mailto:mark@hiner.nyc">mark@hiner.nyc</a>
+            </div>
+            mark@hiner.nyc
+          </a>
         </div>
 
         <!-- PHONE -->
         <div class="contact-item">
-          <div class="icon">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 100 100"
-                fill="none"
-                stroke="#FFD500"
-                stroke-width="4"
-                stroke-linecap="round"
-                stroke-linejoin="round">
-
-                <!-- Phone body -->
+          <a href="tel:8042486735">
+            <div class="icon">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="30" y="15" width="40" height="70" rx="6" ry="6" />
-
-                <!-- Top speaker notch -->
                 <rect x="45" y="22" width="10" height="2" rx="1" ry="1" />
-
               </svg>
-          </div>
-          <span>804-248-6735</span>
+            </div>
+            804-248-6735
+          </a>
         </div>
 
-        <!-- RESUME (page + down arrow) -->
+        <!-- RESUME -->
         <div class="contact-item">
-          <div class="icon">
-            <svg viewBox="0 0 100 100" aria-hidden="true">
-              <path d="M28 20h34l10 10v50H28z"/>
-              <path d="M62 20v10h10"/>
-              <line x1="50" y1="45" x2="50" y2="68"/>
-              <polyline points="40,58 50,68 60,58"/>
-            </svg>
-          </div>
-          <a href="mark-hiner.pdf" target="_blank" rel="noopener">Download Résumé</a>
+          <a href="mark-hiner.pdf" target="_blank" rel="noopener">
+            <div class="icon">
+              <svg viewBox="0 0 100 100" aria-hidden="true" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M28 20h34l10 10v50H28z"/>
+                <path d="M62 20v10h10"/>
+                <line x1="50" y1="45" x2="50" y2="68"/>
+                <polyline points="40,58 50,68 60,58"/>
+              </svg>
+            </div>
+            Download Résumé
+          </a>
         </div>
 
-        <!-- LINKEDIN (rounded square + 'in' glyph) -->
+        <!-- LINKEDIN -->
         <div class="contact-item">
-          <div class="icon">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 100 100"
-                fill="none"
-                stroke="#FFD500"
-                stroke-width="4"
-                stroke-linecap="round"
-                stroke-linejoin="round">
-
-                <!-- Smaller rounded square container -->
+          <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank" rel="noopener">
+            <div class="icon">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="20" y="20" width="60" height="60" rx="10" ry="10" />
-
-                <!-- 'in' mark -->
                 <rect x="33" y="46" width="5" height="20" />
                 <circle cx="35.5" cy="38" r="3.5" />
                 <path d="M48 50c0-3.5 3-6 6.5-6 6 0 6.5 4.5 6.5 9V66h-6v-12c0-2.5-.5-4-3.2-4-2.3 0-3.8 1.7-3.8 4.5V66h-6V46h6v2.5" />
-
               </svg>
-          </div>
-          <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank" rel="noopener">LinkedIn</a>
+            </div>
+            LinkedIn
+          </a>
         </div>
-
       </div>
     </div>
   </div>
@@ -396,56 +376,55 @@ a:hover{text-decoration:underline}
 <!-- FOOTER -->
 <footer class="footer">
   <div class="contact-row">
-    <!-- MAIL -->
+
     <div class="contact-item">
-      <div class="icon">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="20" y="30" width="60" height="40" rx="4" ry="4" />
-          <polyline points="20,30 50,55 80,30" />
-        </svg>
-      </div>
-      <a href="mailto:mark@hiner.nyc">mark@hiner.nyc</a>
+      <a href="mailto:mark@hiner.nyc">
+        <div class="icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="20" y="30" width="60" height="40" rx="4" ry="4" />
+            <polyline points="20,30 50,55 80,30" />
+          </svg>
+        </div>
+        mark@hiner.nyc
+      </a>
     </div>
 
-    <!-- PHONE -->
     <div class="contact-item">
-      <div class="icon">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="30" y="15" width="40" height="70" rx="6" ry="6" />
-          <rect x="45" y="22" width="10" height="2" rx="1" ry="1" />
-        </svg>
-      </div>
-      <span>804-248-6735</span>
+      <a href="tel:8042486735">
+        <div class="icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="30" y="15" width="40" height="70" rx="6" ry="6" />
+            <rect x="45" y="22" width="10" height="2" rx="1" ry="1" />
+          </svg>
+        </div>
+        804-248-6735
+      </a>
     </div>
 
-    <!-- RESUME -->
     <div class="contact-item">
-      <div class="icon">
-        <svg viewBox="0 0 100 100" aria-hidden="true" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M28 20h34l10 10v50H28z"/>
-          <path d="M62 20v10h10"/>
-          <line x1="50" y1="45" x2="50" y2="68"/>
-          <polyline points="40,58 50,68 60,58"/>
-        </svg>
-      </div>
-      <a href="mark-hiner.pdf" target="_blank" rel="noopener">Download Résumé</a>
+      <a href="mark-hiner.pdf" target="_blank" rel="noopener">
+        <div class="icon">
+          <svg viewBox="0 0 100 100" aria-hidden="true" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M28 20h34l10 10v50H28z"/>
+            <path d="M62 20v10h10"/>
+            <line x1="50" y1="45" x2="50" y2="68"/>
+            <polyline points="40,58 50,68 60,58"/>
+          </svg>
+        </div>
+        Download Résumé
+      </a>
     </div>
 
-    <!-- LINKEDIN -->
     <div class="contact-item">
-      <div class="icon">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="20" y="20" width="60" height="60" rx="10" ry="10" />
-          <rect x="33" y="46" width="5" height="20" />
-          <circle cx="35.5" cy="38" r="3.5" />
-          <path d="M48 50c0-3.5 3-6 6.5-6 6 0 6.5 4.5 6.5 9V66h-6v-12c0-2.5-.5-4-3.2-4-2.3 0-3.8 1.7-3.8 4.5V66h-6V46h6v2.5" />
-        </svg>
-      </div>
-      <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank" rel="noopener">LinkedIn</a>
+      <a href="https://www.linkedin.com/in/mark-hiner-50b42656" target="_blank" rel="noopener">
+        <div class="icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="#FFD500" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="20" y="20" width="60" height="60" rx="10" ry="10" />
+            <rect x="33" y="46" width="5" height="20" />
+            <circle cx="35.5" cy="38" r="3.5" />
+            <path d="M48 50c0-3.5 3-6 6.5-6 6 0 6.5 4.5 6.5 9V66h-6v-12c0-2.5-.5-4-3.2-4-2.3 0-3.8 1.7-3.8 4.5V66h-6V46h6v2.5" />
+          </svg>
+        </div>
+        LinkedIn
+      </a>
     </div>
-  </div>
-</footer>
-
-</body>
-</html>
-
