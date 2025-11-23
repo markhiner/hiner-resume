@@ -455,4 +455,56 @@ a:hover{text-decoration:underline}
 </footer>
 
 </body>
+<script>
+(async () => {
+  // 1. Generate a persistent visitor ID
+  let vid = localStorage.getItem("vid");
+  if (!vid) {
+    vid = crypto.randomUUID();
+    localStorage.setItem("vid", vid);
+  }
+
+  // 2. Log initial page visit
+  fetch("/__log", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "visit",
+      path: location.pathname,
+      ref: document.referrer,
+      vid
+    }),
+    keepalive: true
+  });
+
+  // 3. Track time-on-page with heartbeats every 15 seconds
+  setInterval(() => {
+    fetch("/__log", {
+      method: "POST",
+      body: JSON.stringify({
+        type: "heartbeat",
+        path: location.pathname,
+        vid
+      }),
+      keepalive: true
+    });
+  }, 15000); // 15 seconds
+
+  // 4. Track resume/download clicks
+  document.querySelectorAll("a").forEach(a => {
+    a.addEventListener("click", () => {
+      fetch("/__log", {
+        method: "POST",
+        body: JSON.stringify({
+          type: "click",
+          vid,
+          href: a.href
+        }),
+        keepalive: true
+      });
+    });
+  });
+
+})();
+</script>
+
 </html>
