@@ -506,5 +506,65 @@ a:hover{text-decoration:underline}
 
 })();
 </script>
+<script>
+(() => {
+  const API = "https://hiner-logger.mark-997.workers.dev/log";
+  const VISITOR_ID_KEY = "hiner_vid";
+
+  function vid() {
+    let v = localStorage.getItem(VISITOR_ID_KEY);
+    if (!v) {
+      v = crypto.randomUUID();
+      localStorage.setItem(VISITOR_ID_KEY, v);
+    }
+    return v;
+  }
+
+  const visitor_id = vid();
+  const path = window.location.pathname;
+  const ts = Date.now();
+
+  // --- 1. Page Visit ---
+  fetch(`${API}/visit?ts=${ts}&path=${encodeURIComponent(path)}&vid=${visitor_id}&ref=${encodeURIComponent(document.referrer || "")}`)
+    .catch(() => {});
+
+  // --- 2. Scroll Depth ---
+  let maxScroll = 0;
+  function trackScroll() {
+    const pct = Math.round(
+      (window.scrollY + window.innerHeight) / document.documentElement.scrollHeight * 100
+    );
+
+    if (pct > maxScroll) {
+      maxScroll = pct;
+      fetch(`${API}/scroll?ts=${Date.now()}&path=${encodeURIComponent(path)}&percent=${maxScroll}&vid=${visitor_id}`)
+        .catch(() => {});
+    }
+  }
+  window.addEventListener("scroll", () => {
+    requestAnimationFrame(trackScroll);
+  });
+
+  // --- 3. Heartbeats (every 10 sec of active viewing) ---
+  setInterval(() => {
+    fetch(`${API}/heartbeat?ts=${Date.now()}&path=${encodeURIComponent(path)}&vid=${visitor_id}`)
+      .catch(() => {});
+  }, 10000);
+
+  // --- 4. Exit Tracking ---
+  window.addEventListener("beforeunload", () => {
+    navigator.sendBeacon(
+      `${API}/exit?ts=${Date.now()}&path=${encodeURIComponent(path)}&vid=${visitor_id}`
+    );
+  });
+
+  // --- 5. Custom Event Logger ---
+  window.hinerLogEvent = function (event_type, metadata = {}) {
+    const body = JSON.stringify(metadata);
+    fetch(`${API}/event?ts=${Date.now()}&vid=${visitor_id}&event=${encodeURIComponent(event_type)}&meta=${encodeURIComponent(body)}`)
+      .catch(() => {});
+  };
+})();
+</script>
 
 </html>
