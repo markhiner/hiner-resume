@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Analytics Dashboard</title>
+<style>
+  body {
+    margin: 0;
+    background: #0d0f14;
+    color: #e4e4e4;
+    font-family: system-ui, sans-serif;
+  }
+  header {
+    padding: 20px;
+    font-size: 24px;
+    background: #131722;
+    border-bottom: 1px solid #222;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit,minmax(300px,1fr));
+    gap: 20px;
+    padding: 20px;
+  }
+  .card {
+    background: #181c27;
+    padding: 20px;
+    border-radius: 10px;
+    border: 1px solid #222;
+  }
+  .num {
+    font-size: 40px;
+    font-weight: bold;
+  }
+  canvas {
+    width: 100%;
+    height: 200px;
+  }
+  #loginOverlay {
+    position: fixed;
+    inset: 0;
+    backdrop-filter: blur(4px);
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #loginBox {
+    background: #1c202b;
+    padding: 30px;
+    border-radius: 10px;
+    width: 300px;
+  }
+  input {
+    width: 100%;
+    padding: 10px;
+    background: #11131a;
+    color: #fff;
+    border: 1px solid #333;
+    border-radius: 5px;
+    margin-top: 10px;
+  }
+  button {
+    width: 100%;
+    padding: 12px;
+    margin-top: 15px;
+    background: #3b82f6;
+    border: none;
+    color: #fff;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<header>Analytics Dashboard</header>
+
+<div id="loginOverlay">
+  <div id="loginBox">
+    <h2>Admin Login</h2>
+    <input id="pw" type="password" placeholder="Password">
+    <button onclick="login()">Login</button>
+    <div id="loginError" style="color:#f66; margin-top:10px; display:none;">Incorrect password</div>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <div>Total Visits</div>
+    <div class="num" id="visits">—</div>
+  </div>
+  <div class="card">
+    <div>Total Events</div>
+    <div class="num" id="events">—</div>
+  </div>
+  <div class="card">
+    <div>Recruiter Visits</div>
+    <div class="num" id="recruiters">—</div>
+  </div>
+  <div class="card">
+    <h3>Top Pages</h3>
+    <div id="top"></div>
+  </div>
+  <div class="card">
+    <h3>Events</h3>
+    <div id="eventList"></div>
+  </div>
+</div>
+
+<script>
+let token = localStorage.getItem("jwt");
+
+async function api(path) {
+  const r = await fetch("/api/" + path, {
+    headers: { Authorization: "Bearer " + token }
+  });
+  return r.json();
+}
+
+async function login() {
+  const password = document.getElementById("pw").value;
+  const r = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type":"application/json" },
+    body: JSON.stringify({ password })
+  });
+  const j = await r.json();
+
+  if (j.token) {
+    token = j.token;
+    localStorage.setItem("jwt", token);
+    document.getElementById("loginOverlay").style.display = "none";
+    load();
+  } else {
+    document.getElementById("loginError").style.display = "block";
+  }
+}
+
+async function load() {
+  const summary = await api("summary");
+  document.getElementById("visits").textContent = summary.visits;
+  document.getElementById("events").textContent = summary.events;
+  document.getElementById("recruiters").textContent = summary.recruiters;
+
+  const top = await api("top-pages");
+  document.getElementById("top").innerHTML =
+    top.map(x=>`${x.path}: ${x.c}`).join("<br>");
+
+  const ev = await api("events");
+  document.getElementById("eventList").innerHTML =
+    ev.map(x=>`${x.event_type}: ${x.c}`).join("<br>");
+}
+
+if (token) {
+  document.getElementById("loginOverlay").style.display = "none";
+  load();
+}
+</script>
+
+</body>
+</html>
