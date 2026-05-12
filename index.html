@@ -1,35 +1,346 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>hiner.nyc</title>
-  <style>
-    html, body {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      background: #000;
-    }
-
-    body {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
-    }
-
-    img {
-      display: block;
-      width: 100vw;
-      height: 100vh;
-      object-fit: contain;
-      object-position: center;
-      background: #000;
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title> </title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a0a; color: #e8e8e8; font-family: 'Courier New', monospace; min-height: 100vh; padding: 24px; }
+</style>
 </head>
 <body>
-  <img src="Colorbars.png" alt="">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useCallback, useRef, useEffect } = React;
+
+// ── PIN ──────────────────────────────────────────────────────────────────────
+
+const CORRECT_PIN = "1912";
+
+function PinGate({ onUnlock }) {
+  const [digits, setDigits] = useState(["", "", "", ""]);
+  const [shake, setShake] = useState(false);
+  const refs = [useRef(), useRef(), useRef(), useRef()];
+
+  useEffect(() => { refs[0].current && refs[0].current.focus(); }, []);
+
+  const attempt = useCallback((d) => {
+    const pin = d.join("");
+    if (pin === CORRECT_PIN) {
+      onUnlock();
+    } else {
+      setShake(true);
+      setTimeout(() => { setShake(false); setDigits(["","","",""]); refs[0].current.focus(); }, 600);
+    }
+  }, [onUnlock]);
+
+  const handleChange = (i, val) => {
+    const v = val.replace(/\D/g, "").slice(-1);
+    const next = [...digits];
+    next[i] = v;
+    setDigits(next);
+    if (v && i < 3) refs[i + 1].current.focus();
+    if (i === 3 && v) attempt(next);
+  };
+
+  const handleKeyDown = (i, e) => {
+    if (e.key === "Backspace" && !digits[i] && i > 0) refs[i - 1].current.focus();
+  };
+
+  const boxStyle = {
+    width: "48px", height: "48px",
+    background: "transparent",
+    border: "none",
+    borderBottom: "1px solid #2a2a2a",
+    color: "transparent",
+    caretColor: "transparent",
+    textAlign: "center",
+    fontSize: "24px",
+    fontFamily: "'Courier New', monospace",
+    outline: "none",
+    WebkitTextSecurity: "disc",
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+      <div style={{
+        display: "flex", gap: "16px",
+        animation: shake ? "shake 0.5s ease" : "none",
+      }}>
+        <style>{`
+          @keyframes shake {
+            0%,100% { transform: translateX(0); }
+            20% { transform: translateX(-8px); }
+            40% { transform: translateX(8px); }
+            60% { transform: translateX(-6px); }
+            80% { transform: translateX(6px); }
+          }
+        `}</style>
+        {digits.map((d, i) => (
+          <input
+            key={i}
+            ref={refs[i]}
+            type="password"
+            inputMode="numeric"
+            maxLength={1}
+            value={d}
+            style={{
+              ...boxStyle,
+              borderBottomColor: d ? "#555" : "#2a2a2a",
+            }}
+            onChange={e => handleChange(i, e.target.value)}
+            onKeyDown={e => handleKeyDown(i, e)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── RUNDOWN APP ───────────────────────────────────────────────────────────────
+
+function parseRoster(raw) {
+  const roster = {};
+  raw.split("\n").forEach(line => {
+    line = line.trim();
+    if (!line) return;
+    const liveMatch = line.match(/^(.+?)\s+LIVE(?:\s+(?:IN\s+)?(.+))?$/i);
+    if (liveMatch) {
+      const name = liveMatch[1].trim().toUpperCase();
+      const loc = (liveMatch[2] || "").trim().toUpperCase();
+      const key = name.split(" ").pop();
+      roster[key] = { type: "reporter", name, location: loc };
+    } else {
+      const commaIdx = line.indexOf(",");
+      if (commaIdx === -1) return;
+      const name = line.slice(0, commaIdx).trim().toUpperCase();
+      const title = line.slice(commaIdx + 1).trim().toUpperCase();
+      const key = name.split(" ").pop();
+      roster[key] = { type: "guest", name, title };
+    }
+  });
+  return roster;
+}
+
+function resolveGuest(token, roster) {
+  const parts = token.split(/[&+]/).map(s => s.trim().toUpperCase());
+  return parts.map(part => {
+    if (roster[part]) return roster[part];
+    const found = Object.keys(roster).find(k => k.includes(part) || part.includes(k));
+    if (found) return roster[found];
+    const fullMatch = Object.values(roster).find(r => r.name.includes(part));
+    if (fullMatch) return fullMatch;
+    return { type: "unknown", name: part };
+  });
+}
+
+function guestLine(entry) {
+  if (entry.type === "reporter") return entry.location ? `>${entry.name} LIVE FROM ${entry.location}` : `>${entry.name} LIVE`;
+  if (entry.type === "guest") return `>${entry.name}, ${entry.title}`;
+  return `>${entry.name}`;
+}
+
+function extractSegment(chunk, roster, isRead) {
+  const slugRaw = isRead ? chunk.replace(/\bread\b/gi, "").trim() : chunk;
+  const words = slugRaw.split(/\s+/);
+  const guestTokens = [];
+  let slugWords = [...words];
+  for (let w = words.length - 1; w >= 0; w--) {
+    const single = resolveGuest(words[w], roster);
+    if (single.some(r => r.type !== "unknown")) {
+      guestTokens.unshift(...single);
+      slugWords = words.slice(0, w);
+      continue;
+    }
+    break;
+  }
+  const slug = slugWords.join(" ").replace(/\s+/g, " ").trim() || slugRaw;
+  return { slug: slug.toUpperCase(), guests: isRead ? [] : guestTokens, isRead, editorial: "" };
+}
+
+function parseStoryOrder(raw, roster) {
+  const blocks = {};
+  const anchorRe = /\b([a-dA-D])(\d?)\s*[-]\s*/g;
+  const anchors = [];
+  let m;
+  while ((m = anchorRe.exec(raw)) !== null) {
+    anchors.push({ letter: m[1].toUpperCase(), num: m[2] || "", start: m.index, end: anchorRe.lastIndex });
+  }
+  anchors.forEach((anchor, i) => {
+    const textEnd = i + 1 < anchors.length ? anchors[i + 1].start : raw.length;
+    const chunk = raw.slice(anchor.end, textEnd).trim();
+    const readInlineMatch = chunk.match(/^(.+?)\s+\bread\b\s+(.+)$/i);
+    const startsWithRead = /^\s*read\b/i.test(chunk);
+    if (readInlineMatch && !startsWithRead) {
+      const primaryKey = anchor.letter + (anchor.num || "");
+      blocks[primaryKey] = { letter: anchor.letter, num: anchor.num || "", ...extractSegment(readInlineMatch[1].trim(), roster, false) };
+      const secNum = anchor.num ? String(parseInt(anchor.num) + 1) : "2";
+      blocks[anchor.letter + secNum] = { letter: anchor.letter, num: secNum, ...extractSegment(readInlineMatch[2].trim(), roster, true) };
+    } else {
+      const key = anchor.letter + (anchor.num || "");
+      blocks[key] = { letter: anchor.letter, num: anchor.num || "", ...extractSegment(chunk, roster, startsWithRead) };
+    }
+  });
+  return blocks;
+}
+
+function formatRundown(blocks) {
+  const lines = [];
+  ["A","B","C","D"].forEach(letter => {
+    const subs = Object.keys(blocks).filter(k => blocks[k].letter === letter).sort();
+    if (!subs.length) return;
+    subs.forEach((key, idx) => {
+      const b = blocks[key];
+      lines.push(idx === 0 ? `${letter}:` : `${letter}${b.num} -`);
+      const body = b.editorial || b.slug;
+      if (b.isRead) { lines.push(`TELL: ${body}`); } else { lines.push(body); b.guests.forEach(g => lines.push(guestLine(g))); }
+    });
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
+const card = { background: "#141414", border: "1px solid #2a2a2a", borderRadius: "4px", padding: "20px", marginBottom: "16px" };
+const lbl = { fontSize: "10px", letterSpacing: "0.15em", color: "#888", marginBottom: "6px", display: "block", textTransform: "uppercase" };
+const ta = { width: "100%", background: "#0d0d0d", border: "1px solid #2a2a2a", borderRadius: "3px", color: "#e8e8e8", fontFamily: "'Courier New', monospace", fontSize: "13px", padding: "10px", resize: "vertical", lineHeight: 1.6 };
+const btn = active => ({ background: active ? "#e8e8e8" : "transparent", color: active ? "#0a0a0a" : "#888", border: "1px solid " + (active ? "#e8e8e8" : "#2a2a2a"), borderRadius: "3px", padding: "6px 14px", cursor: "pointer", fontFamily: "'Courier New', monospace", fontSize: "11px", letterSpacing: "0.1em", textTransform: "uppercase" });
+const actionBtn = { background: "#c8102e", color: "#fff", border: "none", borderRadius: "3px", padding: "8px 20px", cursor: "pointer", fontFamily: "'Courier New', monospace", fontSize: "12px", letterSpacing: "0.1em", textTransform: "uppercase", marginTop: "10px" };
+const hint = { fontSize: "11px", color: "#555", marginBottom: "10px", lineHeight: 1.9 };
+const hv = { color: "#777" };
+const STEPS = ["ROSTER", "ORDER", "EDITORIAL", "OUTPUT"];
+
+function RundownApp() {
+  const [step, setStep] = useState(0);
+  const [rosterRaw, setRosterRaw] = useState("");
+  const [orderRaw, setOrderRaw] = useState("");
+  const [roster, setRoster] = useState({});
+  const [blocks, setBlocks] = useState({});
+  const [editorialInputs, setEditorialInputs] = useState({});
+  const [output, setOutput] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const buildRoster = useCallback(() => { setRoster(parseRoster(rosterRaw)); setStep(1); }, [rosterRaw]);
+  const buildOrder = useCallback(() => {
+    const parsed = parseStoryOrder(orderRaw, roster);
+    setBlocks(parsed);
+    const init = {};
+    Object.keys(parsed).forEach(k => { init[k] = ""; });
+    setEditorialInputs(init);
+    setStep(2);
+  }, [orderRaw, roster]);
+  const updateEditorial = useCallback((key, val) => setEditorialInputs(prev => ({ ...prev, [key]: val })), []);
+  const applyEditorial = useCallback(() => {
+    const updated = { ...blocks };
+    Object.keys(editorialInputs).forEach(k => {
+      if (editorialInputs[k].trim()) updated[k] = { ...updated[k], editorial: editorialInputs[k].trim().toUpperCase() };
+    });
+    setBlocks(updated);
+    setOutput(formatRundown(updated));
+    setStep(3);
+  }, [blocks, editorialInputs]);
+  const copyOutput = useCallback(() => {
+    navigator.clipboard.writeText(output).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  }, [output]);
+
+  const blockKeys = Object.keys(blocks).sort();
+
+  return (
+    <div>
+      <div style={{ marginBottom: "24px" }}>
+        <div style={{ fontSize: "11px", letterSpacing: "0.2em", color: "#555", marginBottom: "4px" }}>NEWSNATION</div>
+        <div style={{ fontSize: "20px", fontWeight: "bold", letterSpacing: "0.05em" }}>RUNDOWN BUILDER</div>
+      </div>
+      <div style={{ display: "flex", gap: "8px", marginBottom: "24px", flexWrap: "wrap" }}>
+        {STEPS.map((s, i) => (
+          <button key={s} style={btn(step === i)} onClick={() => { if (i <= step) setStep(i); }}>{i + 1}. {s}</button>
+        ))}
+      </div>
+
+      {step === 0 && (
+        <div style={card}>
+          <span style={lbl}>Guests & Reporters — one per line</span>
+          <div style={hint}>
+            GUEST: <span style={hv}>Guest Name, Title</span><br />
+            REPORTER (no location): <span style={hv}>Reporter Name LIVE</span><br />
+            REPORTER (with location): <span style={hv}>Reporter Name LIVE Miami</span>
+          </div>
+          <textarea style={{ ...ta, minHeight: "180px" }} placeholder={"Reporter Name LIVE Washington DC\nReporter Name LIVE\nGuest Name, Title"} value={rosterRaw} onChange={e => setRosterRaw(e.target.value)} />
+          <br />
+          <button style={actionBtn} onClick={buildRoster}>BUILD ROSTER →</button>
+          {Object.keys(roster).length > 0 && (
+            <div style={{ marginTop: "14px", fontSize: "11px", color: "#555", lineHeight: 1.8 }}>
+              {Object.values(roster).map((r, i) => (
+                <div key={i}>{r.type === "reporter" ? `📡 ${r.name}${r.location ? " — " + r.location : ""}` : `👤 ${r.name} — ${r.title}`}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {step === 1 && (
+        <div style={card}>
+          <span style={lbl}>Story Order — shorthand</span>
+          <div style={hint}>
+            <span style={hv}>a- slug lastname</span> — segment with guest/reporter<br />
+            <span style={hv}>a- slug lastname read slug2</span> — segment + auto TELL as A2<br />
+            <span style={hv}>b2- read slug</span> — explicit standalone TELL<br />
+            Multiple guests: <span style={hv}>lastname & lastname</span>
+          </div>
+          <textarea style={{ ...ta, minHeight: "80px" }} placeholder="a- iran guest read china  b- hantavirus reporter  c- cartel guest  c2- read ship seized  d- court guest & guest" value={orderRaw} onChange={e => setOrderRaw(e.target.value)} />
+          <br />
+          <button style={actionBtn} onClick={buildOrder}>BUILD ORDER →</button>
+        </div>
+      )}
+
+      {step === 2 && (
+        <div>
+          <div style={{ ...card, marginBottom: "8px" }}>
+            <span style={lbl}>Fill In Editorial</span>
+            <div style={{ fontSize: "11px", color: "#555" }}>Paste copy for each block. Leave blank to keep the slug as a placeholder.</div>
+          </div>
+          {blockKeys.map(key => {
+            const b = blocks[key];
+            return (
+              <div key={key} style={{ ...card, borderLeft: "3px solid #c8102e" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+                  <span style={{ fontSize: "13px", fontWeight: "bold", letterSpacing: "0.1em" }}>{b.letter}{b.num || ""}{b.isRead ? " — TELL" : ""}</span>
+                  <span style={{ fontSize: "11px", color: "#555" }}>{b.guests.map(g => g.name).join(" & ") || (b.isRead ? "reader" : "no guest")}</span>
+                </div>
+                <div style={{ fontSize: "11px", color: "#555", marginBottom: "6px" }}>SLUG: {b.slug}</div>
+                <textarea style={{ ...ta, minHeight: "70px" }} placeholder={`Editorial copy for ${b.slug}...`} value={editorialInputs[key] || ""} onChange={e => updateEditorial(key, e.target.value)} />
+              </div>
+            );
+          })}
+          <button style={actionBtn} onClick={applyEditorial}>GENERATE RUNDOWN →</button>
+        </div>
+      )}
+
+      {step === 3 && (
+        <div style={card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <span style={lbl}>FINAL RUNDOWN</span>
+            <button style={{ ...btn(false), fontSize: "10px" }} onClick={copyOutput}>{copied ? "COPIED ✓" : "COPY TO CLIPBOARD"}</button>
+          </div>
+          <pre style={{ background: "#0d0d0d", border: "1px solid #2a2a2a", borderRadius: "3px", padding: "16px", fontFamily: "'Courier New', monospace", fontSize: "13px", lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "#e8e8e8", fontWeight: "bold", margin: 0 }}>
+            {output}
+          </pre>
+          <button style={{ ...actionBtn, background: "#333", marginTop: "12px" }} onClick={() => setStep(2)}>← BACK TO EDITORIAL</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [unlocked, setUnlocked] = useState(false);
+  return unlocked ? <RundownApp /> : <PinGate onUnlock={() => setUnlocked(true)} />;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
 </body>
 </html>
