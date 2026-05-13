@@ -9,20 +9,27 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #0a0a0a; color: #e8e8e8; font-family: 'Courier New', monospace; min-height: 100vh; padding: 24px; font-size: 14px; }
 
-/* PIN */
-#pin-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+#pin-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; flex-direction: column; gap: 32px; }
 .pin-row { display: flex; gap: 20px; }
 .pin-box {
 width: 52px; height: 52px;
-background: transparent;
-border: none; border-bottom: 1px solid #2a2a2a;
+background: #111;
+border: none; border-bottom: 2px solid #333;
 color: #e8e8e8; text-align: center;
 font-size: 28px; font-family: ‘Courier New’, monospace;
-outline: none; -webkit-text-security: disc;
-caret-color: #555;
+outline: none;
+border-radius: 4px 4px 0 0;
+-webkit-appearance: none;
+appearance: none;
+}
+.pin-box:focus { border-bottom-color: #888; background: #1a1a1a; }
+.pin-enter {
+background: transparent; border: 1px solid #2a2a2a; border-radius: 3px;
+color: #555; padding: 8px 28px; cursor: pointer;
+font-family: ‘Courier New’, monospace; font-size: 11px;
+letter-spacing: 0.15em; text-transform: uppercase;
 -webkit-appearance: none;
 }
-.pin-box:focus { border-bottom-color: #666; }
 @keyframes shake {
 0%,100% { transform: translateX(0); }
 20% { transform: translateX(-10px); }
@@ -32,31 +39,20 @@ caret-color: #555;
 }
 .shake { animation: shake 0.5s ease; }
 
-/* APP */
 #app-screen { display: none; }
 .header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; }
-.header-left .eyebrow { font-size: 10px; letter-spacing: 0.2em; color: #555; margin-bottom: 4px; }
-.header-left .title { font-size: 20px; font-weight: bold; letter-spacing: 0.05em; }
-.header-right { text-align: right; }
+.eyebrow { font-size: 10px; letter-spacing: 0.2em; color: #555; margin-bottom: 4px; }
+.title { font-size: 20px; font-weight: bold; letter-spacing: 0.05em; }
 #save-indicator { font-size: 10px; color: #444; margin-bottom: 6px; min-height: 14px; }
 
-/* TABS */
 .tabs { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
-.tab {
-background: transparent; color: #888;
-border: 1px solid #2a2a2a; border-radius: 3px;
-padding: 6px 14px; cursor: pointer;
-font-family: ‘Courier New’, monospace; font-size: 11px;
-letter-spacing: 0.1em; text-transform: uppercase;
-}
+.tab { background: transparent; color: #888; border: 1px solid #2a2a2a; border-radius: 3px; padding: 6px 14px; cursor: pointer; font-family: ‘Courier New’, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; -webkit-appearance: none; }
 .tab.active { background: #e8e8e8; color: #0a0a0a; border-color: #e8e8e8; }
 .tab:disabled { opacity: 0.3; cursor: default; }
 
-/* PANELS */
 .panel { display: none; }
 .panel.active { display: block; }
 
-/* CARDS */
 .card { background: #141414; border: 1px solid #2a2a2a; border-radius: 4px; padding: 20px; margin-bottom: 16px; }
 .card.red-left { border-left: 3px solid #c8102e; }
 .card-label { font-size: 10px; letter-spacing: 0.15em; color: #888; margin-bottom: 8px; display: block; text-transform: uppercase; }
@@ -67,69 +63,39 @@ letter-spacing: 0.1em; text-transform: uppercase;
 .block-meta { font-size: 11px; color: #555; }
 .slug-label { font-size: 11px; color: #555; margin-bottom: 6px; }
 
-/* INPUTS */
-textarea {
-width: 100%; background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 3px;
-color: #e8e8e8; font-family: ‘Courier New’, monospace; font-size: 13px;
-padding: 10px; resize: vertical; line-height: 1.6; outline: none;
--webkit-appearance: none;
-}
+textarea { width: 100%; background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 3px; color: #e8e8e8; font-family: ‘Courier New’, monospace; font-size: 13px; padding: 10px; resize: vertical; line-height: 1.6; outline: none; -webkit-appearance: none; }
 textarea:focus { border-color: #444; }
 
-/* BUTTONS */
-.btn-action {
-background: #c8102e; color: #fff; border: none; border-radius: 3px;
-padding: 10px 22px; cursor: pointer;
-font-family: ‘Courier New’, monospace; font-size: 12px;
-letter-spacing: 0.1em; text-transform: uppercase; margin-top: 12px;
--webkit-appearance: none;
-}
+.btn-action { background: #c8102e; color: #fff; border: none; border-radius: 3px; padding: 10px 22px; cursor: pointer; font-family: ‘Courier New’, monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 12px; -webkit-appearance: none; display: inline-block; }
 .btn-action.grey { background: #333; }
-.btn-ghost {
-background: transparent; color: #555; border: 1px solid #2a2a2a; border-radius: 3px;
-padding: 6px 14px; cursor: pointer;
-font-family: ‘Courier New’, monospace; font-size: 10px;
-letter-spacing: 0.1em; text-transform: uppercase;
--webkit-appearance: none;
-}
+.btn-ghost { background: transparent; color: #555; border: 1px solid #2a2a2a; border-radius: 3px; padding: 6px 14px; cursor: pointer; font-family: ‘Courier New’, monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; -webkit-appearance: none; }
 .btn-ghost.green { color: #4a9; border-color: #4a9; }
 
-/* ROSTER PREVIEW */
 #roster-preview { margin-top: 14px; font-size: 11px; color: #555; line-height: 1.8; }
-
-/* OUTPUT */
-#rundown-output {
-background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 3px;
-padding: 16px; font-family: ‘Courier New’, monospace; font-size: 13px;
-line-height: 1.7; white-space: pre-wrap; word-break: break-word;
-color: #e8e8e8; font-weight: bold; margin: 0;
-}
+#rundown-output { background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 3px; padding: 16px; font-family: ‘Courier New’, monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: #e8e8e8; font-weight: bold; margin: 0; }
 .output-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 </style>
 
 </head>
 <body>
 
-<!-- PIN SCREEN -->
-
 <div id="pin-screen">
   <div class="pin-row" id="pin-row">
-    <input class="pin-box" type="password" inputmode="numeric" maxlength="1" id="p0" autocomplete="off" />
-    <input class="pin-box" type="password" inputmode="numeric" maxlength="1" id="p1" autocomplete="off" />
-    <input class="pin-box" type="password" inputmode="numeric" maxlength="1" id="p2" autocomplete="off" />
-    <input class="pin-box" type="password" inputmode="numeric" maxlength="1" id="p3" autocomplete="off" />
+    <input class="pin-box" type="tel" maxlength="1" id="p0" autocomplete="off" />
+    <input class="pin-box" type="tel" maxlength="1" id="p1" autocomplete="off" />
+    <input class="pin-box" type="tel" maxlength="1" id="p2" autocomplete="off" />
+    <input class="pin-box" type="tel" maxlength="1" id="p3" autocomplete="off" />
   </div>
+  <button class="pin-enter" onclick="attemptPin()">ENTER</button>
 </div>
-
-<!-- APP -->
 
 <div id="app-screen">
   <div class="header">
-    <div class="header-left">
+    <div>
       <div class="eyebrow">NEWSNATION</div>
       <div class="title">RUNDOWN BUILDER</div>
     </div>
-    <div class="header-right">
+    <div style="text-align:right">
       <div id="save-indicator"></div>
       <button class="btn-ghost" onclick="startFresh()">NEW RUNDOWN</button>
     </div>
@@ -141,8 +107,6 @@ color: #e8e8e8; font-weight: bold; margin: 0;
     <button class="tab" id="tab-2" onclick="goToStep(2)" disabled>3. EDITORIAL</button>
     <button class="tab" id="tab-3" onclick="goToStep(3)" disabled>4. OUTPUT</button>
   </div>
-
-  <!-- STEP 0: ROSTER -->
 
   <div class="panel active" id="panel-0">
     <div class="card">
@@ -159,8 +123,6 @@ color: #e8e8e8; font-weight: bold; margin: 0;
     </div>
   </div>
 
-  <!-- STEP 1: ORDER -->
-
   <div class="panel" id="panel-1">
     <div class="card">
       <span class="card-label">Story Order — shorthand</span>
@@ -176,18 +138,14 @@ color: #e8e8e8; font-weight: bold; margin: 0;
     </div>
   </div>
 
-  <!-- STEP 2: EDITORIAL -->
-
   <div class="panel" id="panel-2">
     <div class="card" style="margin-bottom:8px">
       <span class="card-label">Fill In Editorial</span>
-      <div style="font-size:11px;color:#555">Paste copy for each block. Leave blank to keep the slug as a placeholder.</div>
+      <div style="font-size:11px;color:#555">Paste copy for each block. Leave blank to keep the slug as placeholder.</div>
     </div>
     <div id="editorial-blocks"></div>
     <button class="btn-action" onclick="generateRundown()">GENERATE RUNDOWN →</button>
   </div>
-
-  <!-- STEP 3: OUTPUT -->
 
   <div class="panel" id="panel-3">
     <div class="card">
@@ -202,52 +160,32 @@ color: #e8e8e8; font-weight: bold; margin: 0;
 </div>
 
 <script>
-// ── CONFIG ────────────────────────────────────────────────────────────────────
 const CORRECT_PIN = "1234";
 const STORAGE_KEY = "rundown_v1";
 const SESSION_KEY = "rundown_auth";
 
-// ── STATE ─────────────────────────────────────────────────────────────────────
-let state = {
-  step: 0,
-  rosterRaw: "",
-  orderRaw: "",
-  roster: {},
-  blocks: {},
-  editorialInputs: {},
-  output: ""
-};
+let state = { step:0, rosterRaw:"", orderRaw:"", roster:{}, blocks:{}, editorialInputs:{}, output:"" };
 
 // ── PERSISTENCE ───────────────────────────────────────────────────────────────
 function save() {
-  // sync textareas into state before saving
   const ri = document.getElementById("roster-input");
   const oi = document.getElementById("order-input");
   if (ri) state.rosterRaw = ri.value;
   if (oi) state.orderRaw = oi.value;
-  // sync editorial textareas
   Object.keys(state.blocks).forEach(key => {
     const el = document.getElementById("ed-" + key);
     if (el) state.editorialInputs[key] = el.value;
   });
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
   const ind = document.getElementById("save-indicator");
-  if (ind) {
-    const t = new Date();
-    ind.textContent = "SAVED " + t.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
-  }
+  if (ind) { const t = new Date(); ind.textContent = "SAVED " + t.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}); }
 }
 
 function load() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) state = JSON.parse(raw);
-  } catch(e) {}
+  try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) state = JSON.parse(raw); } catch(e) {}
 }
 
-function clearStorage() {
-  try { localStorage.removeItem(STORAGE_KEY); } catch(e) {}
-}
+function clearStorage() { try { localStorage.removeItem(STORAGE_KEY); } catch(e) {} }
 
 // ── LOGIC ─────────────────────────────────────────────────────────────────────
 function parseRoster(raw) {
@@ -257,81 +195,81 @@ function parseRoster(raw) {
     const lm = line.match(/^(.+?)\s+LIVE(?:\s+(?:IN\s+)?(.+))?$/i);
     if (lm) {
       const name = lm[1].trim().toUpperCase();
-      const loc = (lm[2] || "").trim().toUpperCase();
-      roster[name.split(" ").pop()] = { type: "reporter", name, location: loc };
+      const loc = (lm[2]||"").trim().toUpperCase();
+      roster[name.split(" ").pop()] = { type:"reporter", name, location:loc };
     } else {
-      const ci = line.indexOf(","); if (ci === -1) return;
-      const name = line.slice(0, ci).trim().toUpperCase();
+      const ci = line.indexOf(","); if (ci===-1) return;
+      const name = line.slice(0,ci).trim().toUpperCase();
       const title = line.slice(ci+1).trim().toUpperCase();
-      roster[name.split(" ").pop()] = { type: "guest", name, title };
+      roster[name.split(" ").pop()] = { type:"guest", name, title };
     }
   });
   return roster;
 }
 
 function resolveGuest(token, roster) {
-  return token.split(/[&+]/).map(s => s.trim().toUpperCase()).map(part => {
+  return token.split(/[&+]/).map(s=>s.trim().toUpperCase()).map(part => {
     if (roster[part]) return roster[part];
-    const k = Object.keys(roster).find(k => k.includes(part) || part.includes(k));
+    const k = Object.keys(roster).find(k=>k.includes(part)||part.includes(k));
     if (k) return roster[k];
-    const v = Object.values(roster).find(r => r.name.includes(part));
-    return v || { type: "unknown", name: part };
+    const v = Object.values(roster).find(r=>r.name.includes(part));
+    return v||{type:"unknown",name:part};
   });
 }
 
 function guestLine(e) {
-  if (e.type === "reporter") return e.location ? ">" + e.name + " LIVE FROM " + e.location : ">" + e.name + " LIVE";
-  if (e.type === "guest") return ">" + e.name + ", " + e.title;
-  return ">" + e.name;
+  if (e.type==="reporter") return e.location ? ">"+e.name+" LIVE FROM "+e.location : ">"+e.name+" LIVE";
+  if (e.type==="guest") return ">"+e.name+", "+e.title;
+  return ">"+e.name;
 }
 
 function extractSegment(chunk, roster, isRead) {
-  const slugRaw = isRead ? chunk.replace(/\bread\b/gi, "").trim() : chunk;
+  const slugRaw = isRead ? chunk.replace(/\bread\b/gi,"").trim() : chunk;
   const words = slugRaw.split(/\s+/);
-  const guests = []; let slugWords = [...words];
-  for (let w = words.length - 1; w >= 0; w--) {
+  const guests=[]; let slugWords=[...words];
+  for (let w=words.length-1; w>=0; w--) {
     const s = resolveGuest(words[w], roster);
-    if (s.some(r => r.type !== "unknown")) { guests.unshift(...s); slugWords = words.slice(0, w); continue; }
+    if (s.some(r=>r.type!=="unknown")) { guests.unshift(...s); slugWords=words.slice(0,w); continue; }
     break;
   }
-  const slug = slugWords.join(" ").replace(/\s+/g, " ").trim() || slugRaw;
-  return { slug: slug.toUpperCase(), guests: isRead ? [] : guests, isRead, editorial: "" };
+  const slug = slugWords.join(" ").replace(/\s+/g," ").trim()||slugRaw;
+  return { slug:slug.toUpperCase(), guests:isRead?[]:guests, isRead, editorial:"" };
 }
 
 function parseStoryOrder(raw, roster) {
-  const blocks = {};
-  const re = /\b([a-dA-D])(\d?)\s*[-]\s*/g;
-  const anchors = []; let m;
-  while ((m = re.exec(raw)) !== null) anchors.push({ letter: m[1].toUpperCase(), num: m[2]||"", start: m.index, end: re.lastIndex });
-  anchors.forEach((anchor, i) => {
-    const textEnd = i+1 < anchors.length ? anchors[i+1].start : raw.length;
-    const chunk = raw.slice(anchor.end, textEnd).trim();
+  const blocks={};
+  const re=/\b([a-dA-D])(\d?)\s*[-]\s*/g;
+  const anchors=[]; let m;
+  while((m=re.exec(raw))!==null) anchors.push({letter:m[1].toUpperCase(),num:m[2]||"",start:m.index,end:re.lastIndex});
+  anchors.forEach((anchor,i) => {
+    const textEnd = i+1<anchors.length?anchors[i+1].start:raw.length;
+    const chunk = raw.slice(anchor.end,textEnd).trim();
     const inlineRead = chunk.match(/^(.+?)\s+\bread\b\s+(.+)$/i);
     const startsRead = /^\s*read\b/i.test(chunk);
-    if (inlineRead && !startsRead) {
-      const pk = anchor.letter + (anchor.num||"");
-      blocks[pk] = { letter: anchor.letter, num: anchor.num||"", ...extractSegment(inlineRead[1].trim(), roster, false) };
-      const sn = anchor.num ? String(parseInt(anchor.num)+1) : "2";
-      blocks[anchor.letter+sn] = { letter: anchor.letter, num: sn, ...extractSegment(inlineRead[2].trim(), roster, true) };
+    if (inlineRead&&!startsRead) {
+      const pk=anchor.letter+(anchor.num||"");
+      blocks[pk]={letter:anchor.letter,num:anchor.num||"",...extractSegment(inlineRead[1].trim(),roster,false)};
+      const sn=anchor.num?String(parseInt(anchor.num)+1):"2";
+      blocks[anchor.letter+sn]={letter:anchor.letter,num:sn,...extractSegment(inlineRead[2].trim(),roster,true)};
     } else {
-      const key = anchor.letter + (anchor.num||"");
-      blocks[key] = { letter: anchor.letter, num: anchor.num||"", ...extractSegment(chunk, roster, startsRead) };
+      const key=anchor.letter+(anchor.num||"");
+      blocks[key]={letter:anchor.letter,num:anchor.num||"",...extractSegment(chunk,roster,startsRead)};
     }
   });
   return blocks;
 }
 
 function formatRundown(blocks) {
-  const lines = [];
+  const lines=[];
   ["A","B","C","D"].forEach(letter => {
-    const subs = Object.keys(blocks).filter(k => blocks[k].letter === letter).sort();
+    const subs=Object.keys(blocks).filter(k=>blocks[k].letter===letter).sort();
     if (!subs.length) return;
-    subs.forEach((key, idx) => {
-      const b = blocks[key];
-      lines.push(idx === 0 ? letter + ":" : letter + b.num + " -");
-      const body = b.editorial || b.slug;
-      if (b.isRead) { lines.push("TELL: " + body); }
-      else { lines.push(body); b.guests.forEach(g => lines.push(guestLine(g))); }
+    subs.forEach((key,idx) => {
+      const b=blocks[key];
+      lines.push(idx===0?letter+":":letter+b.num+" -");
+      const body=b.editorial||b.slug;
+      if (b.isRead){lines.push("TELL: "+body);}
+      else{lines.push(body);b.guests.forEach(g=>lines.push(guestLine(g)));}
     });
     lines.push("");
   });
@@ -340,182 +278,160 @@ function formatRundown(blocks) {
 
 // ── UI ────────────────────────────────────────────────────────────────────────
 function goToStep(n) {
-  state.step = n;
-  document.querySelectorAll(".panel").forEach((p, i) => p.classList.toggle("active", i === n));
-  document.querySelectorAll(".tab").forEach((t, i) => t.classList.toggle("active", i === n));
+  state.step=n;
+  document.querySelectorAll(".panel").forEach((p,i)=>p.classList.toggle("active",i===n));
+  document.querySelectorAll(".tab").forEach((t,i)=>t.classList.toggle("active",i===n));
   save();
 }
 
 function buildRoster() {
-  state.rosterRaw = document.getElementById("roster-input").value;
-  state.roster = parseRoster(state.rosterRaw);
-  const prev = document.getElementById("roster-preview");
-  prev.innerHTML = Object.values(state.roster).map(r =>
-    r.type === "reporter"
-      ? "📡 " + r.name + (r.location ? " — " + r.location : "")
-      : "👤 " + r.name + " — " + r.title
+  state.rosterRaw=document.getElementById("roster-input").value;
+  state.roster=parseRoster(state.rosterRaw);
+  document.getElementById("roster-preview").innerHTML=Object.values(state.roster).map(r=>
+    r.type==="reporter"?"📡 "+r.name+(r.location?" — "+r.location:""):"👤 "+r.name+" — "+r.title
   ).join("<br>");
-  document.getElementById("tab-1").disabled = false;
+  document.getElementById("tab-1").disabled=false;
   goToStep(1);
 }
 
 function buildOrder() {
-  state.orderRaw = document.getElementById("order-input").value;
-  const parsed = parseStoryOrder(state.orderRaw, state.roster);
-  // preserve any editorial already typed
-  Object.keys(parsed).forEach(k => {
-    parsed[k].editorial = (state.editorialInputs[k] || "");
-  });
-  state.blocks = parsed;
+  state.orderRaw=document.getElementById("order-input").value;
+  const parsed=parseStoryOrder(state.orderRaw,state.roster);
+  Object.keys(parsed).forEach(k=>{parsed[k].editorial=state.editorialInputs[k]||"";});
+  state.blocks=parsed;
   renderEditorialBlocks();
-  document.getElementById("tab-2").disabled = false;
+  document.getElementById("tab-2").disabled=false;
   goToStep(2);
 }
 
 function renderEditorialBlocks() {
-  const container = document.getElementById("editorial-blocks");
-  const keys = Object.keys(state.blocks).sort();
-  container.innerHTML = keys.map(key => {
-    const b = state.blocks[key];
-    const gnames = b.guests.map(g => g.name).join(" & ") || (b.isRead ? "reader" : "no guest");
-    const val = state.editorialInputs[key] || b.editorial || "";
-    return `
-      <div class="card red-left">
-        <div class="card-row">
-          <span class="block-title">${b.letter}${b.num||""}${b.isRead?" — TELL":""}</span>
-          <span class="block-meta">${gnames}</span>
-        </div>
-        <div class="slug-label">SLUG: ${b.slug}</div>
-        <textarea id="ed-${key}" rows="3" placeholder="Editorial copy for ${b.slug}..." oninput="onEditorialInput('${key}', this.value)">${escHtml(val)}</textarea>
+  const container=document.getElementById("editorial-blocks");
+  container.innerHTML=Object.keys(state.blocks).sort().map(key=>{
+    const b=state.blocks[key];
+    const gnames=b.guests.map(g=>g.name).join(" & ")||(b.isRead?"reader":"no guest");
+    const val=state.editorialInputs[key]||b.editorial||"";
+    return `<div class="card red-left">
+      <div class="card-row">
+        <span class="block-title">${b.letter}${b.num||""}${b.isRead?" — TELL":""}</span>
+        <span class="block-meta">${gnames}</span>
+      </div>
+      <div class="slug-label">SLUG: ${b.slug}</div>
+      <textarea id="ed-${key}" rows="3" placeholder="Editorial copy for ${b.slug}..." oninput="state.editorialInputs['${key}']=this.value">${escHtml(val)}</textarea>
 
 ```
-  </div>`;
+</div>`;
 ```
 
 }).join(””);
 }
 
-function escHtml(s) {
-return s.replace(/&/g,”&”).replace(/</g,”<”).replace(/>/g,”>”).replace(/”/g,”"”);
-}
-
-function onEditorialInput(key, val) {
-state.editorialInputs[key] = val;
-}
+function escHtml(s){ return s.replace(/&/g,”&”).replace(/</g,”<”).replace(/>/g,”>”).replace(/”/g,”"”); }
 
 function generateRundown() {
-// sync editorial
-Object.keys(state.blocks).forEach(key => {
-const el = document.getElementById(“ed-” + key);
-if (el) state.editorialInputs[key] = el.value;
+Object.keys(state.blocks).forEach(key=>{const el=document.getElementById(“ed-”+key);if(el)state.editorialInputs[key]=el.value;});
+const updated={};
+Object.keys(state.blocks).forEach(key=>{
+const b={…state.blocks[key]};
+if(state.editorialInputs[key]&&state.editorialInputs[key].trim()) b.editorial=state.editorialInputs[key].trim().toUpperCase();
+updated[key]=b;
 });
-const updated = {};
-Object.keys(state.blocks).forEach(key => {
-const b = { …state.blocks[key] };
-if (state.editorialInputs[key] && state.editorialInputs[key].trim()) {
-b.editorial = state.editorialInputs[key].trim().toUpperCase();
-}
-updated[key] = b;
-});
-state.blocks = updated;
-state.output = formatRundown(updated);
-document.getElementById(“rundown-output”).textContent = state.output;
-document.getElementById(“tab-3”).disabled = false;
+state.blocks=updated;
+state.output=formatRundown(updated);
+document.getElementById(“rundown-output”).textContent=state.output;
+document.getElementById(“tab-3”).disabled=false;
 goToStep(3);
 }
 
 function copyOutput() {
-navigator.clipboard.writeText(state.output).then(() => {
-const btn = document.getElementById(“copy-btn”);
-btn.textContent = “COPIED ✓”;
-btn.classList.add(“green”);
-setTimeout(() => { btn.textContent = “COPY TO CLIPBOARD”; btn.classList.remove(“green”); }, 2000);
+navigator.clipboard.writeText(state.output).then(()=>{
+const btn=document.getElementById(“copy-btn”);
+btn.textContent=“COPIED ✓”; btn.classList.add(“green”);
+setTimeout(()=>{btn.textContent=“COPY TO CLIPBOARD”;btn.classList.remove(“green”);},2000);
 });
 }
 
 function startFresh() {
-if (!confirm(“Clear everything and start a new rundown?”)) return;
+if(!confirm(“Clear everything and start a new rundown?”)) return;
 clearStorage();
-state = { step:0, rosterRaw:””, orderRaw:””, roster:{}, blocks:{}, editorialInputs:{}, output:”” };
-document.getElementById(“roster-input”).value = “”;
-document.getElementById(“order-input”).value = “”;
-document.getElementById(“roster-preview”).innerHTML = “”;
-document.getElementById(“editorial-blocks”).innerHTML = “”;
-document.getElementById(“rundown-output”).textContent = “”;
-document.getElementById(“save-indicator”).textContent = “”;
-[“tab-1”,“tab-2”,“tab-3”].forEach(id => document.getElementById(id).disabled = true);
+state={step:0,rosterRaw:””,orderRaw:””,roster:{},blocks:{},editorialInputs:{},output:””};
+document.getElementById(“roster-input”).value=””;
+document.getElementById(“order-input”).value=””;
+document.getElementById(“roster-preview”).innerHTML=””;
+document.getElementById(“editorial-blocks”).innerHTML=””;
+document.getElementById(“rundown-output”).textContent=””;
+document.getElementById(“save-indicator”).textContent=””;
+[“tab-1”,“tab-2”,“tab-3”].forEach(id=>document.getElementById(id).disabled=true);
 goToStep(0);
 }
 
 function restoreUI() {
-document.getElementById(“roster-input”).value = state.rosterRaw || “”;
-document.getElementById(“order-input”).value = state.orderRaw || “”;
-if (Object.keys(state.roster).length) {
-document.getElementById(“roster-preview”).innerHTML = Object.values(state.roster).map(r =>
-r.type === “reporter”
-? “📡 “ + r.name + (r.location ? “ — “ + r.location : “”)
-: “👤 “ + r.name + “ — “ + r.title
+document.getElementById(“roster-input”).value=state.rosterRaw||””;
+document.getElementById(“order-input”).value=state.orderRaw||””;
+if(Object.keys(state.roster).length){
+document.getElementById(“roster-preview”).innerHTML=Object.values(state.roster).map(r=>
+r.type===“reporter”?“📡 “+r.name+(r.location?” — “+r.location:””):“👤 “+r.name+” — “+r.title
 ).join(”<br>”);
-document.getElementById(“tab-1”).disabled = false;
+document.getElementById(“tab-1”).disabled=false;
 }
-if (Object.keys(state.blocks).length) {
-renderEditorialBlocks();
-document.getElementById(“tab-2”).disabled = false;
-}
-if (state.output) {
-document.getElementById(“rundown-output”).textContent = state.output;
-document.getElementById(“tab-3”).disabled = false;
-}
-// show current step
-document.querySelectorAll(”.panel”).forEach((p,i) => p.classList.toggle(“active”, i === state.step));
-document.querySelectorAll(”.tab”).forEach((t,i) => t.classList.toggle(“active”, i === state.step));
+if(Object.keys(state.blocks).length){renderEditorialBlocks();document.getElementById(“tab-2”).disabled=false;}
+if(state.output){document.getElementById(“rundown-output”).textContent=state.output;document.getElementById(“tab-3”).disabled=false;}
+document.querySelectorAll(”.panel”).forEach((p,i)=>p.classList.toggle(“active”,i===state.step));
+document.querySelectorAll(”.tab”).forEach((t,i)=>t.classList.toggle(“active”,i===state.step));
 }
 
 // ── PIN ───────────────────────────────────────────────────────────────────────
-function initPin() {
-const inputs = [0,1,2,3].map(i => document.getElementById(“p”+i));
-inputs.forEach((inp, i) => {
-inp.addEventListener(“input”, () => {
-const v = inp.value.replace(/\D/g,””).slice(-1);
-inp.value = v;
-if (v && i < 3) inputs[i+1].focus();
-if (i === 3 && v) {
-const pin = inputs.map(x => x.value).join(””);
+function attemptPin() {
+const pin = [0,1,2,3].map(i=>document.getElementById(“p”+i).value).join(””);
+if (pin.length < 4) { document.getElementById(“p”+([0,1,2,3].find(i=>!document.getElementById(“p”+i).value)||0)).focus(); return; }
 if (pin === CORRECT_PIN) {
-sessionStorage.setItem(SESSION_KEY, “1”);
-document.getElementById(“pin-screen”).style.display = “none”;
-document.getElementById(“app-screen”).style.display = “block”;
-load();
-restoreUI();
+sessionStorage.setItem(SESSION_KEY,“1”);
+document.getElementById(“pin-screen”).style.display=“none”;
+document.getElementById(“app-screen”).style.display=“block”;
+load(); restoreUI();
 } else {
-const row = document.getElementById(“pin-row”);
+const row=document.getElementById(“pin-row”);
 row.classList.add(“shake”);
-setTimeout(() => { row.classList.remove(“shake”); inputs.forEach(x => x.value = “”); inputs[0].focus(); }, 600);
+setTimeout(()=>{
+row.classList.remove(“shake”);
+[0,1,2,3].forEach(i=>document.getElementById(“p”+i).value=””);
+document.getElementById(“p0”).focus();
+},600);
 }
 }
+
+function initPin() {
+const inputs=[0,1,2,3].map(i=>document.getElementById(“p”+i));
+
+inputs.forEach((inp,i)=>{
+// use both input and keyup for maximum Safari compatibility
+inp.addEventListener(“input”, ()=>{
+// strip non-digits, keep only first char
+inp.value = inp.value.replace(/\D/g,””).slice(0,1);
+if (inp.value && i<3) inputs[i+1].focus();
+if (i===3 && inp.value) attemptPin();
 });
-inp.addEventListener(“keydown”, e => {
-if (e.key === “Backspace” && !inp.value && i > 0) inputs[i-1].focus();
+inp.addEventListener(“keyup”, e=>{
+if (e.key===“Enter”) { attemptPin(); return; }
+if (e.key===“Backspace” && !inp.value && i>0) inputs[i-1].focus();
 });
+// on focus, select any existing content so typing replaces it
+inp.addEventListener(“focus”, ()=>inp.select());
 });
-setTimeout(() => inputs[0].focus(), 100);
+
+setTimeout(()=>inputs[0].focus(), 150);
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
-document.addEventListener(“DOMContentLoaded”, () => {
-if (sessionStorage.getItem(SESSION_KEY) === “1”) {
-document.getElementById(“pin-screen”).style.display = “none”;
-document.getElementById(“app-screen”).style.display = “block”;
-load();
-restoreUI();
+document.addEventListener(“DOMContentLoaded”, ()=>{
+if (sessionStorage.getItem(SESSION_KEY)===“1”) {
+document.getElementById(“pin-screen”).style.display=“none”;
+document.getElementById(“app-screen”).style.display=“block”;
+load(); restoreUI();
 } else {
 initPin();
 }
-
-// autosave every 30s
 setInterval(save, 30000);
-// save on tab hide
-document.addEventListener(“visibilitychange”, () => { if (document.hidden) save(); });
+document.addEventListener(“visibilitychange”,()=>{ if(document.hidden) save(); });
 window.addEventListener(“beforeunload”, save);
 });
 </script>
