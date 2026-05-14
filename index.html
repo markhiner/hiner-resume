@@ -11,32 +11,39 @@ body { background: #0a0a0a; color: #e8e8e8; font-family: 'Courier New', monospac
 
 #pin-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; flex-direction: column; gap: 32px; }
 .pin-row { display: flex; gap: 20px; }
-.pin-box {
-width: 52px; height: 52px;
-background: #111;
-border: none; border-bottom: 2px solid #333;
-color: #e8e8e8; text-align: center;
-font-size: 28px; font-family: ‘Courier New’, monospace;
-outline: none;
-border-radius: 4px 4px 0 0;
+.pin-dot {
+width: 16px; height: 16px;
+border-radius: 50%;
+border: 1px solid #444;
+background: transparent;
+transition: background 0.1s;
+}
+.pin-dot.filled { background: #e8e8e8; border-color: #e8e8e8; }
+.pin-pad {
+display: grid;
+grid-template-columns: repeat(3, 72px);
+gap: 12px;
+margin-top: 8px;
+}
+.pin-key {
+height: 72px;
+background: #1a1a1a;
+border: 1px solid #2a2a2a;
+border-radius: 50%;
+color: #e8e8e8;
+font-size: 22px;
+font-family: ‘Courier New’, monospace;
+cursor: pointer;
 -webkit-appearance: none;
-appearance: none;
+display: flex; align-items: center; justify-content: center;
+width: 72px;
+user-select: none;
+-webkit-user-select: none;
 }
-.pin-box:focus { border-bottom-color: #888; background: #1a1a1a; }
-.pin-enter {
-background: transparent; border: 1px solid #2a2a2a; border-radius: 3px;
-color: #555; padding: 8px 28px; cursor: pointer;
-font-family: ‘Courier New’, monospace; font-size: 11px;
-letter-spacing: 0.15em; text-transform: uppercase;
--webkit-appearance: none;
-}
-@keyframes shake {
-0%,100% { transform: translateX(0); }
-20% { transform: translateX(-10px); }
-40% { transform: translateX(10px); }
-60% { transform: translateX(-7px); }
-80% { transform: translateX(7px); }
-}
+.pin-key:active { background: #333; }
+.pin-key-empty { background: transparent; border-color: transparent; cursor: default; }
+.pin-key-del { font-size: 18px; color: #888; }
+@keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-10px)} 40%{transform:translateX(10px)} 60%{transform:translateX(-7px)} 80%{transform:translateX(7px)} }
 .shake { animation: shake 0.5s ease; }
 
 #app-screen { display: none; }
@@ -48,7 +55,6 @@ letter-spacing: 0.15em; text-transform: uppercase;
 .tabs { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
 .tab { background: transparent; color: #888; border: 1px solid #2a2a2a; border-radius: 3px; padding: 6px 14px; cursor: pointer; font-family: ‘Courier New’, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; -webkit-appearance: none; }
 .tab.active { background: #e8e8e8; color: #0a0a0a; border-color: #e8e8e8; }
-.tab:disabled { opacity: 0.3; cursor: default; }
 
 .panel { display: none; }
 .panel.active { display: block; }
@@ -72,6 +78,13 @@ textarea:focus { border-color: #444; }
 .btn-ghost.green { color: #4a9; border-color: #4a9; }
 
 #roster-preview { margin-top: 14px; font-size: 11px; color: #555; line-height: 1.8; }
+
+/* roster reference panel on stack page */
+#stack-roster-ref { background: #0d0d0d; border: 1px solid #1e1e1e; border-radius: 3px; padding: 12px 14px; margin-bottom: 16px; font-size: 11px; line-height: 1.9; color: #555; }
+#stack-roster-ref .ref-reporter { color: #6a8a6a; }
+#stack-roster-ref .ref-guest { color: #6a7a9a; }
+#stack-roster-ref .ref-label { font-size: 10px; letter-spacing: 0.12em; color: #444; margin-bottom: 6px; display: block; text-transform: uppercase; }
+
 #rundown-output { background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 3px; padding: 16px; font-family: ‘Courier New’, monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: #e8e8e8; font-weight: bold; margin: 0; }
 .output-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 </style>
@@ -81,12 +94,25 @@ textarea:focus { border-color: #444; }
 
 <div id="pin-screen">
   <div class="pin-row" id="pin-row">
-    <input class="pin-box" type="tel" maxlength="1" id="p0" autocomplete="off" />
-    <input class="pin-box" type="tel" maxlength="1" id="p1" autocomplete="off" />
-    <input class="pin-box" type="tel" maxlength="1" id="p2" autocomplete="off" />
-    <input class="pin-box" type="tel" maxlength="1" id="p3" autocomplete="off" />
+    <div class="pin-dot" id="d0"></div>
+    <div class="pin-dot" id="d1"></div>
+    <div class="pin-dot" id="d2"></div>
+    <div class="pin-dot" id="d3"></div>
   </div>
-  <button class="pin-enter" onclick="attemptPin()">ENTER</button>
+  <div class="pin-pad">
+    <button class="pin-key" onclick="pinKey('1')">1</button>
+    <button class="pin-key" onclick="pinKey('2')">2</button>
+    <button class="pin-key" onclick="pinKey('3')">3</button>
+    <button class="pin-key" onclick="pinKey('4')">4</button>
+    <button class="pin-key" onclick="pinKey('5')">5</button>
+    <button class="pin-key" onclick="pinKey('6')">6</button>
+    <button class="pin-key" onclick="pinKey('7')">7</button>
+    <button class="pin-key" onclick="pinKey('8')">8</button>
+    <button class="pin-key" onclick="pinKey('9')">9</button>
+    <div class="pin-key pin-key-empty"></div>
+    <button class="pin-key" onclick="pinKey('0')">0</button>
+    <button class="pin-key pin-key-del" onclick="pinDel()">⌫</button>
+  </div>
 </div>
 
 <div id="app-screen">
@@ -103,10 +129,12 @@ textarea:focus { border-color: #444; }
 
   <div class="tabs">
     <button class="tab active" id="tab-0" onclick="goToStep(0)">1. ROSTER</button>
-    <button class="tab" id="tab-1" onclick="goToStep(1)" disabled>2. ORDER</button>
-    <button class="tab" id="tab-2" onclick="goToStep(2)" disabled>3. EDITORIAL</button>
-    <button class="tab" id="tab-3" onclick="goToStep(3)" disabled>4. OUTPUT</button>
+    <button class="tab" id="tab-1" onclick="goToStep(1)">2. STACK</button>
+    <button class="tab" id="tab-2" onclick="goToStep(2)">3. EDITORIAL</button>
+    <button class="tab" id="tab-3" onclick="goToStep(3)">4. BUILD</button>
   </div>
+
+  <!-- STEP 0: ROSTER -->
 
   <div class="panel active" id="panel-0">
     <div class="card">
@@ -116,27 +144,32 @@ textarea:focus { border-color: #444; }
         REPORTER (no location): <span>Reporter Name LIVE</span><br>
         REPORTER (with location): <span>Reporter Name LIVE Miami</span>
       </div>
-      <textarea id="roster-input" rows="8" placeholder="Reporter Name LIVE Washington DC&#10;Reporter Name LIVE&#10;Guest Name, Title"></textarea>
+      <textarea id="roster-input" rows="8"></textarea>
       <br>
-      <button class="btn-action" onclick="buildRoster()">BUILD ROSTER →</button>
+      <button class="btn-action" onclick="buildRoster()">SAVE ROSTER →</button>
       <div id="roster-preview"></div>
     </div>
   </div>
 
+  <!-- STEP 1: STACK -->
+
   <div class="panel" id="panel-1">
     <div class="card">
-      <span class="card-label">Story Order — shorthand</span>
+      <span class="card-label">Stack Order — shorthand</span>
       <div class="hint">
         <span>a- slug lastname</span> — segment with guest/reporter<br>
         <span>a- slug lastname read slug2</span> — segment + auto TELL as A2<br>
         <span>b2- read slug</span> — explicit standalone TELL<br>
         Multiple guests: <span>lastname & lastname</span>
       </div>
-      <textarea id="order-input" rows="3" placeholder="a- iran guest read china  b- hantavirus reporter  c- cartel guest  c2- read ship seized  d- court guest & guest"></textarea>
+      <div id="stack-roster-ref"></div>
+      <textarea id="order-input" rows="4"></textarea>
       <br>
-      <button class="btn-action" onclick="buildOrder()">BUILD ORDER →</button>
+      <button class="btn-action" onclick="buildOrder()">BUILD STACK →</button>
     </div>
   </div>
+
+  <!-- STEP 2: EDITORIAL -->
 
   <div class="panel" id="panel-2">
     <div class="card" style="margin-bottom:8px">
@@ -144,8 +177,10 @@ textarea:focus { border-color: #444; }
       <div style="font-size:11px;color:#555">Paste copy for each block. Leave blank to keep the slug as placeholder.</div>
     </div>
     <div id="editorial-blocks"></div>
-    <button class="btn-action" onclick="generateRundown()">GENERATE RUNDOWN →</button>
+    <button class="btn-action" onclick="generateRundown()">BUILD RUNDOWN →</button>
   </div>
+
+  <!-- STEP 3: BUILD -->
 
   <div class="panel" id="panel-3">
     <div class="card">
@@ -226,12 +261,26 @@ function guestLine(e) {
 function extractSegment(chunk, roster, isRead) {
   const slugRaw = isRead ? chunk.replace(/\bread\b/gi,"").trim() : chunk;
   const words = slugRaw.split(/\s+/);
-  const guests=[]; let slugWords=[...words];
-  for (let w=words.length-1; w>=0; w--) {
+  const guests=[]; let cutAt=words.length;
+
+  // Walk backward collecting consecutive matching words (handles "batya & marks" as single token via &)
+  // First try multi-word combos with & joining adjacent words, then single words
+  let w = words.length - 1;
+  while (w >= 0) {
+    // Try "word & word" pair first (e.g. "batya & marks" already collapsed by & split in resolveGuest)
+    // Try single word
     const s = resolveGuest(words[w], roster);
-    if (s.some(r=>r.type!=="unknown")) { guests.unshift(...s); slugWords=words.slice(0,w); continue; }
-    break;
+    if (s.some(r=>r.type!=="unknown")) {
+      guests.unshift(...s);
+      cutAt = w;
+      w--;
+      // allow skipping a bare "&" connector
+      if (w >= 0 && words[w] === "&") { w--; continue; }
+    } else {
+      break;
+    }
   }
+  const slugWords = words.slice(0, cutAt);
   const slug = slugWords.join(" ").replace(/\s+/g," ").trim()||slugRaw;
   return { slug:slug.toUpperCase(), guests:isRead?[]:guests, isRead, editorial:"" };
 }
@@ -244,7 +293,7 @@ function parseStoryOrder(raw, roster) {
   anchors.forEach((anchor,i) => {
     const textEnd = i+1<anchors.length?anchors[i+1].start:raw.length;
     const chunk = raw.slice(anchor.end,textEnd).trim();
-    const inlineRead = chunk.match(/^(.+?)\s+\bread\b\s+(.+)$/i);
+    const inlineRead = chunk.match(/^(.+?)\s+read\s+(.+)$/i);
     const startsRead = /^\s*read\b/i.test(chunk);
     if (inlineRead&&!startsRead) {
       const pk=anchor.letter+(anchor.num||"");
@@ -276,47 +325,76 @@ function formatRundown(blocks) {
   return lines.join("\n");
 }
 
+// ── ROSTER REFERENCE (for stack page) ────────────────────────────────────────
+function renderStackRosterRef() {
+  const ref = document.getElementById("stack-roster-ref");
+  if (!ref) return;
+  const entries = Object.values(state.roster);
+  if (!entries.length) { ref.innerHTML=""; return; }
+  const reporters = entries.filter(r=>r.type==="reporter");
+  const guests = entries.filter(r=>r.type==="guest");
+  let html = '<span class="ref-label">TODAY\'S ROSTER</span>';
+  if (reporters.length) {
+    html += reporters.map(r=>`<span class="ref-reporter">📡 ${r.name}${r.location?" — "+r.location:""}</span>`).join("<br>") + "<br>";
+  }
+  if (guests.length) {
+    html += guests.map(r=>`<span class="ref-guest">👤 ${r.name} — ${r.title}</span>`).join("<br>");
+  }
+  ref.innerHTML = html;
+}
+
 // ── UI ────────────────────────────────────────────────────────────────────────
 function goToStep(n) {
-  state.step=n;
+  // sync text inputs before switching away
+  const ri = document.getElementById("roster-input");
+  const oi = document.getElementById("order-input");
+  if (ri) state.rosterRaw = ri.value;
+  if (oi) state.orderRaw = oi.value;
+  Object.keys(state.blocks).forEach(key => {
+    const el = document.getElementById("ed-" + key);
+    if (el) state.editorialInputs[key] = el.value;
+  });
+
+  state.step = n;
   document.querySelectorAll(".panel").forEach((p,i)=>p.classList.toggle("active",i===n));
   document.querySelectorAll(".tab").forEach((t,i)=>t.classList.toggle("active",i===n));
+
+  if (n===1) renderStackRosterRef();
   save();
 }
 
 function buildRoster() {
-  state.rosterRaw=document.getElementById("roster-input").value;
-  state.roster=parseRoster(state.rosterRaw);
-  document.getElementById("roster-preview").innerHTML=Object.values(state.roster).map(r=>
-    r.type==="reporter"?"📡 "+r.name+(r.location?" — "+r.location:""):"👤 "+r.name+" — "+r.title
+  state.rosterRaw = document.getElementById("roster-input").value;
+  state.roster = parseRoster(state.rosterRaw);
+  // show preview on roster page
+  document.getElementById("roster-preview").innerHTML = Object.values(state.roster).map(r=>
+    r.type==="reporter" ? "📡 "+r.name+(r.location?" — "+r.location:"") : "👤 "+r.name+" — "+r.title
   ).join("<br>");
-  document.getElementById("tab-1").disabled=false;
   goToStep(1);
 }
 
 function buildOrder() {
-  state.orderRaw=document.getElementById("order-input").value;
-  const parsed=parseStoryOrder(state.orderRaw,state.roster);
-  Object.keys(parsed).forEach(k=>{parsed[k].editorial=state.editorialInputs[k]||"";});
-  state.blocks=parsed;
+  state.orderRaw = document.getElementById("order-input").value;
+  const parsed = parseStoryOrder(state.orderRaw, state.roster);
+  Object.keys(parsed).forEach(k=>{ parsed[k].editorial = state.editorialInputs[k]||""; });
+  state.blocks = parsed;
   renderEditorialBlocks();
-  document.getElementById("tab-2").disabled=false;
   goToStep(2);
 }
 
 function renderEditorialBlocks() {
-  const container=document.getElementById("editorial-blocks");
-  container.innerHTML=Object.keys(state.blocks).sort().map(key=>{
-    const b=state.blocks[key];
-    const gnames=b.guests.map(g=>g.name).join(" & ")||(b.isRead?"reader":"no guest");
-    const val=state.editorialInputs[key]||b.editorial||"";
+  const container = document.getElementById("editorial-blocks");
+  container.innerHTML = Object.keys(state.blocks).sort().map(key => {
+    const b = state.blocks[key];
+    const gnames = b.guests.map(g=>g.name).join(" & ") || (b.isRead?"reader":"no guest");
+    const val = state.editorialInputs[key] || b.editorial || "";
     return `<div class="card red-left">
       <div class="card-row">
         <span class="block-title">${b.letter}${b.num||""}${b.isRead?" — TELL":""}</span>
         <span class="block-meta">${gnames}</span>
       </div>
       <div class="slug-label">SLUG: ${b.slug}</div>
-      <textarea id="ed-${key}" rows="3" placeholder="Editorial copy for ${b.slug}..." oninput="state.editorialInputs['${key}']=this.value">${escHtml(val)}</textarea>
+      <textarea id="ed-${key}" rows="3" oninput="state.editorialInputs['${key}']=this.value">${escHtml(val)}</textarea>
 
 ```
 </div>`;
@@ -328,7 +406,7 @@ function renderEditorialBlocks() {
 function escHtml(s){ return s.replace(/&/g,”&”).replace(/</g,”<”).replace(/>/g,”>”).replace(/”/g,”"”); }
 
 function generateRundown() {
-Object.keys(state.blocks).forEach(key=>{const el=document.getElementById(“ed-”+key);if(el)state.editorialInputs[key]=el.value;});
+Object.keys(state.blocks).forEach(key=>{ const el=document.getElementById(“ed-”+key); if(el) state.editorialInputs[key]=el.value; });
 const updated={};
 Object.keys(state.blocks).forEach(key=>{
 const b={…state.blocks[key]};
@@ -338,7 +416,6 @@ updated[key]=b;
 state.blocks=updated;
 state.output=formatRundown(updated);
 document.getElementById(“rundown-output”).textContent=state.output;
-document.getElementById(“tab-3”).disabled=false;
 goToStep(3);
 }
 
@@ -346,7 +423,7 @@ function copyOutput() {
 navigator.clipboard.writeText(state.output).then(()=>{
 const btn=document.getElementById(“copy-btn”);
 btn.textContent=“COPIED ✓”; btn.classList.add(“green”);
-setTimeout(()=>{btn.textContent=“COPY TO CLIPBOARD”;btn.classList.remove(“green”);},2000);
+setTimeout(()=>{ btn.textContent=“COPY TO CLIPBOARD”; btn.classList.remove(“green”); },2000);
 });
 }
 
@@ -360,30 +437,51 @@ document.getElementById(“roster-preview”).innerHTML=””;
 document.getElementById(“editorial-blocks”).innerHTML=””;
 document.getElementById(“rundown-output”).textContent=””;
 document.getElementById(“save-indicator”).textContent=””;
-[“tab-1”,“tab-2”,“tab-3”].forEach(id=>document.getElementById(id).disabled=true);
+document.getElementById(“stack-roster-ref”).innerHTML=””;
 goToStep(0);
 }
 
 function restoreUI() {
 document.getElementById(“roster-input”).value=state.rosterRaw||””;
 document.getElementById(“order-input”).value=state.orderRaw||””;
-if(Object.keys(state.roster).length){
+if (Object.keys(state.roster).length) {
 document.getElementById(“roster-preview”).innerHTML=Object.values(state.roster).map(r=>
 r.type===“reporter”?“📡 “+r.name+(r.location?” — “+r.location:””):“👤 “+r.name+” — “+r.title
 ).join(”<br>”);
-document.getElementById(“tab-1”).disabled=false;
 }
-if(Object.keys(state.blocks).length){renderEditorialBlocks();document.getElementById(“tab-2”).disabled=false;}
-if(state.output){document.getElementById(“rundown-output”).textContent=state.output;document.getElementById(“tab-3”).disabled=false;}
+if (Object.keys(state.blocks).length) renderEditorialBlocks();
+if (state.output) document.getElementById(“rundown-output”).textContent=state.output;
 document.querySelectorAll(”.panel”).forEach((p,i)=>p.classList.toggle(“active”,i===state.step));
 document.querySelectorAll(”.tab”).forEach((t,i)=>t.classList.toggle(“active”,i===state.step));
+if (state.step===1) renderStackRosterRef();
 }
 
 // ── PIN ───────────────────────────────────────────────────────────────────────
+let pinEntry = “”;
+
+function updatePinDots() {
+for (let i=0; i<4; i++) {
+document.getElementById(“d”+i).classList.toggle(“filled”, i < pinEntry.length);
+}
+}
+
+function pinKey(digit) {
+if (pinEntry.length >= 4) return;
+pinEntry += digit;
+updatePinDots();
+if (pinEntry.length === 4) {
+setTimeout(attemptPin, 80); // brief pause so last dot fills visually
+}
+}
+
+function pinDel() {
+if (pinEntry.length === 0) return;
+pinEntry = pinEntry.slice(0, -1);
+updatePinDots();
+}
+
 function attemptPin() {
-const pin = [0,1,2,3].map(i=>document.getElementById(“p”+i).value).join(””);
-if (pin.length < 4) { document.getElementById(“p”+([0,1,2,3].find(i=>!document.getElementById(“p”+i).value)||0)).focus(); return; }
-if (pin === CORRECT_PIN) {
+if (pinEntry === CORRECT_PIN) {
 sessionStorage.setItem(SESSION_KEY,“1”);
 document.getElementById(“pin-screen”).style.display=“none”;
 document.getElementById(“app-screen”).style.display=“block”;
@@ -391,38 +489,21 @@ load(); restoreUI();
 } else {
 const row=document.getElementById(“pin-row”);
 row.classList.add(“shake”);
-setTimeout(()=>{
-row.classList.remove(“shake”);
-[0,1,2,3].forEach(i=>document.getElementById(“p”+i).value=””);
-document.getElementById(“p0”).focus();
-},600);
+setTimeout(()=>{ row.classList.remove(“shake”); pinEntry=””; updatePinDots(); },600);
 }
 }
 
 function initPin() {
-const inputs=[0,1,2,3].map(i=>document.getElementById(“p”+i));
-
-inputs.forEach((inp,i)=>{
-// use both input and keyup for maximum Safari compatibility
-inp.addEventListener(“input”, ()=>{
-// strip non-digits, keep only first char
-inp.value = inp.value.replace(/\D/g,””).slice(0,1);
-if (inp.value && i<3) inputs[i+1].focus();
-if (i===3 && inp.value) attemptPin();
+// also support physical keyboard for desktop use
+document.addEventListener(“keydown”, e => {
+if (document.getElementById(“pin-screen”).style.display === “none”) return;
+if (e.key >= “0” && e.key <= “9”) pinKey(e.key);
+if (e.key === “Backspace”) pinDel();
 });
-inp.addEventListener(“keyup”, e=>{
-if (e.key===“Enter”) { attemptPin(); return; }
-if (e.key===“Backspace” && !inp.value && i>0) inputs[i-1].focus();
-});
-// on focus, select any existing content so typing replaces it
-inp.addEventListener(“focus”, ()=>inp.select());
-});
-
-setTimeout(()=>inputs[0].focus(), 150);
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
-document.addEventListener(“DOMContentLoaded”, ()=>{
+document.addEventListener(“DOMContentLoaded”,()=>{
 if (sessionStorage.getItem(SESSION_KEY)===“1”) {
 document.getElementById(“pin-screen”).style.display=“none”;
 document.getElementById(“app-screen”).style.display=“block”;
@@ -430,9 +511,9 @@ load(); restoreUI();
 } else {
 initPin();
 }
-setInterval(save, 30000);
+setInterval(save,30000);
 document.addEventListener(“visibilitychange”,()=>{ if(document.hidden) save(); });
-window.addEventListener(“beforeunload”, save);
+window.addEventListener(“beforeunload”,save);
 });
 </script>
 
