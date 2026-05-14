@@ -1,5 +1,4 @@
 <!doctype html>
-
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -25,38 +24,39 @@
       object-fit: contain;
       object-position: center;
       background: #000;
-    }
-    #secret {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      width: 80px;
-      height: 80px;
-      z-index: 999;
-      /* completely invisible — no background, no border */
+      -webkit-user-select: none;
+      user-select: none;
     }
   </style>
 </head>
 <body>
-  <img src="Colorbars.png" alt="">
-  <div id="secret"></div>
-
+  <img src="Colorbars.png" alt="" draggable="false">
   <script>
-    // Require 2 taps within 600ms to avoid accidental triggers
-    let lastTap = 0;
-    document.getElementById('secret').addEventListener('touchend', function(e) {
-      e.preventDefault();
-      const now = Date.now();
-      if (now - lastTap < 600) {
+    var lastTap = 0;
+
+    document.addEventListener('touchstart', function(e) {
+      var touch = e.touches[0];
+      var x = touch.clientX;
+      var y = touch.clientY;
+      var w = window.innerWidth;
+      var h = window.innerHeight;
+
+      // lower-left zone: left 20% width, bottom 20% height
+      if (x < w * 0.20 && y > h * 0.80) {
+        var now = Date.now();
+        if (now - lastTap < 500) {
+          window.location.href = 'rundown-builder.html';
+        }
+        lastTap = now;
+      }
+    }, { passive: true });
+
+    // desktop fallback
+    document.addEventListener('dblclick', function(e) {
+      if (e.clientX < window.innerWidth * 0.20 && e.clientY > window.innerHeight * 0.80) {
         window.location.href = 'rundown-builder.html';
       }
-      lastTap = now;
-    });
-    // Desktop: double-click
-    document.getElementById('secret').addEventListener('dblclick', function() {
-      window.location.href = 'rundown-builder.html';
     });
   </script>
-
 </body>
 </html>
