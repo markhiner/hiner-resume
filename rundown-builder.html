@@ -91,7 +91,7 @@ textarea:focus { border-color: #444; }
 #stack-roster-ref .ref-cols { display: flex; gap: 16px; }
 #stack-roster-ref .ref-col { flex: 1; min-width: 0; }
 #stack-roster-ref .ref-col-label { font-size: 9px; letter-spacing: 0.15em; color: #444; margin-bottom: 8px; display: block; text-transform: uppercase; }
-#stack-roster-ref .ref-name { display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; }
+#stack-roster-ref .ref-name { display: flex; align-items: flex-start; gap: 6px; white-space: normal; overflow: visible; margin-bottom: 3px; line-height: 1.4; }
 #stack-roster-ref .ref-icon-guest { color: #7a9acf; font-size: 12px; flex-shrink: 0; }
 #stack-roster-ref .ref-icon-reporter { color: #7abf8a; font-size: 12px; flex-shrink: 0; }
 #stack-roster-ref .ref-none { color: #444; font-style: italic; font-size: 11px; }
@@ -323,8 +323,9 @@ function parseStoryOrder(raw, roster) {
   anchors.forEach((anchor,i) => {
     const textEnd = i+1<anchors.length?anchors[i+1].start:raw.length;
     const chunk = raw.slice(anchor.end,textEnd).trim();
-    const inlineRead = chunk.match(/^(.+?)\s+read\s+(.+)$/i);
-    const startsRead = /^\s*read\b/i.test(chunk);
+    const chunkClean = chunk.replace(/\bread\s*:/gi, "read ");  // normalize "read:" -> "read"
+    const inlineRead = chunkClean.match(/^(.+?)\s+read\s+(.+)$/i);
+    const startsRead = /^\s*read\b/i.test(chunkClean);
     if (inlineRead&&!startsRead) {
       const pk=anchor.letter+(anchor.num||"");
       blocks[pk]={letter:anchor.letter,num:anchor.num||"",...extractSegment(inlineRead[1].trim(),roster,false)};
@@ -332,7 +333,7 @@ function parseStoryOrder(raw, roster) {
       blocks[anchor.letter+sn]={letter:anchor.letter,num:sn,...extractSegment(inlineRead[2].trim(),roster,true)};
     } else {
       const key=anchor.letter+(anchor.num||"");
-      blocks[key]={letter:anchor.letter,num:anchor.num||"",...extractSegment(chunk,roster,startsRead)};
+      blocks[key]={letter:anchor.letter,num:anchor.num||"",...extractSegment(chunkClean,roster,startsRead)};
     }
   });
   return blocks;
