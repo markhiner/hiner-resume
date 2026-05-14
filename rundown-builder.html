@@ -8,54 +8,60 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #0a0a0a; color: #e8e8e8; font-family: 'Courier New', monospace; min-height: 100vh; padding: 24px; font-size: 14px; }
 
-#pin-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; flex-direction: column; gap: 32px; }
-.pin-row { display: flex; gap: 20px; }
-.pin-dot {
-  width: 16px; height: 16px;
-  border-radius: 50%;
-  border: 1px solid #444;
-  background: transparent;
-  transition: background 0.1s;
+#pin-screen {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; flex-direction: column; gap: 48px;
+  background: #0a0a0a;
 }
-.pin-dot.filled { background: #e8e8e8; border-color: #e8e8e8; }
+.pin-row { display: flex; gap: 16px; align-items: center; }
+.pin-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #2a2a2a;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.pin-dot.filled { background: #e8e8e8; transform: scale(1.2); }
 .pin-pad {
   display: grid;
-  grid-template-columns: repeat(3, 72px);
-  gap: 12px;
-  margin-top: 8px;
+  grid-template-columns: repeat(3, 88px);
+  gap: 2px;
 }
 .pin-key {
-  height: 72px;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
-  border-radius: 50%;
+  height: 64px;
+  width: 88px;
+  background: #111;
+  border: none;
+  border-radius: 0;
   color: #e8e8e8;
-  font-size: 22px;
+  font-size: 20px;
   font-family: 'Courier New', monospace;
+  font-weight: 300;
+  letter-spacing: 0.05em;
   cursor: pointer;
   -webkit-appearance: none;
   display: flex; align-items: center; justify-content: center;
-  width: 72px;
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  transition: background 0.08s ease, color 0.08s ease;
 }
-.pin-key:active { background: #333; }
-.pin-key-empty { background: transparent; border-color: transparent; cursor: default; }
-.pin-key-del { font-size: 18px; color: #888; }
+.pin-key:active { background: #222; color: #fff; }
+.pin-key-empty { background: transparent; cursor: default; pointer-events: none; }
+.pin-key-del { font-size: 16px; color: #555; }
+.pin-key-del:active { color: #aaa; background: #1a1a1a; }
 @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-10px)} 40%{transform:translateX(10px)} 60%{transform:translateX(-7px)} 80%{transform:translateX(7px)} }
 .shake { animation: shake 0.5s ease; }
 
 #app-screen { display: none; }
 .header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; }
-.eyebrow { font-size: 10px; letter-spacing: 0.2em; color: #555; margin-bottom: 4px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.2em; color: #aaa; margin-bottom: 4px; }
 .title { font-size: 20px; font-weight: bold; letter-spacing: 0.05em; }
 #save-indicator { font-size: 10px; color: #444; margin-bottom: 6px; min-height: 14px; }
 
 .tabs { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
 .tab { background: transparent; color: #888; border: 1px solid #2a2a2a; border-radius: 3px; padding: 6px 14px; cursor: pointer; font-family: 'Courier New', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; -webkit-appearance: none; }
-.tab.active { background: #e8e8e8; color: #0a0a0a; border-color: #e8e8e8; }
+.tab.active { background: transparent; color: #f0e000; border-color: #f0e000; }
 
 .panel { display: none; }
 .panel.active { display: block; }
@@ -73,8 +79,8 @@ body { background: #0a0a0a; color: #e8e8e8; font-family: 'Courier New', monospac
 textarea { width: 100%; background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 3px; color: #e8e8e8; font-family: 'Courier New', monospace; font-size: 13px; padding: 10px; resize: vertical; line-height: 1.6; outline: none; -webkit-appearance: none; }
 textarea:focus { border-color: #444; }
 
-.btn-action { background: #c8102e; color: #fff; border: none; border-radius: 3px; padding: 10px 22px; cursor: pointer; font-family: 'Courier New', monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 12px; -webkit-appearance: none; display: inline-block; }
-.btn-action.grey { background: #333; }
+.btn-action { background: #f0e000; color: #000; border: none; border-radius: 3px; padding: 10px 22px; cursor: pointer; font-family: 'Courier New', monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 12px; -webkit-appearance: none; display: inline-block; font-weight: bold; }
+.btn-action.grey { background: #333; color: #e8e8e8; font-weight: normal; }
 .btn-ghost { background: transparent; color: #555; border: 1px solid #2a2a2a; border-radius: 3px; padding: 6px 14px; cursor: pointer; font-family: 'Courier New', monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; -webkit-appearance: none; }
 .btn-ghost.green { color: #4a9; border-color: #4a9; }
 
@@ -91,6 +97,15 @@ textarea:focus { border-color: #444; }
 #stack-roster-ref .ref-none { color: #444; font-style: italic; font-size: 11px; }
 
 #rundown-output { background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 3px; padding: 16px; font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: #e8e8e8; font-weight: bold; margin: 0; }
+.archive-entry { background: #141414; border: 1px solid #2a2a2a; border-radius: 4px; margin-bottom: 12px; overflow: hidden; }
+.archive-entry-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; cursor: pointer; }
+.archive-entry-date { font-size: 12px; letter-spacing: 0.1em; color: #aaa; }
+.archive-entry-del { font-size: 10px; color: #555; border: 1px solid #2a2a2a; border-radius: 3px; padding: 4px 10px; background: transparent; font-family: 'Courier New', monospace; cursor: pointer; letter-spacing: 0.1em; text-transform: uppercase; -webkit-appearance: none; }
+.archive-entry-del:active { color: #c00; border-color: #c00; }
+.archive-entry-body { display: none; padding: 0 16px 16px; }
+.archive-entry-body.open { display: block; }
+.archive-entry-body pre { background: #0d0d0d; border: 1px solid #1e1e1e; border-radius: 3px; padding: 12px; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: #e8e8e8; font-weight: bold; margin: 0; }
+.archive-copy { font-size: 10px; color: #555; border: 1px solid #2a2a2a; border-radius: 3px; padding: 4px 10px; background: transparent; font-family: 'Courier New', monospace; cursor: pointer; letter-spacing: 0.1em; text-transform: uppercase; -webkit-appearance: none; margin-top: 10px; display: inline-block; }
 .output-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 </style>
 </head>
@@ -122,7 +137,7 @@ textarea:focus { border-color: #444; }
 <div id="app-screen">
   <div class="header">
     <div>
-      <div class="eyebrow">NEWSNATION</div>
+      <div class="eyebrow">HINER.TV</div>
       <div class="title">PRODUCER PRO 2000</div>
     </div>
     <div style="text-align:right">
@@ -132,17 +147,18 @@ textarea:focus { border-color: #444; }
   </div>
 
   <div class="tabs">
-    <button class="tab active" id="tab-0" onclick="goToStep(0)">1. ROSTER</button>
+    <button class="tab active" id="tab-0" onclick="goToStep(0)">1. LINE-UP</button>
     <button class="tab" id="tab-1" onclick="goToStep(1)">2. STACK</button>
     <button class="tab" id="tab-2" onclick="goToStep(2)">3. EDITORIAL</button>
     <button class="tab" id="tab-3" onclick="goToStep(3)">4. BUILD</button>
+    <button class="tab" id="tab-4" onclick="goToStep(4)">5. ARCHIVE</button>
   </div>
 
   <!-- STEP 0: ROSTER -->
   <div class="panel active" id="panel-0">
     <div class="card">
-      <span class="card-label">Guests & Reporters — one per line</span>
-      <div class="hint">
+      <span class="card-label" id="lineup-date"></span>
+      <div class="hint" style="margin-top:8px">
         GUEST: <span>Guest Name, Title</span><br>
         REPORTER (no location): <span>Reporter Name LIVE</span><br>
         REPORTER (with location): <span>Reporter Name LIVE Miami</span>
@@ -189,8 +205,23 @@ textarea:focus { border-color: #444; }
         <button class="btn-ghost" id="copy-btn" onclick="copyOutput()">COPY TO CLIPBOARD</button>
       </div>
       <pre id="rundown-output"></pre>
-      <button class="btn-action grey" onclick="goToStep(2)" style="margin-top:12px">← BACK TO EDITORIAL</button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn-action grey" onclick="goToStep(2)">← BACK TO EDITORIAL</button>
+        <button class="btn-action" onclick="saveToArchive()">SAVE TO ARCHIVE</button>
+      </div>
     </div>
+  </div>
+
+  <!-- STEP 4: ARCHIVE -->
+  <div class="panel" id="panel-4">
+    <div class="card" style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="card-label" style="margin:0">ARCHIVE</span>
+        <button class="btn-ghost" onclick="clearArchive()" style="color:#c00;border-color:#c00">CLEAR ALL</button>
+      </div>
+    </div>
+    <div id="archive-list"></div>
+    <div id="archive-empty" style="font-size:11px;color:#444;display:none">NO SAVED RUNDOWNS YET.</div>
   </div>
 </div>
 
@@ -364,6 +395,7 @@ function goToStep(n) {
   document.querySelectorAll(".tab").forEach((t,i)=>t.classList.toggle("active",i===n));
 
   if (n===1) renderStackRosterRef();
+  if (n===4) renderArchive();
   save();
 }
 
@@ -454,6 +486,7 @@ function restoreUI() {
   document.querySelectorAll(".panel").forEach((p,i)=>p.classList.toggle("active",i===state.step));
   document.querySelectorAll(".tab").forEach((t,i)=>t.classList.toggle("active",i===state.step));
   if (state.step===1) renderStackRosterRef();
+  if (state.step===4) renderArchive();
 }
 
 // ── PIN ───────────────────────────────────────────────────────────────────────
@@ -525,6 +558,69 @@ function initPin() {
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
+// ── ARCHIVE ───────────────────────────────────────────────────────────────────
+const ARCHIVE_KEY = "pp2000_archive";
+
+function loadArchive() {
+  try { return JSON.parse(localStorage.getItem(ARCHIVE_KEY) || "[]"); } catch(e) { return []; }
+}
+
+function saveArchive(arr) {
+  try { localStorage.setItem(ARCHIVE_KEY, JSON.stringify(arr)); } catch(e) {}
+}
+
+function saveToArchive() {
+  if (!state.output || !state.output.trim()) { alert("Nothing to save — generate the rundown first."); return; }
+  const archive = loadArchive();
+  const days = ["SUNDAY","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY"];
+  const months = ["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE","JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER"];
+  const now = new Date();
+  const label = days[now.getDay()] + ", " + months[now.getMonth()] + " " + String(now.getDate()).padStart(2,"0") + ", " + now.getFullYear();
+  // replace if same date already exists
+  const idx = archive.findIndex(e => e.date === label);
+  if (idx > -1) { archive[idx].text = state.output; } else { archive.unshift({ date: label, text: state.output }); }
+  saveArchive(archive);
+  const btn = document.querySelector('[onclick="saveToArchive()"]');
+  if (btn) { const orig = btn.textContent; btn.textContent = "SAVED ✓"; setTimeout(() => btn.textContent = orig, 2000); }
+}
+
+function renderArchive() {
+  const archive = loadArchive();
+  const list = document.getElementById("archive-list");
+  const empty = document.getElementById("archive-empty");
+  if (!archive.length) { list.innerHTML = ""; empty.style.display = "block"; return; }
+  empty.style.display = "none";
+  list.innerHTML = archive.map((entry, i) => `
+    <div class="archive-entry">
+      <div class="archive-entry-header" onclick="toggleArchiveEntry(${i})">
+        <span class="archive-entry-date">${entry.date}</span>
+        <button class="archive-entry-del" onclick="event.stopPropagation();deleteArchiveEntry(${i})">DELETE</button>
+      </div>
+      <div class="archive-entry-body" id="arch-body-${i}">
+        <pre>${escHtml(entry.text)}</pre>
+        <button class="archive-copy" onclick="navigator.clipboard.writeText(${JSON.stringify(entry.text)})">COPY</button>
+      </div>
+    </div>`).join("");
+}
+
+function toggleArchiveEntry(i) {
+  const body = document.getElementById("arch-body-" + i);
+  if (body) body.classList.toggle("open");
+}
+
+function deleteArchiveEntry(i) {
+  const archive = loadArchive();
+  archive.splice(i, 1);
+  saveArchive(archive);
+  renderArchive();
+}
+
+function clearArchive() {
+  if (!confirm("Delete all saved rundowns?")) return;
+  localStorage.removeItem(ARCHIVE_KEY);
+  renderArchive();
+}
+
 document.addEventListener("DOMContentLoaded",()=>{
   if (sessionStorage.getItem(SESSION_KEY)==="1") {
     document.getElementById("pin-screen").style.display="none";
@@ -536,6 +632,19 @@ document.addEventListener("DOMContentLoaded",()=>{
   setInterval(save,30000);
   document.addEventListener("visibilitychange",()=>{ if(document.hidden) save(); });
   window.addEventListener("beforeunload",save);
+
+  // Auto-populate date on lineup page
+  const dateEl = document.getElementById("lineup-date");
+  if (dateEl) {
+    const days = ["SUNDAY","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY"];
+    const months = ["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE","JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER"];
+    const now = new Date();
+    const d = days[now.getDay()];
+    const m = months[now.getMonth()];
+    const dd = String(now.getDate()).padStart(2,'0');
+    const yyyy = now.getFullYear();
+    dateEl.textContent = `${d}, ${m} ${dd}, ${yyyy}`;
+  }
 });
 </script>
 </body>
