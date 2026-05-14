@@ -32,7 +32,7 @@ border: 1px solid #2a2a2a;
 border-radius: 50%;
 color: #e8e8e8;
 font-size: 22px;
-font-family: ‘Courier New’, monospace;
+font-family: 'Courier New', monospace;
 cursor: pointer;
 -webkit-appearance: none;
 display: flex; align-items: center; justify-content: center;
@@ -53,7 +53,7 @@ user-select: none;
 #save-indicator { font-size: 10px; color: #444; margin-bottom: 6px; min-height: 14px; }
 
 .tabs { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
-.tab { background: transparent; color: #888; border: 1px solid #2a2a2a; border-radius: 3px; padding: 6px 14px; cursor: pointer; font-family: ‘Courier New’, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; -webkit-appearance: none; }
+.tab { background: transparent; color: #888; border: 1px solid #2a2a2a; border-radius: 3px; padding: 6px 14px; cursor: pointer; font-family: 'Courier New', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; -webkit-appearance: none; }
 .tab.active { background: #e8e8e8; color: #0a0a0a; border-color: #e8e8e8; }
 
 .panel { display: none; }
@@ -69,12 +69,12 @@ user-select: none;
 .block-meta { font-size: 11px; color: #555; }
 .slug-label { font-size: 11px; color: #555; margin-bottom: 6px; }
 
-textarea { width: 100%; background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 3px; color: #e8e8e8; font-family: ‘Courier New’, monospace; font-size: 13px; padding: 10px; resize: vertical; line-height: 1.6; outline: none; -webkit-appearance: none; }
+textarea { width: 100%; background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 3px; color: #e8e8e8; font-family: 'Courier New', monospace; font-size: 13px; padding: 10px; resize: vertical; line-height: 1.6; outline: none; -webkit-appearance: none; }
 textarea:focus { border-color: #444; }
 
-.btn-action { background: #c8102e; color: #fff; border: none; border-radius: 3px; padding: 10px 22px; cursor: pointer; font-family: ‘Courier New’, monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 12px; -webkit-appearance: none; display: inline-block; }
+.btn-action { background: #c8102e; color: #fff; border: none; border-radius: 3px; padding: 10px 22px; cursor: pointer; font-family: 'Courier New', monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 12px; -webkit-appearance: none; display: inline-block; }
 .btn-action.grey { background: #333; }
-.btn-ghost { background: transparent; color: #555; border: 1px solid #2a2a2a; border-radius: 3px; padding: 6px 14px; cursor: pointer; font-family: ‘Courier New’, monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; -webkit-appearance: none; }
+.btn-ghost { background: transparent; color: #555; border: 1px solid #2a2a2a; border-radius: 3px; padding: 6px 14px; cursor: pointer; font-family: 'Courier New', monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; -webkit-appearance: none; }
 .btn-ghost.green { color: #4a9; border-color: #4a9; }
 
 #roster-preview { margin-top: 14px; font-size: 11px; color: #555; line-height: 1.8; }
@@ -85,7 +85,7 @@ textarea:focus { border-color: #444; }
 #stack-roster-ref .ref-guest { color: #6a7a9a; }
 #stack-roster-ref .ref-label { font-size: 10px; letter-spacing: 0.12em; color: #444; margin-bottom: 6px; display: block; text-transform: uppercase; }
 
-#rundown-output { background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 3px; padding: 16px; font-family: ‘Courier New’, monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: #e8e8e8; font-weight: bold; margin: 0; }
+#rundown-output { background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 3px; padding: 16px; font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: #e8e8e8; font-weight: bold; margin: 0; }
 .output-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 </style>
 
@@ -111,7 +111,7 @@ textarea:focus { border-color: #444; }
     <button class="pin-key" onclick="pinKey('9')">9</button>
     <div class="pin-key pin-key-empty"></div>
     <button class="pin-key" onclick="pinKey('0')">0</button>
-    <button class="pin-key pin-key-del" onclick="pinDel()">⌫</button>
+    <button class="pin-key pin-key-del" onclick="pinDel()">&#9003;</button>
   </div>
 </div>
 
@@ -395,125 +395,121 @@ function renderEditorialBlocks() {
       </div>
       <div class="slug-label">SLUG: ${b.slug}</div>
       <textarea id="ed-${key}" rows="3" oninput="state.editorialInputs['${key}']=this.value">${escHtml(val)}</textarea>
-
-```
-</div>`;
-```
-
-}).join(””);
+    </div>`;
+  }).join("");
 }
 
-function escHtml(s){ return s.replace(/&/g,”&”).replace(/</g,”<”).replace(/>/g,”>”).replace(/”/g,”"”); }
+function escHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
 function generateRundown() {
-Object.keys(state.blocks).forEach(key=>{ const el=document.getElementById(“ed-”+key); if(el) state.editorialInputs[key]=el.value; });
-const updated={};
-Object.keys(state.blocks).forEach(key=>{
-const b={…state.blocks[key]};
-if(state.editorialInputs[key]&&state.editorialInputs[key].trim()) b.editorial=state.editorialInputs[key].trim().toUpperCase();
-updated[key]=b;
-});
-state.blocks=updated;
-state.output=formatRundown(updated);
-document.getElementById(“rundown-output”).textContent=state.output;
-goToStep(3);
+  Object.keys(state.blocks).forEach(key=>{ const el=document.getElementById("ed-"+key); if(el) state.editorialInputs[key]=el.value; });
+  const updated={};
+  Object.keys(state.blocks).forEach(key=>{
+    const b={...state.blocks[key]};
+    if(state.editorialInputs[key]&&state.editorialInputs[key].trim()) b.editorial=state.editorialInputs[key].trim().toUpperCase();
+    updated[key]=b;
+  });
+  state.blocks=updated;
+  state.output=formatRundown(updated);
+  document.getElementById("rundown-output").textContent=state.output;
+  goToStep(3);
 }
 
 function copyOutput() {
-navigator.clipboard.writeText(state.output).then(()=>{
-const btn=document.getElementById(“copy-btn”);
-btn.textContent=“COPIED ✓”; btn.classList.add(“green”);
-setTimeout(()=>{ btn.textContent=“COPY TO CLIPBOARD”; btn.classList.remove(“green”); },2000);
-});
+  navigator.clipboard.writeText(state.output).then(()=>{
+    const btn=document.getElementById("copy-btn");
+    btn.textContent="COPIED ✓"; btn.classList.add("green");
+    setTimeout(()=>{ btn.textContent="COPY TO CLIPBOARD"; btn.classList.remove("green"); },2000);
+  });
 }
 
 function startFresh() {
-if(!confirm(“Clear everything and start a new rundown?”)) return;
-clearStorage();
-state={step:0,rosterRaw:””,orderRaw:””,roster:{},blocks:{},editorialInputs:{},output:””};
-document.getElementById(“roster-input”).value=””;
-document.getElementById(“order-input”).value=””;
-document.getElementById(“roster-preview”).innerHTML=””;
-document.getElementById(“editorial-blocks”).innerHTML=””;
-document.getElementById(“rundown-output”).textContent=””;
-document.getElementById(“save-indicator”).textContent=””;
-document.getElementById(“stack-roster-ref”).innerHTML=””;
-goToStep(0);
+  if(!confirm("Clear everything and start a new rundown?")) return;
+  clearStorage();
+  state={step:0,rosterRaw:"",orderRaw:"",roster:{},blocks:{},editorialInputs:{},output:""};
+  document.getElementById("roster-input").value="";
+  document.getElementById("order-input").value="";
+  document.getElementById("roster-preview").innerHTML="";
+  document.getElementById("editorial-blocks").innerHTML="";
+  document.getElementById("rundown-output").textContent="";
+  document.getElementById("save-indicator").textContent="";
+  document.getElementById("stack-roster-ref").innerHTML="";
+  goToStep(0);
 }
 
 function restoreUI() {
-document.getElementById(“roster-input”).value=state.rosterRaw||””;
-document.getElementById(“order-input”).value=state.orderRaw||””;
-if (Object.keys(state.roster).length) {
-document.getElementById(“roster-preview”).innerHTML=Object.values(state.roster).map(r=>
-r.type===“reporter”?“📡 “+r.name+(r.location?” — “+r.location:””):“👤 “+r.name+” — “+r.title
-).join(”<br>”);
-}
-if (Object.keys(state.blocks).length) renderEditorialBlocks();
-if (state.output) document.getElementById(“rundown-output”).textContent=state.output;
-document.querySelectorAll(”.panel”).forEach((p,i)=>p.classList.toggle(“active”,i===state.step));
-document.querySelectorAll(”.tab”).forEach((t,i)=>t.classList.toggle(“active”,i===state.step));
-if (state.step===1) renderStackRosterRef();
+  document.getElementById("roster-input").value=state.rosterRaw||"";
+  document.getElementById("order-input").value=state.orderRaw||"";
+  if (Object.keys(state.roster).length) {
+    document.getElementById("roster-preview").innerHTML=Object.values(state.roster).map(r=>
+      r.type==="reporter"?"📡 "+r.name+(r.location?" — "+r.location:""):"👤 "+r.name+" — "+r.title
+    ).join("<br>");
+  }
+  if (Object.keys(state.blocks).length) renderEditorialBlocks();
+  if (state.output) document.getElementById("rundown-output").textContent=state.output;
+  document.querySelectorAll(".panel").forEach((p,i)=>p.classList.toggle("active",i===state.step));
+  document.querySelectorAll(".tab").forEach((t,i)=>t.classList.toggle("active",i===state.step));
+  if (state.step===1) renderStackRosterRef();
 }
 
 // ── PIN ───────────────────────────────────────────────────────────────────────
-let pinEntry = “”;
+let pinEntry = "";
 
 function updatePinDots() {
-for (let i=0; i<4; i++) {
-document.getElementById(“d”+i).classList.toggle(“filled”, i < pinEntry.length);
-}
+  for (let i=0; i<4; i++) {
+    document.getElementById("d"+i).classList.toggle("filled", i < pinEntry.length);
+  }
 }
 
 function pinKey(digit) {
-if (pinEntry.length >= 4) return;
-pinEntry += digit;
-updatePinDots();
-if (pinEntry.length === 4) {
-setTimeout(attemptPin, 80); // brief pause so last dot fills visually
-}
+  if (pinEntry.length >= 4) return;
+  pinEntry += digit;
+  updatePinDots();
+  if (pinEntry.length === 4) {
+    setTimeout(attemptPin, 80); // brief pause so last dot fills visually
+  }
 }
 
 function pinDel() {
-if (pinEntry.length === 0) return;
-pinEntry = pinEntry.slice(0, -1);
-updatePinDots();
+  if (pinEntry.length === 0) return;
+  pinEntry = pinEntry.slice(0, -1);
+  updatePinDots();
 }
 
 function attemptPin() {
-if (pinEntry === CORRECT_PIN) {
-sessionStorage.setItem(SESSION_KEY,“1”);
-document.getElementById(“pin-screen”).style.display=“none”;
-document.getElementById(“app-screen”).style.display=“block”;
-load(); restoreUI();
-} else {
-const row=document.getElementById(“pin-row”);
-row.classList.add(“shake”);
-setTimeout(()=>{ row.classList.remove(“shake”); pinEntry=””; updatePinDots(); },600);
-}
+  if (pinEntry === CORRECT_PIN) {
+    sessionStorage.setItem(SESSION_KEY,"1");
+    document.getElementById("pin-screen").style.display="none";
+    document.getElementById("app-screen").style.display="block";
+    load(); restoreUI();
+  } else {
+    const row=document.getElementById("pin-row");
+    row.classList.add("shake");
+    setTimeout(()=>{ row.classList.remove("shake"); pinEntry=""; updatePinDots(); },600);
+  }
 }
 
 function initPin() {
-// also support physical keyboard for desktop use
-document.addEventListener(“keydown”, e => {
-if (document.getElementById(“pin-screen”).style.display === “none”) return;
-if (e.key >= “0” && e.key <= “9”) pinKey(e.key);
-if (e.key === “Backspace”) pinDel();
-});
+  // also support physical keyboard for desktop use
+  document.addEventListener("keydown", e => {
+    if (document.getElementById("pin-screen").style.display === "none") return;
+    if (e.key >= "0" && e.key <= "9") pinKey(e.key);
+    if (e.key === "Backspace") pinDel();
+  });
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
-document.addEventListener(“DOMContentLoaded”,()=>{
-if (sessionStorage.getItem(SESSION_KEY)===“1”) {
-document.getElementById(“pin-screen”).style.display=“none”;
-document.getElementById(“app-screen”).style.display=“block”;
-load(); restoreUI();
-} else {
-initPin();
-}
-setInterval(save,30000);
-document.addEventListener(“visibilitychange”,()=>{ if(document.hidden) save(); });
-window.addEventListener(“beforeunload”,save);
+document.addEventListener("DOMContentLoaded",()=>{
+  if (sessionStorage.getItem(SESSION_KEY)==="1") {
+    document.getElementById("pin-screen").style.display="none";
+    document.getElementById("app-screen").style.display="block";
+    load(); restoreUI();
+  } else {
+    initPin();
+  }
+  setInterval(save,30000);
+  document.addEventListener("visibilitychange",()=>{ if(document.hidden) save(); });
+  window.addEventListener("beforeunload",save);
 });
 </script>
 
