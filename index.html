@@ -1,517 +1,62 @@
-<!DOCTYPE html>
+<!doctype html>
 
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-<title> </title>
-<style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #0a0a0a; color: #e8e8e8; font-family: 'Courier New', monospace; min-height: 100vh; padding: 24px; font-size: 14px; }
-
-#pin-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; flex-direction: column; gap: 32px; }
-.pin-row { display: flex; gap: 20px; }
-.pin-dot {
-width: 16px; height: 16px;
-border-radius: 50%;
-border: 1px solid #444;
-background: transparent;
-transition: background 0.1s;
-}
-.pin-dot.filled { background: #e8e8e8; border-color: #e8e8e8; }
-.pin-pad {
-display: grid;
-grid-template-columns: repeat(3, 72px);
-gap: 12px;
-margin-top: 8px;
-}
-.pin-key {
-height: 72px;
-background: #1a1a1a;
-border: 1px solid #2a2a2a;
-border-radius: 50%;
-color: #e8e8e8;
-font-size: 22px;
-font-family: 'Courier New', monospace;
-cursor: pointer;
--webkit-appearance: none;
-display: flex; align-items: center; justify-content: center;
-width: 72px;
-user-select: none;
--webkit-user-select: none;
-}
-.pin-key:active { background: #333; }
-.pin-key-empty { background: transparent; border-color: transparent; cursor: default; }
-.pin-key-del { font-size: 18px; color: #888; }
-@keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-10px)} 40%{transform:translateX(10px)} 60%{transform:translateX(-7px)} 80%{transform:translateX(7px)} }
-.shake { animation: shake 0.5s ease; }
-
-#app-screen { display: none; }
-.header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; }
-.eyebrow { font-size: 10px; letter-spacing: 0.2em; color: #555; margin-bottom: 4px; }
-.title { font-size: 20px; font-weight: bold; letter-spacing: 0.05em; }
-#save-indicator { font-size: 10px; color: #444; margin-bottom: 6px; min-height: 14px; }
-
-.tabs { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
-.tab { background: transparent; color: #888; border: 1px solid #2a2a2a; border-radius: 3px; padding: 6px 14px; cursor: pointer; font-family: 'Courier New', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; -webkit-appearance: none; }
-.tab.active { background: #e8e8e8; color: #0a0a0a; border-color: #e8e8e8; }
-
-.panel { display: none; }
-.panel.active { display: block; }
-
-.card { background: #141414; border: 1px solid #2a2a2a; border-radius: 4px; padding: 20px; margin-bottom: 16px; }
-.card.red-left { border-left: 3px solid #c8102e; }
-.card-label { font-size: 10px; letter-spacing: 0.15em; color: #888; margin-bottom: 8px; display: block; text-transform: uppercase; }
-.hint { font-size: 11px; color: #555; margin-bottom: 10px; line-height: 1.9; }
-.hint span { color: #777; }
-.card-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.block-title { font-size: 13px; font-weight: bold; letter-spacing: 0.1em; }
-.block-meta { font-size: 11px; color: #555; }
-.slug-label { font-size: 11px; color: #555; margin-bottom: 6px; }
-
-textarea { width: 100%; background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 3px; color: #e8e8e8; font-family: 'Courier New', monospace; font-size: 13px; padding: 10px; resize: vertical; line-height: 1.6; outline: none; -webkit-appearance: none; }
-textarea:focus { border-color: #444; }
-
-.btn-action { background: #c8102e; color: #fff; border: none; border-radius: 3px; padding: 10px 22px; cursor: pointer; font-family: 'Courier New', monospace; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 12px; -webkit-appearance: none; display: inline-block; }
-.btn-action.grey { background: #333; }
-.btn-ghost { background: transparent; color: #555; border: 1px solid #2a2a2a; border-radius: 3px; padding: 6px 14px; cursor: pointer; font-family: 'Courier New', monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; -webkit-appearance: none; }
-.btn-ghost.green { color: #4a9; border-color: #4a9; }
-
-#roster-preview { margin-top: 14px; font-size: 11px; color: #555; line-height: 1.8; }
-
-/* roster reference panel on stack page */
-#stack-roster-ref { background: #0d0d0d; border: 1px solid #1e1e1e; border-radius: 3px; padding: 12px 14px; margin-bottom: 16px; font-size: 11px; line-height: 1.9; color: #555; }
-#stack-roster-ref .ref-reporter { color: #6a8a6a; }
-#stack-roster-ref .ref-guest { color: #6a7a9a; }
-#stack-roster-ref .ref-label { font-size: 10px; letter-spacing: 0.12em; color: #444; margin-bottom: 6px; display: block; text-transform: uppercase; }
-
-#rundown-output { background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 3px; padding: 16px; font-family: 'Courier New', monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; color: #e8e8e8; font-weight: bold; margin: 0; }
-.output-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-</style>
-
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>hiner.nyc</title>
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: #000;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    img {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      object-fit: contain;
+      object-position: center;
+      background: #000;
+    }
+    #secret {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 80px;
+      height: 80px;
+      z-index: 999;
+      /* completely invisible — no background, no border */
+    }
+  </style>
 </head>
 <body>
+  <img src="Colorbars.png" alt="">
+  <div id="secret"></div>
 
-<div id="pin-screen">
-  <div class="pin-row" id="pin-row">
-    <div class="pin-dot" id="d0"></div>
-    <div class="pin-dot" id="d1"></div>
-    <div class="pin-dot" id="d2"></div>
-    <div class="pin-dot" id="d3"></div>
-  </div>
-  <div class="pin-pad">
-    <button class="pin-key" onclick="pinKey('1')">1</button>
-    <button class="pin-key" onclick="pinKey('2')">2</button>
-    <button class="pin-key" onclick="pinKey('3')">3</button>
-    <button class="pin-key" onclick="pinKey('4')">4</button>
-    <button class="pin-key" onclick="pinKey('5')">5</button>
-    <button class="pin-key" onclick="pinKey('6')">6</button>
-    <button class="pin-key" onclick="pinKey('7')">7</button>
-    <button class="pin-key" onclick="pinKey('8')">8</button>
-    <button class="pin-key" onclick="pinKey('9')">9</button>
-    <div class="pin-key pin-key-empty"></div>
-    <button class="pin-key" onclick="pinKey('0')">0</button>
-    <button class="pin-key pin-key-del" onclick="pinDel()">&#9003;</button>
-  </div>
-</div>
-
-<div id="app-screen">
-  <div class="header">
-    <div>
-      <div class="eyebrow">NEWSNATION</div>
-      <div class="title">RUNDOWN BUILDER</div>
-    </div>
-    <div style="text-align:right">
-      <div id="save-indicator"></div>
-      <button class="btn-ghost" onclick="startFresh()">NEW RUNDOWN</button>
-    </div>
-  </div>
-
-  <div class="tabs">
-    <button class="tab active" id="tab-0" onclick="goToStep(0)">1. ROSTER</button>
-    <button class="tab" id="tab-1" onclick="goToStep(1)">2. STACK</button>
-    <button class="tab" id="tab-2" onclick="goToStep(2)">3. EDITORIAL</button>
-    <button class="tab" id="tab-3" onclick="goToStep(3)">4. BUILD</button>
-  </div>
-
-  <!-- STEP 0: ROSTER -->
-
-  <div class="panel active" id="panel-0">
-    <div class="card">
-      <span class="card-label">Guests & Reporters — one per line</span>
-      <div class="hint">
-        GUEST: <span>Guest Name, Title</span><br>
-        REPORTER (no location): <span>Reporter Name LIVE</span><br>
-        REPORTER (with location): <span>Reporter Name LIVE Miami</span>
-      </div>
-      <textarea id="roster-input" rows="8"></textarea>
-      <br>
-      <button class="btn-action" onclick="buildRoster()">SAVE ROSTER →</button>
-      <div id="roster-preview"></div>
-    </div>
-  </div>
-
-  <!-- STEP 1: STACK -->
-
-  <div class="panel" id="panel-1">
-    <div class="card">
-      <span class="card-label">Stack Order — shorthand</span>
-      <div class="hint">
-        <span>a- slug lastname</span> — segment with guest/reporter<br>
-        <span>a- slug lastname read slug2</span> — segment + auto TELL as A2<br>
-        <span>b2- read slug</span> — explicit standalone TELL<br>
-        Multiple guests: <span>lastname & lastname</span>
-      </div>
-      <div id="stack-roster-ref"></div>
-      <textarea id="order-input" rows="4"></textarea>
-      <br>
-      <button class="btn-action" onclick="buildOrder()">BUILD STACK →</button>
-    </div>
-  </div>
-
-  <!-- STEP 2: EDITORIAL -->
-
-  <div class="panel" id="panel-2">
-    <div class="card" style="margin-bottom:8px">
-      <span class="card-label">Fill In Editorial</span>
-      <div style="font-size:11px;color:#555">Paste copy for each block. Leave blank to keep the slug as placeholder.</div>
-    </div>
-    <div id="editorial-blocks"></div>
-    <button class="btn-action" onclick="generateRundown()">BUILD RUNDOWN →</button>
-  </div>
-
-  <!-- STEP 3: BUILD -->
-
-  <div class="panel" id="panel-3">
-    <div class="card">
-      <div class="output-header">
-        <span class="card-label" style="margin:0">FINAL RUNDOWN</span>
-        <button class="btn-ghost" id="copy-btn" onclick="copyOutput()">COPY TO CLIPBOARD</button>
-      </div>
-      <pre id="rundown-output"></pre>
-      <button class="btn-action grey" onclick="goToStep(2)" style="margin-top:12px">← BACK TO EDITORIAL</button>
-    </div>
-  </div>
-</div>
-
-<script>
-const CORRECT_PIN = "1234";
-const STORAGE_KEY = "rundown_v1";
-const SESSION_KEY = "rundown_auth";
-
-let state = { step:0, rosterRaw:"", orderRaw:"", roster:{}, blocks:{}, editorialInputs:{}, output:"" };
-
-// ── PERSISTENCE ───────────────────────────────────────────────────────────────
-function save() {
-  const ri = document.getElementById("roster-input");
-  const oi = document.getElementById("order-input");
-  if (ri) state.rosterRaw = ri.value;
-  if (oi) state.orderRaw = oi.value;
-  Object.keys(state.blocks).forEach(key => {
-    const el = document.getElementById("ed-" + key);
-    if (el) state.editorialInputs[key] = el.value;
-  });
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
-  const ind = document.getElementById("save-indicator");
-  if (ind) { const t = new Date(); ind.textContent = "SAVED " + t.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}); }
-}
-
-function load() {
-  try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) state = JSON.parse(raw); } catch(e) {}
-}
-
-function clearStorage() { try { localStorage.removeItem(STORAGE_KEY); } catch(e) {} }
-
-// ── LOGIC ─────────────────────────────────────────────────────────────────────
-function parseRoster(raw) {
-  const roster = {};
-  raw.split("\n").forEach(line => {
-    line = line.trim(); if (!line) return;
-    const lm = line.match(/^(.+?)\s+LIVE(?:\s+(?:IN\s+)?(.+))?$/i);
-    if (lm) {
-      const name = lm[1].trim().toUpperCase();
-      const loc = (lm[2]||"").trim().toUpperCase();
-      roster[name.split(" ").pop()] = { type:"reporter", name, location:loc };
-    } else {
-      const ci = line.indexOf(","); if (ci===-1) return;
-      const name = line.slice(0,ci).trim().toUpperCase();
-      const title = line.slice(ci+1).trim().toUpperCase();
-      roster[name.split(" ").pop()] = { type:"guest", name, title };
-    }
-  });
-  return roster;
-}
-
-function resolveGuest(token, roster) {
-  return token.split(/[&+]/).map(s=>s.trim().toUpperCase()).map(part => {
-    if (roster[part]) return roster[part];
-    const k = Object.keys(roster).find(k=>k.includes(part)||part.includes(k));
-    if (k) return roster[k];
-    const v = Object.values(roster).find(r=>r.name.includes(part));
-    return v||{type:"unknown",name:part};
-  });
-}
-
-function guestLine(e) {
-  if (e.type==="reporter") return e.location ? ">"+e.name+" LIVE FROM "+e.location : ">"+e.name+" LIVE";
-  if (e.type==="guest") return ">"+e.name+", "+e.title;
-  return ">"+e.name;
-}
-
-function extractSegment(chunk, roster, isRead) {
-  const slugRaw = isRead ? chunk.replace(/\bread\b/gi,"").trim() : chunk;
-  const words = slugRaw.split(/\s+/);
-  const guests=[]; let cutAt=words.length;
-
-  // Walk backward collecting consecutive matching words (handles "batya & marks" as single token via &)
-  // First try multi-word combos with & joining adjacent words, then single words
-  let w = words.length - 1;
-  while (w >= 0) {
-    // Try "word & word" pair first (e.g. "batya & marks" already collapsed by & split in resolveGuest)
-    // Try single word
-    const s = resolveGuest(words[w], roster);
-    if (s.some(r=>r.type!=="unknown")) {
-      guests.unshift(...s);
-      cutAt = w;
-      w--;
-      // allow skipping a bare "&" connector
-      if (w >= 0 && words[w] === "&") { w--; continue; }
-    } else {
-      break;
-    }
-  }
-  const slugWords = words.slice(0, cutAt);
-  const slug = slugWords.join(" ").replace(/\s+/g," ").trim()||slugRaw;
-  return { slug:slug.toUpperCase(), guests:isRead?[]:guests, isRead, editorial:"" };
-}
-
-function parseStoryOrder(raw, roster) {
-  const blocks={};
-  const re=/\b([a-dA-D])(\d?)\s*[-]\s*/g;
-  const anchors=[]; let m;
-  while((m=re.exec(raw))!==null) anchors.push({letter:m[1].toUpperCase(),num:m[2]||"",start:m.index,end:re.lastIndex});
-  anchors.forEach((anchor,i) => {
-    const textEnd = i+1<anchors.length?anchors[i+1].start:raw.length;
-    const chunk = raw.slice(anchor.end,textEnd).trim();
-    const inlineRead = chunk.match(/^(.+?)\s+read\s+(.+)$/i);
-    const startsRead = /^\s*read\b/i.test(chunk);
-    if (inlineRead&&!startsRead) {
-      const pk=anchor.letter+(anchor.num||"");
-      blocks[pk]={letter:anchor.letter,num:anchor.num||"",...extractSegment(inlineRead[1].trim(),roster,false)};
-      const sn=anchor.num?String(parseInt(anchor.num)+1):"2";
-      blocks[anchor.letter+sn]={letter:anchor.letter,num:sn,...extractSegment(inlineRead[2].trim(),roster,true)};
-    } else {
-      const key=anchor.letter+(anchor.num||"");
-      blocks[key]={letter:anchor.letter,num:anchor.num||"",...extractSegment(chunk,roster,startsRead)};
-    }
-  });
-  return blocks;
-}
-
-function formatRundown(blocks) {
-  const lines=[];
-  ["A","B","C","D"].forEach(letter => {
-    const subs=Object.keys(blocks).filter(k=>blocks[k].letter===letter).sort();
-    if (!subs.length) return;
-    subs.forEach((key,idx) => {
-      const b=blocks[key];
-      lines.push(idx===0?letter+":":letter+b.num+" -");
-      const body=b.editorial||b.slug;
-      if (b.isRead){lines.push("TELL: "+body);}
-      else{lines.push(body);b.guests.forEach(g=>lines.push(guestLine(g)));}
+  <script>
+    // Require 2 taps within 600ms to avoid accidental triggers
+    let lastTap = 0;
+    document.getElementById('secret').addEventListener('touchend', function(e) {
+      e.preventDefault();
+      const now = Date.now();
+      if (now - lastTap < 600) {
+        window.location.href = 'rundown-builder.html';
+      }
+      lastTap = now;
     });
-    lines.push("");
-  });
-  return lines.join("\n");
-}
-
-// ── ROSTER REFERENCE (for stack page) ────────────────────────────────────────
-function renderStackRosterRef() {
-  const ref = document.getElementById("stack-roster-ref");
-  if (!ref) return;
-  const entries = Object.values(state.roster);
-  if (!entries.length) { ref.innerHTML=""; return; }
-  const reporters = entries.filter(r=>r.type==="reporter");
-  const guests = entries.filter(r=>r.type==="guest");
-  let html = '<span class="ref-label">TODAY\'S ROSTER</span>';
-  if (reporters.length) {
-    html += reporters.map(r=>`<span class="ref-reporter">📡 ${r.name}${r.location?" — "+r.location:""}</span>`).join("<br>") + "<br>";
-  }
-  if (guests.length) {
-    html += guests.map(r=>`<span class="ref-guest">👤 ${r.name} — ${r.title}</span>`).join("<br>");
-  }
-  ref.innerHTML = html;
-}
-
-// ── UI ────────────────────────────────────────────────────────────────────────
-function goToStep(n) {
-  // sync text inputs before switching away
-  const ri = document.getElementById("roster-input");
-  const oi = document.getElementById("order-input");
-  if (ri) state.rosterRaw = ri.value;
-  if (oi) state.orderRaw = oi.value;
-  Object.keys(state.blocks).forEach(key => {
-    const el = document.getElementById("ed-" + key);
-    if (el) state.editorialInputs[key] = el.value;
-  });
-
-  state.step = n;
-  document.querySelectorAll(".panel").forEach((p,i)=>p.classList.toggle("active",i===n));
-  document.querySelectorAll(".tab").forEach((t,i)=>t.classList.toggle("active",i===n));
-
-  if (n===1) renderStackRosterRef();
-  save();
-}
-
-function buildRoster() {
-  state.rosterRaw = document.getElementById("roster-input").value;
-  state.roster = parseRoster(state.rosterRaw);
-  // show preview on roster page
-  document.getElementById("roster-preview").innerHTML = Object.values(state.roster).map(r=>
-    r.type==="reporter" ? "📡 "+r.name+(r.location?" — "+r.location:"") : "👤 "+r.name+" — "+r.title
-  ).join("<br>");
-  goToStep(1);
-}
-
-function buildOrder() {
-  state.orderRaw = document.getElementById("order-input").value;
-  const parsed = parseStoryOrder(state.orderRaw, state.roster);
-  Object.keys(parsed).forEach(k=>{ parsed[k].editorial = state.editorialInputs[k]||""; });
-  state.blocks = parsed;
-  renderEditorialBlocks();
-  goToStep(2);
-}
-
-function renderEditorialBlocks() {
-  const container = document.getElementById("editorial-blocks");
-  container.innerHTML = Object.keys(state.blocks).sort().map(key => {
-    const b = state.blocks[key];
-    const gnames = b.guests.map(g=>g.name).join(" & ") || (b.isRead?"reader":"no guest");
-    const val = state.editorialInputs[key] || b.editorial || "";
-    return `<div class="card red-left">
-      <div class="card-row">
-        <span class="block-title">${b.letter}${b.num||""}${b.isRead?" — TELL":""}</span>
-        <span class="block-meta">${gnames}</span>
-      </div>
-      <div class="slug-label">SLUG: ${b.slug}</div>
-      <textarea id="ed-${key}" rows="3" oninput="state.editorialInputs['${key}']=this.value">${escHtml(val)}</textarea>
-    </div>`;
-  }).join("");
-}
-
-function escHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
-
-function generateRundown() {
-  Object.keys(state.blocks).forEach(key=>{ const el=document.getElementById("ed-"+key); if(el) state.editorialInputs[key]=el.value; });
-  const updated={};
-  Object.keys(state.blocks).forEach(key=>{
-    const b={...state.blocks[key]};
-    if(state.editorialInputs[key]&&state.editorialInputs[key].trim()) b.editorial=state.editorialInputs[key].trim().toUpperCase();
-    updated[key]=b;
-  });
-  state.blocks=updated;
-  state.output=formatRundown(updated);
-  document.getElementById("rundown-output").textContent=state.output;
-  goToStep(3);
-}
-
-function copyOutput() {
-  navigator.clipboard.writeText(state.output).then(()=>{
-    const btn=document.getElementById("copy-btn");
-    btn.textContent="COPIED ✓"; btn.classList.add("green");
-    setTimeout(()=>{ btn.textContent="COPY TO CLIPBOARD"; btn.classList.remove("green"); },2000);
-  });
-}
-
-function startFresh() {
-  if(!confirm("Clear everything and start a new rundown?")) return;
-  clearStorage();
-  state={step:0,rosterRaw:"",orderRaw:"",roster:{},blocks:{},editorialInputs:{},output:""};
-  document.getElementById("roster-input").value="";
-  document.getElementById("order-input").value="";
-  document.getElementById("roster-preview").innerHTML="";
-  document.getElementById("editorial-blocks").innerHTML="";
-  document.getElementById("rundown-output").textContent="";
-  document.getElementById("save-indicator").textContent="";
-  document.getElementById("stack-roster-ref").innerHTML="";
-  goToStep(0);
-}
-
-function restoreUI() {
-  document.getElementById("roster-input").value=state.rosterRaw||"";
-  document.getElementById("order-input").value=state.orderRaw||"";
-  if (Object.keys(state.roster).length) {
-    document.getElementById("roster-preview").innerHTML=Object.values(state.roster).map(r=>
-      r.type==="reporter"?"📡 "+r.name+(r.location?" — "+r.location:""):"👤 "+r.name+" — "+r.title
-    ).join("<br>");
-  }
-  if (Object.keys(state.blocks).length) renderEditorialBlocks();
-  if (state.output) document.getElementById("rundown-output").textContent=state.output;
-  document.querySelectorAll(".panel").forEach((p,i)=>p.classList.toggle("active",i===state.step));
-  document.querySelectorAll(".tab").forEach((t,i)=>t.classList.toggle("active",i===state.step));
-  if (state.step===1) renderStackRosterRef();
-}
-
-// ── PIN ───────────────────────────────────────────────────────────────────────
-let pinEntry = "";
-
-function updatePinDots() {
-  for (let i=0; i<4; i++) {
-    document.getElementById("d"+i).classList.toggle("filled", i < pinEntry.length);
-  }
-}
-
-function pinKey(digit) {
-  if (pinEntry.length >= 4) return;
-  pinEntry += digit;
-  updatePinDots();
-  if (pinEntry.length === 4) {
-    setTimeout(attemptPin, 80); // brief pause so last dot fills visually
-  }
-}
-
-function pinDel() {
-  if (pinEntry.length === 0) return;
-  pinEntry = pinEntry.slice(0, -1);
-  updatePinDots();
-}
-
-function attemptPin() {
-  if (pinEntry === CORRECT_PIN) {
-    sessionStorage.setItem(SESSION_KEY,"1");
-    document.getElementById("pin-screen").style.display="none";
-    document.getElementById("app-screen").style.display="block";
-    load(); restoreUI();
-  } else {
-    const row=document.getElementById("pin-row");
-    row.classList.add("shake");
-    setTimeout(()=>{ row.classList.remove("shake"); pinEntry=""; updatePinDots(); },600);
-  }
-}
-
-function initPin() {
-  // also support physical keyboard for desktop use
-  document.addEventListener("keydown", e => {
-    if (document.getElementById("pin-screen").style.display === "none") return;
-    if (e.key >= "0" && e.key <= "9") pinKey(e.key);
-    if (e.key === "Backspace") pinDel();
-  });
-}
-
-// ── BOOT ──────────────────────────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded",()=>{
-  if (sessionStorage.getItem(SESSION_KEY)==="1") {
-    document.getElementById("pin-screen").style.display="none";
-    document.getElementById("app-screen").style.display="block";
-    load(); restoreUI();
-  } else {
-    initPin();
-  }
-  setInterval(save,30000);
-  document.addEventListener("visibilitychange",()=>{ if(document.hidden) save(); });
-  window.addEventListener("beforeunload",save);
-});
-</script>
+    // Desktop: double-click
+    document.getElementById('secret').addEventListener('dblclick', function() {
+      window.location.href = 'rundown-builder.html';
+    });
+  </script>
 
 </body>
 </html>
