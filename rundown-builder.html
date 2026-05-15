@@ -208,6 +208,7 @@ textarea:focus { border-color: #444; }
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
         <button class="btn-action grey" onclick="goToStep(2)">← BACK TO EDITORIAL</button>
         <button class="btn-action" onclick="saveToArchive()">SAVE TO ARCHIVE</button>
+        <button class="btn-action" onclick="emailRundown()">EMAIL TO SELF</button>
       </div>
     </div>
   </div>
@@ -568,6 +569,18 @@ function loadArchive() {
 
 function saveArchive(arr) {
   try { localStorage.setItem(ARCHIVE_KEY, JSON.stringify(arr)); } catch(e) {}
+}
+
+function emailRundown() {
+  if (!state.output || !state.output.trim()) { alert("Nothing to send — generate the rundown first."); return; }
+  const days = ["SUNDAY","MONDAY","TUESDAY","WEDNESDAY","THURSDAY","FRIDAY","SATURDAY"];
+  const months = ["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE","JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER"];
+  const now = new Date();
+  const dateStr = days[now.getDay()] + ", " + months[now.getMonth()] + " " + String(now.getDate()).padStart(2,"0") + ", " + now.getFullYear();
+  const subject = encodeURIComponent("RUNDOWN — " + dateStr);
+  const body = encodeURIComponent(state.output);
+  const to = "mhiner@newsnationnow.com,mark@hiner.nyc";
+  window.location.href = `mailto:${to}?subject=${subject}&body=${body}`;
 }
 
 function saveToArchive() {
