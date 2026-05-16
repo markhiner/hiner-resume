@@ -138,7 +138,7 @@ textarea:focus { border-color: #444; }
   <div class="header">
     <div>
       <div class="eyebrow">HINER.TV</div>
-      <div class="title">PRODUCER PRO 2000</div>
+      <div class="title" id="lineup-date"></div>
     </div>
     <div style="text-align:right">
       <div id="save-indicator"></div>
@@ -153,8 +153,6 @@ textarea:focus { border-color: #444; }
     <button class="tab" id="tab-3" onclick="goToStep(3)">4. BUILD</button>
     <button class="tab" id="tab-4" onclick="goToStep(4)">5. ARCHIVE</button>
   </div>
-
-  <div id="lineup-date" style="font-size:13px;letter-spacing:0.12em;color:#ccc;margin:10px 0 14px;"></div>
 
   <!-- STEP 0: ROSTER -->
   <div class="panel active" id="panel-0">
@@ -174,12 +172,11 @@ textarea:focus { border-color: #444; }
   <!-- STEP 1: STACK -->
   <div class="panel" id="panel-1">
     <div class="card">
-      <span class="card-label">Stack Order — shorthand</span>
+      <span class="card-label">Shorthand format:</span>
       <div class="hint">
-        <span>a- slug lastname</span> — segment with guest/reporter<br>
-        <span>a- slug lastname read slug2</span> — segment + auto TELL as A2<br>
-        <span>b2- read slug</span> — explicit standalone TELL<br>
-        Multiple guests: <span>lastname & lastname</span>
+        <span>a- slug lastname &nbsp; a2- slug lastname</span><br>
+        <span>b- slug lastname &nbsp; read- slug</span><br>
+        <span>c- slug lastname & lastname</span>
       </div>
       <div id="stack-roster-ref"></div>
       <textarea id="order-input" rows="4"></textarea>
@@ -264,18 +261,26 @@ function rosterKey(name) {
 
 function parseRoster(raw) {
   const roster = {};
+  // roster is keyed by every meaningful word in the name for flexible lookup
+  function indexEntry(name, entry) {
+    const clean = name.replace(/\s*\(.*?\)\s*/g, " ").trim();
+    const parts = clean.split(/\s+/).filter(w => w.length > 1);
+    parts.forEach(p => { roster[p] = entry; });
+    // also index the full cleaned name for multi-word tokens
+    roster[clean] = entry;
+  }
   raw.split("\n").forEach(line => {
     line = line.trim(); if (!line) return;
     const lm = line.match(/^(.+?)\s+LIVE(?:\s+(?:IN\s+)?(.+))?$/i);
     if (lm) {
       const name = lm[1].trim().toUpperCase();
       const loc = (lm[2]||"").trim().toUpperCase();
-      roster[rosterKey(name)] = { type:"reporter", name, location:loc };
+      indexEntry(name, { type:"reporter", name, location:loc });
     } else {
       const ci = line.indexOf(",");
       const name = ci === -1 ? line.trim().toUpperCase() : line.slice(0,ci).trim().toUpperCase();
       const title = ci === -1 ? "" : line.slice(ci+1).trim().toUpperCase();
-      roster[rosterKey(name)] = { type:"guest", name, title, noTitle: ci === -1 };
+      indexEntry(name, { type:"guest", name, title, noTitle: ci === -1 });
     }
   });
   return roster;
@@ -283,11 +288,14 @@ function parseRoster(raw) {
 
 function resolveGuest(token, roster) {
   return token.split(/[&+]/).map(s=>s.trim().toUpperCase()).map(part => {
+    // exact key match
     if (roster[part]) return roster[part];
-    const k = Object.keys(roster).find(k=>k.includes(part)||part.includes(k));
+    // partial key match (handles abbreviations/typos)
+    const k = Object.keys(roster).find(k => k.includes(part) || part.includes(k));
     if (k) return roster[k];
-    const v = Object.values(roster).find(r=>r.name.includes(part));
-    return v||{type:"unknown",name:part};
+    // substring match against full name
+    const v = Object.values(roster).find(r => r.name.includes(part));
+    return v || { type:"unknown", name:part };
   });
 }
 
