@@ -431,7 +431,7 @@ function buildRoster() {
   // show preview on roster page
   document.getElementById("roster-preview").innerHTML = rosterEntries(state.roster).map(r => {
     if (r.type === "reporter") return "📡 " + r.name + (r.location ? " — " + r.location : "");
-    if (r.noTitle) return "👤 " + r.name + " <span style='color:#c8102e'>— NO TITLE (add comma + title if needed)</span>";
+    if (r.noTitle) return "👤 " + r.name + " <span style='color:#c8102e'>— NEED TITLE</span>";
     return "👤 " + r.name + " — " + r.title;
   }).join("<br>");
   goToStep(1);
@@ -506,7 +506,7 @@ function restoreUI() {
   document.getElementById("order-input").value=state.orderRaw||"";
   if (Object.keys(state.roster).length) {
     document.getElementById("roster-preview").innerHTML=rosterEntries(state.roster).map(r=>
-      r.type==="reporter"?"📡 "+r.name+(r.location?" — "+r.location:""):"👤 "+r.name+(r.noTitle?" <span style='color:#c8102e'>— NO TITLE</span>":" — "+r.title)
+      r.type==="reporter"?"📡 "+r.name+(r.location?" — "+r.location:""):"👤 "+r.name+(r.noTitle?" <span style='color:#c8102e'>— NEED TITLE</span>":" — "+r.title)
     ).join("<br>");
   }
   if (Object.keys(state.blocks).length) renderEditorialBlocks();
