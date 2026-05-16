@@ -154,11 +154,12 @@ textarea:focus { border-color: #444; }
     <button class="tab" id="tab-4" onclick="goToStep(4)">5. ARCHIVE</button>
   </div>
 
+  <div id="lineup-date" style="font-size:13px;letter-spacing:0.12em;color:#ccc;margin:10px 0 14px;"></div>
+
   <!-- STEP 0: ROSTER -->
   <div class="panel active" id="panel-0">
     <div class="card">
-      <span class="card-label" id="lineup-date"></span>
-      <div class="hint" style="margin-top:8px">
+      <div class="hint">
         GUEST: <span>Guest Name, Title</span><br>
         REPORTER (no location): <span>Reporter Name LIVE</span><br>
         REPORTER (with location): <span>Reporter Name LIVE Miami</span>
@@ -255,6 +256,12 @@ function load() {
 function clearStorage() { try { localStorage.removeItem(STORAGE_KEY); } catch(e) {} }
 
 // ── LOGIC ─────────────────────────────────────────────────────────────────────
+function rosterKey(name) {
+  // Strip trailing parentheticals like (ret), (I-CA), then take last word
+  const clean = name.replace(/\s*\(.*?\)\s*$/, "").trim();
+  return clean.split(" ").pop();
+}
+
 function parseRoster(raw) {
   const roster = {};
   raw.split("\n").forEach(line => {
@@ -263,12 +270,12 @@ function parseRoster(raw) {
     if (lm) {
       const name = lm[1].trim().toUpperCase();
       const loc = (lm[2]||"").trim().toUpperCase();
-      roster[name.split(" ").pop()] = { type:"reporter", name, location:loc };
+      roster[rosterKey(name)] = { type:"reporter", name, location:loc };
     } else {
-      const ci = line.indexOf(","); if (ci===-1) return;
-      const name = line.slice(0,ci).trim().toUpperCase();
-      const title = line.slice(ci+1).trim().toUpperCase();
-      roster[name.split(" ").pop()] = { type:"guest", name, title };
+      const ci = line.indexOf(",");
+      const name = ci === -1 ? line.trim().toUpperCase() : line.slice(0,ci).trim().toUpperCase();
+      const title = ci === -1 ? "" : line.slice(ci+1).trim().toUpperCase();
+      roster[rosterKey(name)] = { type:"guest", name, title, noTitle: ci === -1 };
     }
   });
   return roster;
@@ -286,7 +293,7 @@ function resolveGuest(token, roster) {
 
 function guestLine(e) {
   if (e.type==="reporter") return e.location ? ">"+e.name+" LIVE FROM "+e.location : ">"+e.name+" LIVE";
-  if (e.type==="guest") return ">"+e.name+", "+e.title;
+  if (e.type==="guest") return e.title ? ">"+e.name+", "+e.title : ">"+e.name;
   return ">"+e.name;
 }
 
@@ -405,9 +412,11 @@ function buildRoster() {
   state.rosterRaw = document.getElementById("roster-input").value;
   state.roster = parseRoster(state.rosterRaw);
   // show preview on roster page
-  document.getElementById("roster-preview").innerHTML = Object.values(state.roster).map(r=>
-    r.type==="reporter" ? "📡 "+r.name+(r.location?" — "+r.location:"") : "👤 "+r.name+" — "+r.title
-  ).join("<br>");
+  document.getElementById("roster-preview").innerHTML = Object.values(state.roster).map(r => {
+    if (r.type === "reporter") return "📡 " + r.name + (r.location ? " — " + r.location : "");
+    if (r.noTitle) return "👤 " + r.name + " <span style='color:#c8102e'>— NO TITLE (add comma + title if needed)</span>";
+    return "👤 " + r.name + " — " + r.title;
+  }).join("<br>");
   goToStep(1);
 }
 
