@@ -262,11 +262,11 @@ function rosterKey(name) {
 function parseRoster(raw) {
   const roster = {};
   // roster is keyed by every meaningful word in the name for flexible lookup
+  const SKIP = new Set(["REP","SEN","GEN","LT","SGT","COL","DR","MR","MS","MRS","FMR","RET","THE","AND","OF"]);
   function indexEntry(name, entry) {
     const clean = name.replace(/\s*\(.*?\)\s*/g, " ").trim();
-    const parts = clean.split(/\s+/).filter(w => w.length > 1);
+    const parts = clean.split(/\s+/).filter(w => w.length > 1 && !SKIP.has(w));
     parts.forEach(p => { roster[p] = entry; });
-    // also index the full cleaned name for multi-word tokens
     roster[clean] = entry;
   }
   raw.split("\n").forEach(line => {
@@ -314,30 +314,60 @@ function guestLine(e) {
   return ">"+e.name;
 }
 
+function blockGuestLabel(b) {
+  if (b.isRead) return "reader";
+  if (b.isPkg) return "PKG";
+  return b.guests.map(g=>g.name).join(" & ") || "no guest";
+}
+
+function blockSlugLabel(b) {
+  if (b.isRead) return "STORY";
+  if (b.isPkg) return "STORY";
+  if (b.guests.length) return "TOPIC";
+  return "STORY";
+}
+
 function extractSegment(chunk, roster, isRead) {
-  const slugRaw = isRead ? chunk.replace(/\bread\b/gi,"").trim() : chunk;
+  // Detect and strip keywords before parsing
+  const isPkg = /\bpkg\b/i.test(chunk);
+  const isPretape = /\bpretape\b/i.test(chunk);
+  const slugRaw = isRead
+    ? chunk.replace(/\bread\b/gi,"").trim()
+    : chunk.replace(/\bpkg\b/gi,"").replace(/\bpretape\b/gi,"").trim();
+
   const words = slugRaw.split(/\s+/);
   let cutAt = words.length;
   const guests = [];
+  const seenNames = new Set();
 
-  let w = words.length - 1;
-  while (w >= 0) {
-    const tok = words[w];
-    // skip bare & connectors
-    if (tok === "&") { w--; continue; }
-    const s = resolveGuest(tok, roster);
-    if (s.some(r => r.type !== "unknown")) {
-      guests.unshift(...s);
-      cutAt = w;
-      w--;
-    } else {
-      break;
+  // If pkg/pretape, no guest to resolve — slug is everything
+  if (!isPkg && !isPretape && !isRead) {
+    let w = words.length - 1;
+    while (w >= 0) {
+      const tok = words[w];
+      if (tok === "&") { w--; continue; }
+      const s = resolveGuest(tok, roster);
+      if (s.some(r => r.type !== "unknown")) {
+        s.forEach(r => {
+          if (!seenNames.has(r.name)) { seenNames.add(r.name); guests.unshift(r); }
+        });
+        cutAt = w;
+        w--;
+      } else {
+        break;
+      }
     }
+    while (cutAt > 0 && words[cutAt-1] === "&") cutAt--;
   }
-  // trim any trailing & left at cutAt boundary
-  while (cutAt > 0 && words[cutAt - 1] === "&") cutAt--;
-  const slug = words.slice(0, cutAt).join(" ").replace(/\s+/g, " ").trim() || slugRaw;
-  return { slug: slug.toUpperCase(), guests: isRead ? [] : guests, isRead, editorial: "" };
+
+  const slug = words.slice(0, cutAt).join(" ").replace(/\s+/g," ").trim() || slugRaw;
+  return {
+    slug: slug.toUpperCase(),
+    guests: isRead ? [] : guests,
+    isRead,
+    isPkg: isPkg || isPretape,
+    editorial: ""
+  };
 }
 
 function parseStoryOrder(raw, roster) {
@@ -374,6 +404,7 @@ function formatRundown(blocks) {
       lines.push(idx===0?letter+":":letter+b.num+" -");
       const body=b.editorial||b.slug;
       if (b.isRead){lines.push("TELL: "+body);}
+      else if (b.isPkg){lines.push(body);lines.push(">PKG");}
       else{lines.push(body);b.guests.forEach(g=>lines.push(guestLine(g)));}
     });
     lines.push("");
@@ -450,14 +481,15 @@ function renderEditorialBlocks() {
   const container = document.getElementById("editorial-blocks");
   container.innerHTML = Object.keys(state.blocks).sort().map(key => {
     const b = state.blocks[key];
-    const gnames = b.guests.map(g=>g.name).join(" & ") || (b.isRead?"reader":"no guest");
+    const gnames = blockGuestLabel(b);
+    const slugLbl = blockSlugLabel(b);
     const val = state.editorialInputs[key] || b.editorial || "";
     return `<div class="card red-left">
       <div class="card-row">
-        <span class="block-title">${b.letter}${b.num||""}${b.isRead?" — TELL":""}</span>
+        <span class="block-title">${b.letter}${b.num||""}${b.isRead?" — TELL":b.isPkg?" — PKG":""}</span>
         <span class="block-meta">${gnames}</span>
       </div>
-      <div class="slug-label">SLUG: ${b.slug}</div>
+      <div class="slug-label">${slugLbl}: ${b.slug}</div>
       <textarea id="ed-${key}" rows="3" oninput="state.editorialInputs['${key}']=this.value">${escHtml(val)}</textarea>
     </div>`;
   }).join("");
