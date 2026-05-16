@@ -286,6 +286,15 @@ function parseRoster(raw) {
   return roster;
 }
 
+function rosterEntries(roster) {
+  const seen = new Set();
+  return Object.values(roster).filter(r => {
+    if (seen.has(r.name)) return false;
+    seen.add(r.name);
+    return true;
+  });
+}
+
 function resolveGuest(token, roster) {
   return token.split(/[&+]/).map(s=>s.trim().toUpperCase()).map(part => {
     // exact key match
@@ -376,7 +385,7 @@ function formatRundown(blocks) {
 function renderStackRosterRef() {
   const ref = document.getElementById("stack-roster-ref");
   if (!ref) return;
-  const entries = Object.values(state.roster);
+  const entries = rosterEntries(state.roster);
   if (!entries.length) { ref.innerHTML=""; return; }
   const reporters = entries.filter(r=>r.type==="reporter");
   const guests = entries.filter(r=>r.type==="guest");
@@ -420,7 +429,7 @@ function buildRoster() {
   state.rosterRaw = document.getElementById("roster-input").value;
   state.roster = parseRoster(state.rosterRaw);
   // show preview on roster page
-  document.getElementById("roster-preview").innerHTML = Object.values(state.roster).map(r => {
+  document.getElementById("roster-preview").innerHTML = rosterEntries(state.roster).map(r => {
     if (r.type === "reporter") return "📡 " + r.name + (r.location ? " — " + r.location : "");
     if (r.noTitle) return "👤 " + r.name + " <span style='color:#c8102e'>— NO TITLE (add comma + title if needed)</span>";
     return "👤 " + r.name + " — " + r.title;
@@ -496,8 +505,8 @@ function restoreUI() {
   document.getElementById("roster-input").value=state.rosterRaw||"";
   document.getElementById("order-input").value=state.orderRaw||"";
   if (Object.keys(state.roster).length) {
-    document.getElementById("roster-preview").innerHTML=Object.values(state.roster).map(r=>
-      r.type==="reporter"?"📡 "+r.name+(r.location?" — "+r.location:""):"👤 "+r.name+" — "+r.title
+    document.getElementById("roster-preview").innerHTML=rosterEntries(state.roster).map(r=>
+      r.type==="reporter"?"📡 "+r.name+(r.location?" — "+r.location:""):"👤 "+r.name+(r.noTitle?" <span style='color:#c8102e'>— NO TITLE</span>":" — "+r.title)
     ).join("<br>");
   }
   if (Object.keys(state.blocks).length) renderEditorialBlocks();
