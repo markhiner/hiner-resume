@@ -1,0 +1,12 @@
+{
+  "name": "amtrak-nec-tracker",
+  "version": "1.0.0",
+  "description": "Live Amtrak NEC tracker served via Cloudflare Tunnel",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,12 @@
+# Cloudflare Tunnel config for amtrak.hiner.nyc
+# Copy this file to ~/.cloudflared/config.yml on your server
+# Replace YOUR_TUNNEL_ID with your actual tunnel ID (from `cloudflared tunnel list`)
+# Replace /home/YOUR_USER with the correct home directory path
+
+tunnel: YOUR_TUNNEL_ID
+credentials-file: /home/YOUR_USER/.cloudflared/YOUR_TUNNEL_ID.json
+
+ingress:
+  - hostname: amtrak.hiner.nyc
+    service: http://localhost:3000
+  - service: http_status:404
