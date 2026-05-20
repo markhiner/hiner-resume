@@ -1,5 +1,5 @@
 // NEC live tracker — calls api-v3.amtraker.com directly (no npm package required)
-// Run with Node 18+ (built-in fetch). Place anywhere and `node nec-tracker.js`.
+// Run with Node 18+ (built-in fetch). node server.js
 
 const http = require("http");
 
@@ -7,7 +7,6 @@ const PORT = 3000;
 const TRAINS_URL = "https://api-v3.amtraker.com/v3/trains";
 const STATIONS_URL = "https://api-v3.amtraker.com/v3/stations";
 
-// NEC stations in southbound order (NYP → WAS)
 const NEC_STATIONS = [
   { code: "NYP", name: "New York Penn",          lat: 40.7510, lon: -73.9963 },
   { code: "NWK", name: "Newark Penn",            lat: 40.7347, lon: -74.1647 },
@@ -25,7 +24,7 @@ const NEC_STATIONS = [
   { code: "WAS", name: "Washington Union",       lat: 38.8970, lon: -77.0064 },
 ];
 
-// ---------- direct API calls ----------
+// ---------- API calls ----------
 
 async function fetchJSON(url) {
   const res = await fetch(url, { headers: { Accept: "application/json" } });
@@ -144,32 +143,44 @@ function schedTimeAt(train, code) {
   return parseTime(stop.schDep) || parseTime(stop.schArr);
 }
 
-function formatTimeShort(date) {
-  if (!date) return null;
-  return date.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: "America/New_York",
-  });
-}
+// ---------- NYP departures ----------
 
-// Predeparture → entry departure time. Otherwise → exit arrival time.
-function cardTimeFor(train, dir) {
-  const entryCode = dir === "south" ? "NYP" : "WAS";
-  const exitCode  = dir === "south" ? "WAS" : "NYP";
-  const entryStop = train.stations.find((s) => s.code === entryCode);
-  const exitStop  = train.stations.find((s) => s.code === exitCode);
+async function getNYPDepartures() {
+  const trainsObj = await fetchAllTrains();
+  const all = Object.values(trainsObj).flat();
+  const cutoff = new Date(Date.now() - 3 * 60 * 1000);
 
-  if (train.trainState === "Predeparture") {
-    const t = parseTime(entryStop?.dep) || parseTime(entryStop?.schDep);
-    return { time: t, label: "Departs" };
+  const results = [];
+  for (const train of all) {
+    if (!train.stations) continue;
+    const nypIdx = train.stations.findIndex((s) => s.code === "NYP");
+    if (nypIdx < 0) continue;
+    if (nypIdx === train.stations.length - 1) continue; // NYP is this train's terminus
+
+    const nypStop = train.stations[nypIdx];
+    const schDep = parseTime(nypStop.schDep);
+    if (!schDep) continue;
+
+    const actualDep = parseTime(nypStop.dep);
+    const effectiveDep = actualDep || schDep;
+    if (effectiveDep < cutoff) continue;
+
+    const status = statusInfo(schDep, actualDep);
+
+    results.push({
+      trainNum: train.trainNum,
+      routeName: train.routeName,
+      destName: train.destName,
+      schDep: schDep.toISOString(),
+      actualDep: actualDep ? actualDep.toISOString() : null,
+      status,
+    });
   }
-  const t = parseTime(exitStop?.arr) || parseTime(exitStop?.schArr);
-  return { time: t, label: "Arrives" };
+
+  return results.sort((a, b) => new Date(a.schDep) - new Date(b.schDep));
 }
 
-// ---------- main shaping ----------
+// ---------- corridor data ----------
 
 async function getCorridorData() {
   const [trainsObj, stations] = await Promise.all([fetchAllTrains(), fetchAllStations()]);
@@ -178,7 +189,9 @@ async function getCorridorData() {
 
   return corridorTrains.map((train) => {
     const dir = direction(train);
+    const stationsArr = train.stations || [];
     const nextStop = findNextStop(train);
+    const nextIdx = nextStop ? stationsArr.indexOf(nextStop) : stationsArr.length;
 
     let status = { label: "—", class: "unknown" };
     if (nextStop) {
@@ -189,17 +202,58 @@ async function getCorridorData() {
 
     let distToNext = null;
     let bearing = null;
-    if (nextStop && train.lat != null && train.lon != null) {
-      const stopData = stations[nextStop.code];
-      if (stopData && stopData.lat && stopData.lon) {
-        distToNext = haversineMi(train.lat, train.lon, stopData.lat, stopData.lon);
-        bearing = bearingDeg(train.lat, train.lon, stopData.lat, stopData.lon);
+    let distToLast = null;
+
+    if (train.lat != null && train.lon != null) {
+      if (nextStop) {
+        const nd = stations[nextStop.code];
+        if (nd?.lat && nd?.lon) {
+          distToNext = haversineMi(train.lat, train.lon, nd.lat, nd.lon);
+          bearing = bearingDeg(train.lat, train.lon, nd.lat, nd.lon);
+        }
+      }
+      if (nextIdx > 0) {
+        const lastStop = stationsArr[nextIdx - 1];
+        const ld = stations[lastStop.code];
+        if (ld?.lat && ld?.lon) {
+          distToLast = haversineMi(train.lat, train.lon, ld.lat, ld.lon);
+        }
       }
     }
 
+    let locationInfo = null;
+    if (train.lat != null) {
+      if (distToLast != null && distToLast <= 5 && nextIdx > 0) {
+        const lastStop = stationsArr[nextIdx - 1];
+        locationInfo = {
+          near: true,
+          stationName: lastStop.name || stations[lastStop.code]?.name || lastStop.code,
+          dist: Math.round(distToLast * 10) / 10,
+        };
+      } else if (distToNext != null && distToNext <= 5 && nextStop) {
+        locationInfo = {
+          near: true,
+          stationName: nextStop.name || stations[nextStop.code]?.name || nextStop.code,
+          dist: Math.round(distToNext * 10) / 10,
+        };
+      } else if (distToNext != null && nextStop) {
+        locationInfo = {
+          near: false,
+          dist: Math.round(distToNext * 10) / 10,
+          stationName: nextStop.name || stations[nextStop.code]?.name || nextStop.code,
+        };
+      }
+    }
+
+    const stops = stationsArr.map((s, i) => ({
+      code: s.code,
+      name: s.name || stations[s.code]?.name || s.code,
+      passed: i < nextIdx,
+      isNext: i === nextIdx,
+    }));
+
     const entryCode = dir === "south" ? "NYP" : "WAS";
     const necDepTime = schedTimeAt(train, entryCode);
-    const card = cardTimeFor(train, dir);
 
     return {
       trainNum: train.trainNum,
@@ -221,8 +275,8 @@ async function getCorridorData() {
       bearing,
       status,
       necDepTime: necDepTime ? necDepTime.toISOString() : null,
-      cardTime: formatTimeShort(card.time),
-      cardLabel: card.label,
+      locationInfo,
+      stops,
     };
   });
 }
@@ -241,7 +295,7 @@ const htmlPage = `<!DOCTYPE html>
   body { font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif; background: #0a0a0a; color: #f0f0f0; overflow: hidden; height: 100vh; }
   #app { display: flex; height: 100vh; }
   #map { flex: 1; height: 100%; background: #1a1a1a; }
-  #sidebar { width: 460px; height: 100%; background: #111; border-left: 1px solid #2a2a2a; overflow-y: auto; }
+  #sidebar { width: 480px; height: 100%; background: #111; border-left: 1px solid #2a2a2a; overflow-y: auto; }
   .header { padding: 18px 20px; border-bottom: 1px solid #2a2a2a; }
   .header h1 { font-size: 16px; font-weight: 700; letter-spacing: 1.5px; }
   .header .updated { font-size: 11px; color: #888; margin-top: 4px; }
@@ -251,21 +305,9 @@ const htmlPage = `<!DOCTYPE html>
   .dot.acela { background: #40E0D0; }
   .dot.regional { background: #1E90FF; }
   .dot.longdistance { background: #DC143C; }
-  .section { padding: 14px 20px; }
+  .section { padding: 14px 20px; border-bottom: 1px solid #1e1e1e; }
   .section h2 { font-size: 12px; font-weight: 700; letter-spacing: 2px; color: #999; margin-bottom: 12px; text-transform: uppercase; }
   .section h2 .arrow { color: #555; margin-right: 6px; font-size: 14px; }
-  .train { background: #1a1a1a; border-radius: 4px; margin-bottom: 10px; display: flex; overflow: hidden; }
-  .train-flair { width: 16px; flex-shrink: 0; }
-  .train.acela .train-flair { background: #40E0D0; }
-  .train.regional .train-flair { background: #1E90FF; }
-  .train.longdistance .train-flair { background: #DC143C; }
-  .train-body { flex: 1; padding: 10px 14px; min-width: 0; }
-  .train-row1 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
-  .train-id { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex-wrap: wrap; }
-  .train-num { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: 0.5px; line-height: 1; }
-  .train-route { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600; }
-  .train-row2 { display: flex; gap: 14px; font-size: 12px; color: #bbb; align-items: center; flex-wrap: wrap; }
-  .train-time { color: #f0f0f0; font-weight: 600; }
   .status { padding: 3px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; white-space: nowrap; }
   .status.ontime    { background: #14391d; color: #5cd16e; }
   .status.minor     { background: #4a4500; color: #ffd700; }
@@ -273,6 +315,49 @@ const htmlPage = `<!DOCTYPE html>
   .status.severe    { background: #5c1010; color: #ff5252; }
   .status.unknown   { background: #2a2a2a; color: #888; }
   .empty { color: #555; font-style: italic; font-size: 13px; padding: 8px 0; }
+
+  /* ---- departures board ---- */
+  .dep-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+  .dep-table col.col-time   { width: 70px; }
+  .dep-table col.col-status { width: 68px; }
+  .dep-table col.col-dest   { }
+  .dep-table col.col-num    { width: 28px; }
+  .dep-table col.col-name   { width: 88px; }
+  .dep-table col.col-in     { width: 54px; }
+  .dep-head th { color: #555; font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; text-align: left; padding: 0 4px 8px; border-bottom: 1px solid #2a2a2a; }
+  .dep-head th.right { text-align: right; }
+  .dep-row td { padding: 6px 4px; border-bottom: 1px solid #1a1a1a; vertical-align: middle; }
+  .dep-time { color: #bbb; white-space: nowrap; }
+  .dep-dest { color: #f0f0f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0; }
+  .dep-num  { color: #888; white-space: nowrap; }
+  .dep-name { color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0; }
+  .dep-in   { text-align: right; }
+  .dep-countdown { font-weight: 700; white-space: nowrap; font-size: 12px; }
+  .dep-countdown.warn     { color: #ffd700; }
+  .dep-countdown.flash    { color: #ffd700; animation: blink 1s step-start infinite; }
+  .dep-countdown.lastcall { color: #ff5252; animation: blink 0.5s step-start infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ---- train cards ---- */
+  .train { background: #1a1a1a; border-radius: 4px; margin-bottom: 10px; display: flex; overflow: hidden; }
+  .train-flair { width: 16px; flex-shrink: 0; }
+  .train.acela .train-flair      { background: #40E0D0; }
+  .train.regional .train-flair   { background: #1E90FF; }
+  .train.longdistance .train-flair { background: #DC143C; }
+  .train-body { flex: 1; padding: 10px 14px; min-width: 0; }
+  .train-row1 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px; }
+  .train-id { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex-wrap: wrap; }
+  .train-num { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: 0.5px; line-height: 1; }
+  .train-route { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600; }
+  .train-meta { display: flex; gap: 14px; font-size: 12px; color: #999; flex-wrap: wrap; align-items: center; }
+  .train-loc-near { color: #7bcfef; }
+  .train-stops { border-top: 1px solid #252525; margin-top: 9px; padding-top: 8px; }
+  .stop { font-size: 11px; line-height: 1.65; padding-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stop.passed { color: #3a3a3a; font-weight: 300; }
+  .stop.next   { color: #fff; font-weight: 700; padding-left: 0; border-left: 2px solid #fff; padding-left: 6px; }
+  .stop.future { color: #888; font-weight: 400; }
+
+  /* ---- map ---- */
   .leaflet-container { background: #1a1a1a; }
   .train-marker { background: transparent !important; border: none !important; }
   .leaflet-popup-content-wrapper, .leaflet-tooltip { background: #1a1a1a; color: #fff; border: 1px solid #333; font-family: inherit; }
@@ -293,6 +378,32 @@ const htmlPage = `<!DOCTYPE html>
       <span class="legend-item"><span class="dot regional"></span>Northeast Regional</span>
       <span class="legend-item"><span class="dot longdistance"></span>Long Distance</span>
     </div>
+
+    <div class="section">
+      <h2>New York Penn — Departures</h2>
+      <table class="dep-table">
+        <colgroup>
+          <col class="col-time">
+          <col class="col-status">
+          <col class="col-dest">
+          <col class="col-num">
+          <col class="col-name">
+          <col class="col-in">
+        </colgroup>
+        <thead>
+          <tr class="dep-head">
+            <th>Time</th>
+            <th>Status</th>
+            <th>Destination</th>
+            <th>#</th>
+            <th>Train</th>
+            <th class="right">In</th>
+          </tr>
+        </thead>
+        <tbody id="departures"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
     <div class="section">
       <h2><span class="arrow">↓</span>Southbound (toward Washington)</h2>
       <div id="southbound"><div class="empty">Loading…</div></div>
@@ -305,9 +416,11 @@ const htmlPage = `<!DOCTYPE html>
 </div>
 <script>
   var NEC_STATIONS = ${JSON.stringify(NEC_STATIONS)};
+
+  // ---- map setup ----
   var map = L.map('map', { zoomControl: true });
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '© OpenStreetMap, © CARTO', maxZoom: 18, subdomains: 'abcd'
+    attribution: '&copy; OpenStreetMap, &copy; CARTO', maxZoom: 18, subdomains: 'abcd'
   }).addTo(map);
   var routeCoords = NEC_STATIONS.map(function (s) { return [s.lat, s.lon]; });
   L.polyline(routeCoords, { color: '#888', weight: 3, opacity: 0.55 }).addTo(map);
@@ -320,6 +433,8 @@ const htmlPage = `<!DOCTYPE html>
     }).bindTooltip(s.name, { direction: 'top', offset: [0, -4] }).addTo(map);
   });
   var trainLayer = L.layerGroup().addTo(map);
+
+  // ---- map helpers ----
   var HEADING_ANGLE = { N: 0, NE: 45, E: 90, SE: 135, S: 180, SW: 225, W: 270, NW: 315 };
   function trainColor(type) {
     if (type === 'acela') return '#40E0D0';
@@ -329,29 +444,47 @@ const htmlPage = `<!DOCTYPE html>
   function trainIcon(train) {
     var color = trainColor(train.type);
     var angle = train.bearing != null ? train.bearing : (HEADING_ANGLE[train.heading] || 0);
-    var html = '<div style="transform: rotate(' + angle + 'deg); width: 22px; height: 22px;">' +
+    var html = '<div style="transform:rotate(' + angle + 'deg);width:22px;height:22px;">' +
       '<svg width="22" height="22" viewBox="0 0 22 22">' +
         '<polygon points="11,1 19,19 11,14 3,19" fill="' + color + '" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/>' +
       '</svg></div>';
     return L.divIcon({ className: 'train-marker', html: html, iconSize: [22, 22], iconAnchor: [11, 11] });
   }
+  function tooltipFor(t) {
+    var d = t.distToNext != null && t.nextStop ? (' &middot; ' + t.distToNext.toFixed(1) + ' mi to ' + escapeHTML(t.nextStop.name)) : '';
+    return '<b>' + escapeHTML(t.routeName) + ' #' + escapeHTML(t.trainNum) + '</b><br>' +
+           escapeHTML(t.status.label) + ' &middot; ' + t.velocity + ' mph' + d;
+  }
+
+  // ---- shared utils ----
   function escapeHTML(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
       return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
     });
   }
+
+  // ---- train cards ----
   function renderTrainCard(t) {
-    var distText;
-    if (t.distToNext != null && t.nextStop) {
-      distText = t.distToNext.toFixed(1) + ' mi to ' + escapeHTML(t.nextStop.name);
-    } else if (t.nextStop) {
-      distText = 'at ' + escapeHTML(t.nextStop.name);
-    } else {
-      distText = '—';
+    var locHtml = '';
+    if (t.locationInfo) {
+      if (t.locationInfo.near) {
+        locHtml = '<span class="train-loc-near">Near ' + escapeHTML(t.locationInfo.stationName) + '</span>' +
+                  '<span style="color:#555">(' + t.locationInfo.dist + ' mi)</span>';
+      } else {
+        locHtml = '<span>' + t.locationInfo.dist + ' mi to ' + escapeHTML(t.locationInfo.stationName) + '</span>';
+      }
     }
-    var timeText = t.cardTime
-      ? '<span class="train-time">' + escapeHTML(t.cardLabel) + ' ' + escapeHTML(t.cardTime) + '</span>'
-      : '';
+
+    var stopsHtml = '';
+    if (t.stops && t.stops.length) {
+      stopsHtml = '<div class="train-stops">' +
+        t.stops.map(function (s) {
+          var cls = s.isNext ? 'next' : (s.passed ? 'passed' : 'future');
+          return '<div class="stop ' + cls + '">' + escapeHTML(s.name) + '</div>';
+        }).join('') +
+      '</div>';
+    }
+
     return '<div class="train ' + t.type + '">' +
       '<div class="train-flair"></div>' +
       '<div class="train-body">' +
@@ -362,19 +495,83 @@ const htmlPage = `<!DOCTYPE html>
           '</div>' +
           '<span class="status ' + t.status.class + '">' + escapeHTML(t.status.label) + '</span>' +
         '</div>' +
-        '<div class="train-row2">' +
-          timeText +
+        '<div class="train-meta">' +
           '<span>' + t.velocity + ' mph</span>' +
-          '<span>' + distText + '</span>' +
+          locHtml +
         '</div>' +
+        stopsHtml +
       '</div>' +
     '</div>';
   }
-  function tooltipFor(t) {
-    var d = t.distToNext != null ? (' · ' + t.distToNext.toFixed(1) + ' mi to ' + t.nextStop.name) : '';
-    return '<b>' + escapeHTML(t.routeName) + ' #' + escapeHTML(t.trainNum) + '</b><br>' +
-           t.status.label + ' · ' + t.velocity + ' mph' + d;
+
+  // ---- countdown logic ----
+  function countdownInfo(depDate) {
+    var diff = depDate - new Date();
+    if (diff <= 0) return { text: 'Departed', cls: '' };
+    var totalSecs = Math.floor(diff / 1000);
+    var totalMins = Math.floor(totalSecs / 60);
+    if (totalMins < 3) {
+      return { text: 'Last call', cls: 'lastcall' };
+    }
+    if (totalMins < 10) {
+      var secs = totalSecs % 60;
+      return { text: totalMins + ':' + String(secs).padStart(2, '0'), cls: 'flash' };
+    }
+    if (totalMins < 20) {
+      return { text: totalMins + ' mins', cls: 'warn' };
+    }
+    if (totalMins < 60) {
+      return { text: totalMins + ' mins', cls: '' };
+    }
+    var h = Math.floor(totalMins / 60);
+    var m = totalMins % 60;
+    return { text: h + ':' + String(m).padStart(2, '0'), cls: '' };
   }
+
+  function updateCountdowns() {
+    document.querySelectorAll('.dep-countdown[data-dep]').forEach(function (el) {
+      var dep = new Date(el.getAttribute('data-dep'));
+      var cd = countdownInfo(dep);
+      el.textContent = cd.text;
+      el.className = 'dep-countdown' + (cd.cls ? ' ' + cd.cls : '');
+    });
+  }
+
+  // ---- departures board ----
+  function renderDepartures(deps) {
+    if (!deps || !deps.length) {
+      return '<tr><td colspan="6" class="empty">No upcoming departures.</td></tr>';
+    }
+    return deps.map(function (d) {
+      var schDep = new Date(d.schDep);
+      var estDep = d.actualDep ? new Date(d.actualDep) : schDep;
+      var cd = countdownInfo(estDep);
+      var timeStr = schDep.toLocaleTimeString('en-US', {
+        hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York'
+      });
+      return '<tr class="dep-row">' +
+        '<td class="dep-time">' + escapeHTML(timeStr) + '</td>' +
+        '<td><span class="status ' + d.status.class + '">' + escapeHTML(d.status.label) + '</span></td>' +
+        '<td class="dep-dest">' + escapeHTML(d.destName || '—') + '</td>' +
+        '<td class="dep-num">' + escapeHTML(d.trainNum) + '</td>' +
+        '<td class="dep-name">' + escapeHTML(d.routeName) + '</td>' +
+        '<td class="dep-in"><span class="dep-countdown ' + cd.cls + '" data-dep="' + estDep.toISOString() + '">' + escapeHTML(cd.text) + '</span></td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  async function refreshDepartures() {
+    try {
+      var res = await fetch('/api/nyp-departures');
+      var deps = await res.json();
+      document.getElementById('departures').innerHTML = renderDepartures(deps);
+    } catch (e) {
+      document.getElementById('departures').innerHTML =
+        '<tr><td colspan="6" class="empty">Error loading departures.</td></tr>';
+    }
+  }
+
+  // ---- corridor refresh ----
   async function refresh() {
     try {
       var res = await fetch('/api/trains');
@@ -395,13 +592,17 @@ const htmlPage = `<!DOCTYPE html>
       document.getElementById('northbound').innerHTML =
         north.length ? north.map(renderTrainCard).join('') : '<div class="empty">No northbound trains.</div>';
       document.getElementById('updated').textContent =
-        'Updated ' + new Date().toLocaleTimeString() + ' · ' + trains.length + ' active';
+        'Updated ' + new Date().toLocaleTimeString() + ' \xb7 ' + trains.length + ' active';
     } catch (e) {
       document.getElementById('updated').textContent = 'Error: ' + e.message;
     }
   }
+
   refresh();
+  refreshDepartures();
   setInterval(refresh, 30000);
+  setInterval(refreshDepartures, 60000);
+  setInterval(updateCountdowns, 1000);
 </script>
 </body>
 </html>`;
@@ -418,6 +619,19 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify(data));
     } catch (err) {
       console.error("API error:", err.message);
+      res.writeHead(500, { "Content-Type": "text/plain" });
+      res.end("Error: " + err.message);
+    }
+    return;
+  }
+
+  if (req.url === "/api/nyp-departures") {
+    try {
+      const data = await getNYPDepartures();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(data));
+    } catch (err) {
+      console.error("NYP departures error:", err.message);
       res.writeHead(500, { "Content-Type": "text/plain" });
       res.end("Error: " + err.message);
     }
