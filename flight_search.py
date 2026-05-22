@@ -182,95 +182,133 @@ CSS = """
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: #0f172a; color: #e2e8f0;
-  padding: 2rem; min-height: 100vh;
+  padding: 1.5rem; min-height: 100vh;
 }
-h1 { font-size: 1.8rem; color: #f8fafc; margin-bottom: .25rem; }
-.subtitle { color: #64748b; font-size: .875rem; margin-bottom: 2.5rem; }
-h2 {
-  font-size: 1.15rem; color: #cbd5e1;
-  border-bottom: 1px solid #1e293b;
-  padding-bottom: .5rem; margin: 2rem 0 1rem;
-  display: flex; align-items: center; gap: .6rem;
+header { margin-bottom: 1.5rem; }
+h1 { font-size: 1.5rem; color: #f8fafc; margin-bottom: .2rem; }
+.subtitle { color: #475569; font-size: .8rem; }
+
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+.col-head {
+  font-size: .7rem; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: #64748b;
+  margin-bottom: .6rem;
+  display: flex; align-items: center; gap: .5rem;
 }
 .badge {
-  background: #1e293b; color: #94a3b8;
-  border-radius: 9999px; font-size: .7rem;
-  padding: .15rem .55rem; font-weight: 400;
+  background: #1e293b; color: #64748b;
+  border-radius: 9999px; font-size: .65rem;
+  padding: .1rem .45rem; font-weight: 400; letter-spacing: 0;
+  text-transform: none;
 }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(370px, 1fr));
-  gap: 1rem;
-}
+
+/* ── card ── */
 .card {
-  background: #1e293b; border: 1px solid #334155;
-  border-radius: .75rem; padding: 1rem;
-  transition: border-color .2s;
+  background: #1e293b; border: 1px solid #1e293b;
+  border-radius: .6rem; margin-bottom: .5rem;
+  cursor: pointer; overflow: hidden;
+  transition: border-color .15s;
 }
-.card:hover { border-color: #475569; }
-.card-header {
-  display: flex; justify-content: space-between;
-  align-items: center; margin-bottom: .75rem;
+.card:hover { border-color: #334155; }
+.card.open  { border-color: #334155; }
+
+.card-face {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: .75rem;
+  padding: .7rem .85rem;
 }
-.logo { height: 28px; object-fit: contain; }
-.airline-text { font-weight: 600; color: #94a3b8; font-size: .875rem; }
-.price { font-size: 1.6rem; font-weight: 700; }
+
+.logo { height: 22px; width: 60px; object-fit: contain; object-position: left; }
+.airline-text { font-size: .75rem; font-weight: 600; color: #64748b; }
+
 .route {
-  display: flex; align-items: center; flex-wrap: wrap;
-  gap: .4rem; margin-bottom: .75rem;
+  display: flex; align-items: baseline; gap: .3rem;
+  font-size: .82rem;
 }
-.ap   { font-weight: 700; font-size: 1rem; color: #f1f5f9; }
-.tm   { color: #94a3b8; font-size: .8rem; }
-.arr  { margin-left: auto; text-align: right; }
-.arrow { color: #475569; flex: 1; text-align: center; font-size: .8rem; }
-.stop-badge {
-  font-size: .72rem; padding: .15rem .5rem;
-  border-radius: 9999px; background: #0f172a; color: #94a3b8;
-  white-space: nowrap;
+.ap   { font-weight: 700; color: #f1f5f9; font-size: .9rem; }
+.tm   { color: #64748b; font-size: .72rem; }
+.sep  { color: #334155; margin: 0 .1rem; }
+
+.meta {
+  font-size: .68rem; color: #475569; margin-top: .15rem;
+  display: flex; gap: .4rem; align-items: center;
 }
-.legs { border-top: 1px solid #0f172a; padding-top: .75rem; }
-.leg { margin-bottom: .6rem; }
-.leg-route { font-size: .82rem; color: #cbd5e1; }
-.leg-meta  { font-size: .72rem; color: #64748b; margin-top: .1rem; }
-.layover-tag {
-  display: inline-block; font-size: .72rem;
-  background: #1c1917; color: #fbbf24;
-  border: 1px solid #292524;
-  border-radius: .25rem; padding: .2rem .45rem;
-  margin: .25rem 0;
+.stop-pill {
+  font-size: .65rem; padding: .1rem .4rem;
+  border-radius: 9999px; background: #0f172a;
+  color: #64748b; white-space: nowrap;
 }
-.empty { color: #475569; font-style: italic; padding: .5rem 0; }
+.plane { color: #475569; }
+
+.price {
+  font-size: 1.25rem; font-weight: 700;
+  white-space: nowrap; text-align: right;
+}
+
+/* ── expanded detail ── */
+.card-detail {
+  display: none;
+  border-top: 1px solid #0f172a;
+  padding: .6rem .85rem .75rem;
+  background: #172033;
+}
+.card.open .card-detail { display: block; }
+
+.leg-row {
+  display: flex; align-items: baseline;
+  gap: .4rem; font-size: .75rem;
+  color: #94a3b8; padding: .2rem 0;
+}
+.leg-ap   { font-weight: 700; color: #cbd5e1; min-width: 2.2rem; }
+.leg-tm   { color: #64748b; min-width: 2.8rem; }
+.leg-arr  { margin-left: auto; display: flex; gap: .4rem; align-items: baseline; }
+.leg-info { font-size: .68rem; color: #334155; margin-left: .3rem; }
+.lv-row {
+  font-size: .68rem; color: #d97706;
+  padding: .15rem 0 .15rem .3rem;
+  border-left: 2px solid #78350f;
+  margin: .1rem 0;
+}
+
+.empty { color: #334155; font-style: italic; font-size: .8rem; padding: .5rem 0; }
+"""
+
+JS = """
+document.querySelectorAll('.card').forEach(card => {
+  card.addEventListener('click', () => card.classList.toggle('open'));
+});
 """
 
 
-def render_legs(legs: list, layovers: list) -> str:
-    html = '<div class="legs">'
+def render_detail(legs: list, layovers: list) -> str:
+    html = '<div class="card-detail">'
     for i, leg in enumerate(legs):
-        dep      = leg.get('departure_airport', {})
-        arr      = leg.get('arrival_airport', {})
-        airplane = leg.get('airplane', '')
-        fn       = leg.get('flight_number', '')
-        al       = leg.get('airline', '')
-        dur      = fmt_duration(leg.get('duration'))
-        d_time   = fmt_time(dep.get('time', ''))
-        a_time   = fmt_time(arr.get('time', ''))
-        dep_id   = dep.get('id', '?')
-        arr_id   = arr.get('id', '?')
-
-        meta_parts = [p for p in [al, fn, airplane, dur] if p]
-        html += f'''
-        <div class="leg">
-          <div class="leg-route">{dep_id} {d_time} → {arr_id} {a_time}</div>
-          <div class="leg-meta">{' · '.join(meta_parts)}</div>
+        dep  = leg.get('departure_airport', {})
+        arr  = leg.get('arrival_airport', {})
+        fn   = leg.get('flight_number', '')
+        ac   = leg.get('airplane', '')
+        dur  = fmt_duration(leg.get('duration'))
+        info = ' · '.join(p for p in [fn, ac, dur] if p)
+        html += f'''<div class="leg-row">
+          <span class="leg-ap">{dep.get('id','?')}</span>
+          <span class="leg-tm">{fmt_time(dep.get('time',''))}</span>
+          <span>→</span>
+          <span class="leg-ap">{arr.get('id','?')}</span>
+          <span class="leg-tm">{fmt_time(arr.get('time',''))}</span>
+          <span class="leg-info">{info}</span>
         </div>'''
-
         if i < len(layovers):
-            lv     = layovers[i]
-            lv_dur = fmt_duration(lv.get('duration'))
+            lv  = layovers[i]
             lv_id  = lv.get('id', '')
-            lv_nm  = lv.get('name', lv_id)
-            html += f'<div class="layover-tag">Layover · {lv_nm} ({lv_id}) · {lv_dur}</div>'
-
+            lv_dur = fmt_duration(lv.get('duration'))
+            html += f'<div class="lv-row">Layover · {lv_id} · {lv_dur}</div>'
     html += '</div>'
     return html
 
@@ -279,32 +317,45 @@ def render_card(f: dict) -> str:
     price  = f['price']
     cabin  = f['cabin']
     color  = price_color(price, cabin)
-    stops  = 'Nonstop' if f['nonstop'] else f"{len(f['layovers'])} stop{'s' if len(f['layovers'])>1 else ''}"
-    logo   = (f'<img class="logo" src="{f["airline_logo"]}" alt="{f["airline_name"]}">'
-              if f['airline_logo'] else f'<span class="airline-text">{f["airline_name"]}</span>')
+    legs   = f['legs']
+    layovers = f['layovers']
+
+    logo = (f'<img class="logo" src="{f["airline_logo"]}" alt="{f["airline_name"]}">'
+            if f['airline_logo'] else f'<span class="airline-text">{f["airline_name"]}</span>')
+
     d_time = fmt_time(f['departure_time'])
     a_time = fmt_time(f['arrival_time'])
 
-    return f'''
-    <div class="card">
-      <div class="card-header">
-        <div>{logo}</div>
-        <div class="price" style="color:{color}">${price}</div>
-      </div>
+    # stop info: Nonstop or layover airport code(s)
+    if f['nonstop']:
+        stop_label = 'Nonstop'
+    else:
+        codes = [lv.get('id', '?') for lv in layovers]
+        stop_label = ' · '.join(codes) if codes else '1 stop'
+
+    # airplane types for all legs joined by /
+    planes = ' / '.join(leg.get('airplane', '') for leg in legs if leg.get('airplane'))
+
+    return f'''<div class="card">
+  <div class="card-face">
+    <div>{logo}</div>
+    <div>
       <div class="route">
-        <div>
-          <div class="ap">{f["departure_airport"]}</div>
-          <div class="tm">{d_time}</div>
-        </div>
-        <div class="arrow">——▶</div>
-        <div class="arr">
-          <div class="ap">{f["arrival_airport"]}</div>
-          <div class="tm">{a_time}</div>
-        </div>
-        <div class="stop-badge">{stops}</div>
+        <span class="ap">{f["departure_airport"]}</span>
+        <span class="tm">{d_time}</span>
+        <span class="sep">→</span>
+        <span class="ap">{f["arrival_airport"]}</span>
+        <span class="tm">{a_time}</span>
       </div>
-      {render_legs(f["legs"], f["layovers"])}
-    </div>'''
+      <div class="meta">
+        <span class="stop-pill">{stop_label}</span>
+        <span class="plane">{planes}</span>
+      </div>
+    </div>
+    <div class="price" style="color:{color}">${price}</div>
+  </div>
+  {render_detail(legs, layovers)}
+</div>'''
 
 
 def build_html(econ: list, first: list, date: str, direction: str) -> str:
@@ -321,21 +372,27 @@ def build_html(econ: list, first: list, date: str, direction: str) -> str:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Flights · {date} · To {dest_label}</title>
+  <title>Flights · {date} · {dest_label}</title>
   <style>{CSS}</style>
 </head>
 <body>
-  <h1>Flight Price Report</h1>
-  <p class="subtitle">
-    {date} &nbsp;·&nbsp; To {dest_label} &nbsp;·&nbsp;
-    Delta · American · United &nbsp;·&nbsp; One-way · 1 adult
-  </p>
+  <header>
+    <h1>Flight Price Report</h1>
+    <p class="subtitle">{date} &nbsp;·&nbsp; To {dest_label} &nbsp;·&nbsp; Delta · American · United &nbsp;·&nbsp; One-way · 1 adult</p>
+  </header>
 
-  <h2>Economy Class <span class="badge">{len(econ)}</span></h2>
-  <div class="grid">{econ_cards}</div>
+  <div class="columns">
+    <div>
+      <div class="col-head">Economy <span class="badge">{len(econ)}</span></div>
+      {econ_cards}
+    </div>
+    <div>
+      <div class="col-head">First Class <span class="badge">{len(first)}</span></div>
+      {first_cards}
+    </div>
+  </div>
 
-  <h2>First Class <span class="badge">{len(first)}</span></h2>
-  <div class="grid">{first_cards}</div>
+  <script>{JS}</script>
 </body>
 </html>'''
 
