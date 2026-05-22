@@ -18,8 +18,10 @@ SERPAPI_KEY = os.environ.get('SERPAPI_KEY', '')
 HOME_AIRPORTS = ['RDU', 'GSO']
 NYC_AIRPORTS  = ['LGA', 'JFK', 'EWR']
 
-ALLOWED_AIRLINES = {'DL', 'AA', 'UA'}
-AIRLINE_NAMES    = {'DL': 'Delta', 'AA': 'American', 'UA': 'United'}
+# Match against full names returned by SerpAPI and IATA codes in flight numbers
+ALLOWED_AIRLINE_NAMES = {'delta', 'american', 'american airlines', 'united', 'united airlines'}
+ALLOWED_AIRLINE_CODES = {'DL', 'AA', 'UA'}
+AIRLINE_NAMES = {'DL': 'Delta', 'AA': 'American', 'UA': 'United'}
 
 # travel_class values for SerpAPI Google Flights
 ECONOMY = 1
@@ -90,7 +92,6 @@ def search_flights(departure: str, arrival: str, date: str, cabin: int) -> dict:
         'type':           '2',        # one-way
         'adults':         '1',
         'travel_class':   str(cabin),
-        'include_airlines': 'DL,AA,UA',
         'api_key':        SERPAPI_KEY,
     }
     try:
@@ -102,7 +103,27 @@ def search_flights(departure: str, arrival: str, date: str, cabin: int) -> dict:
         return {}
 
 
-def parse_flights(data: dict, cabin: int) -> list:
+def airline_allowed(leg: dict) -> bool:
+    """Accept a leg if the airline name or flight-number prefix matches DL/AA/UA."""
+    name = leg.get('airline', '').lower()
+    if name in ALLOWED_AIRLINE_NAMES:
+        return True
+    fn = leg.get('flight_number', '')
+    code = fn[:2].upper() if fn else ''
+    return code in ALLOWED_AIRLINE_CODES
+
+
+def parse_flights(data: dict, cabin: int, debug: bool = False) -> list:
+    best  = data.get('best_flights', [])
+    other = data.get('other_flights', [])
+    if debug:
+        print(f'    [debug] raw sections: best_flights={len(best)}, other_flights={len(other)}')
+        if best:
+            sample = best[0].get('flights', [{}])[0]
+            print(f'    [debug] sample leg keys: {list(sample.keys())}')
+            print(f'    [debug] sample airline field: {sample.get("airline")!r}')
+            print(f'    [debug] sample flight_number: {sample.get("flight_number")!r}')
+
     results = []
     seen = set()
 
@@ -113,9 +134,11 @@ def parse_flights(data: dict, cabin: int) -> list:
             if not legs or not price:
                 continue
 
-            # keep only flights operated by allowed airlines
-            op_airlines = {leg.get('airline', '') for leg in legs}
-            if not op_airlines & ALLOWED_AIRLINES:
+            # keep only itineraries where at least one leg is DL/AA/UA
+            if not any(airline_allowed(leg) for leg in legs):
+                if debug:
+                    names = [leg.get('airline') for leg in legs]
+                    print(f'    [debug] filtered out: {names}')
                 continue
 
             first = legs[0]
@@ -132,13 +155,13 @@ def parse_flights(data: dict, cabin: int) -> list:
             seen.add(key)
 
             layovers = option.get('layovers', [])
+            airline_raw = first.get('airline', '')
 
             results.append({
                 'price':             price,
                 'cabin':             cabin,
-                'airline':           first.get('airline', ''),
-                'airline_name':      AIRLINE_NAMES.get(first.get('airline', ''),
-                                         first.get('airline', '')),
+                'airline':           airline_raw,
+                'airline_name':      airline_raw,
                 'airline_logo':      first.get('airline_logo', ''),
                 'departure_airport': dep_id,
                 'departure_time':    dep_time,
@@ -323,6 +346,8 @@ def main():
     if not SERPAPI_KEY:
         sys.exit('Error: SERPAPI_KEY environment variable is not set.')
 
+    debug = '--debug' in sys.argv
+
     print()
     date      = ask_date()
     direction = ask_direction()
@@ -342,7 +367,7 @@ def main():
         for cabin, label in [(ECONOMY, 'Economy'), (FIRST, 'First')]:
             print(f'  {dep} → {arr}  [{label}] ...', end=' ', flush=True)
             data    = search_flights(dep, arr, date, cabin)
-            flights = parse_flights(data, cabin)
+            flights = parse_flights(data, cabin, debug=debug)
             print(f'{len(flights)} result{"s" if len(flights) != 1 else ""}')
             if cabin == ECONOMY:
                 all_econ.extend(flights)
