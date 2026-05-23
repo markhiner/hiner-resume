@@ -1,10 +1,10 @@
 // NEC live tracker — all trains transiting NYP
-// Run with Node 18+ (built-in fetch).
 
-const http = require("http");
+const http  = require("http");
+const https = require("https");
 
 const PORT = 3000;
-const TRAINS_URL = "https://api-v3.amtraker.com/v3/trains";
+const TRAINS_URL   = "https://api-v3.amtraker.com/v3/trains";
 const STATIONS_URL = "https://api-v3.amtraker.com/v3/stations";
 
 const NEC_STATIONS = [
@@ -26,10 +26,25 @@ const NEC_STATIONS = [
 
 // ---------- API ----------
 
-async function fetchJSON(url) {
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error(`${url} → ${res.status} ${res.statusText}`);
-  return res.json();
+function fetchJSON(url) {
+  return new Promise((resolve, reject) => {
+    console.log("[fetch]", url);
+    const req = https.get(url, { headers: { Accept: "application/json" } }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error("HTTP " + res.statusCode));
+      }
+      let raw = "";
+      res.setEncoding("utf8");
+      res.on("data", c => { raw += c; });
+      res.on("end", () => {
+        try { console.log("[ok]", url.split("/").pop(), raw.length, "bytes"); resolve(JSON.parse(raw)); }
+        catch(e) { reject(new Error("JSON parse: " + e.message)); }
+      });
+    });
+    req.setTimeout(10000, () => { req.destroy(new Error("timeout after 10s")); });
+    req.on("error", e => { console.error("[err]", url, e.message); reject(e); });
+  });
 }
 
 let stationsCache = null, stationsCacheTime = 0;
@@ -980,6 +995,19 @@ const server = http.createServer(async (req, res) => {
       console.error("API error:", err.message);
       res.writeHead(500, { "Content-Type": "text/plain" });
       res.end("Error: " + err.message);
+    }
+    return;
+  }
+  if (req.url === "/api/test") {
+    const t0 = Date.now();
+    try {
+      const data = await fetchJSON(TRAINS_URL);
+      const n = Object.keys(data).length;
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end("OK — got " + n + " trains in " + (Date.now()-t0) + "ms");
+    } catch(e) {
+      res.writeHead(500, { "Content-Type": "text/plain" });
+      res.end("FAIL: " + e.message + " (after " + (Date.now()-t0) + "ms)");
     }
     return;
   }
