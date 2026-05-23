@@ -445,11 +445,8 @@ body {
     <div class="sec-hdr">New York Penn Departures</div>
     <div id="departures"><div class="empty">Loading&hellip;</div></div>
 
-    <div class="sec-hdr">&#x2193;&nbsp; Southbound</div>
-    <div id="southbound"><div class="empty">Loading&hellip;</div></div>
-
-    <div class="sec-hdr">&#x2191;&nbsp; Northbound</div>
-    <div id="northbound"><div class="empty">Loading&hellip;</div></div>
+    <div class="sec-hdr">Active Trains</div>
+    <div id="active-trains"><div class="empty">Loading&hellip;</div></div>
 
   </div>
 </div>
@@ -696,9 +693,10 @@ function renderDepartures(trains) {
     if (!t.nypSchDep) return false;
     // Always show predeparture trains — even if scheduled time has passed (delayed)
     if (t.trainState === 'Predeparture') return true;
-    // Show DEPARTED for up to 3 minutes after actual departure
+    // Show DEPARTED for up to 3 minutes after actual departure (dep time must be in the past)
     if (t.nypActDep) {
-      return Math.round((now - new Date(t.nypActDep)) / 60000) < 3;
+      var depMs = now - new Date(t.nypActDep).getTime();
+      return depMs >= 0 && depMs < 180000;
     }
     return false;
   }).sort(function(a, b) {
@@ -711,8 +709,8 @@ function renderDepartures(trains) {
   }
 
   document.getElementById('departures').innerHTML = depData.map(function(t) {
-    // Only mark as departed if the train has actually left AND is no longer predeparture
-    var isDep = !!(t.nypActDep && t.trainState !== 'Predeparture');
+    // Only mark as departed if actual departure time has passed (API pre-fills dep with projected times)
+    var isDep = !!(t.nypActDep && t.trainState !== 'Predeparture' && new Date(t.nypActDep) <= Date.now());
     var mins = isDep ? null : minsUntil(t.nypSchDep);
     // Predeparture but past scheduled time = delayed at station, not departed
     var cd = isDep
@@ -742,7 +740,7 @@ setInterval(function() {
   depData.forEach(function(t) {
     var el = document.getElementById('dc-' + t.trainNum);
     if (!el) return;
-    if (t.nypActDep && t.trainState !== 'Predeparture') return; // DEPARTED label is static
+    if (t.nypActDep && t.trainState !== 'Predeparture' && new Date(t.nypActDep) <= Date.now()) return; // DEPARTED label is static
     var mins = minsUntil(t.nypSchDep);
     var cd = (mins !== null && mins <= 0)
       ? { text: 'delayed', cls: 'soon' }
@@ -826,15 +824,10 @@ async function refresh() {
       return t.trainState === 'Active';
     });
 
-    var south = active.filter(function(t){ return t.direction === 'south'; })
-      .sort(function(a,b){ return new Date(a.nypSchDep||0) - new Date(b.nypSchDep||0); });
-    var north = active.filter(function(t){ return t.direction === 'north'; })
-      .sort(function(a,b){ return new Date(a.nypSchDep||0) - new Date(b.nypSchDep||0); });
+    active.sort(function(a,b){ return new Date(a.nypSchDep||0) - new Date(b.nypSchDep||0); });
 
-    document.getElementById('southbound').innerHTML =
-      south.length ? south.map(renderCard).join('') : '<div class="empty">No trains en route.</div>';
-    document.getElementById('northbound').innerHTML =
-      north.length ? north.map(renderCard).join('') : '<div class="empty">No trains en route.</div>';
+    document.getElementById('active-trains').innerHTML =
+      active.length ? active.map(renderCard).join('') : '<div class="empty">No trains en route.</div>';
 
     document.getElementById('train-count').textContent = trains.length;
     document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
