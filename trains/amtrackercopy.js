@@ -177,6 +177,14 @@ async function getTrainData() {
       finalArr:   formatTimeShort(finalArr),
       nypSchDep:  nypSchDep ? nypSchDep.toISOString() : null,
       nypActDep:  nypActDep ? nypActDep.toISOString() : null,
+      stops: train.stations.map(s => ({
+        code:   s.code,
+        name:   s.name || stations[s.code]?.name || s.code,
+        schArr: s.schArr || null,
+        schDep: s.schDep || null,
+        arr:    s.arr    || null,
+        dep:    s.dep    || null,
+      })),
     };
   });
 }
@@ -458,6 +466,120 @@ body {
   .dep-sub { padding-left: 0; }
   .tr-sub  { padding-left: 0; }
 }
+
+/* ── Train detail modal ── */
+#modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+#modal-overlay.hidden { display: none; }
+#modal {
+  background: #141414;
+  width: 100%;
+  max-width: 560px;
+  max-height: 88vh;
+  border-radius: 14px 14px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 -4px 40px rgba(0,0,0,0.8);
+}
+@media (min-width: 769px) {
+  #modal-overlay { align-items: center; }
+  #modal { border-radius: 14px; max-height: 82vh; }
+}
+.modal-hdr {
+  padding: 16px 18px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.modal-hdr-left { display: flex; flex-direction: column; gap: 5px; }
+.modal-num  { font-size: 32px; font-weight: 800; color: #fff; line-height: 1; }
+.modal-route{ font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 1.5px; }
+.modal-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 2px; }
+.modal-dest { font-size: 13px; color: #ccc; }
+.modal-dest::before { content: "\\2192\\00a0"; color: #555; }
+.modal-close {
+  background: #2a2a2a;
+  border: none;
+  color: #aaa;
+  font-size: 16px;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+.modal-close:hover { background: #333; color: #fff; }
+.modal-vel { font-size: 12px; color: #666; }
+
+.modal-stops {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+  padding: 8px 0 20px;
+}
+
+.stop-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 18px;
+  position: relative;
+}
+.stop-spine {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  width: 14px;
+  margin-top: 3px;
+}
+.stop-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+.stop-line {
+  width: 2px;
+  flex: 1;
+  min-height: 20px;
+  background: var(--border);
+  margin: 2px 0;
+}
+.stop-row.past .stop-dot     { background: #444; }
+.stop-row.current .stop-dot  { background: #fff; box-shadow: 0 0 8px rgba(255,255,255,0.6); }
+.stop-row.upcoming .stop-dot { background: #1e1e1e; border: 2px solid #555; }
+
+.stop-info { flex: 1; min-width: 0; }
+.stop-name {
+  font-size: 14px;
+  color: #bbb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stop-row.past .stop-name    { color: #666; font-weight: 400; }
+.stop-row.current .stop-name { color: #fff; font-weight: 700; }
+.stop-row.upcoming .stop-name{ color: #ddd; font-weight: 700; }
+
+.stop-times { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 3px; }
+.stop-time-item { display: flex; gap: 5px; align-items: center; font-size: 11px; }
+.stop-time-label{ color: #555; }
+.stop-time-val  { color: #999; }
+.stop-row.upcoming .stop-time-val { color: #bbb; }
+.delta { font-size: 11px; font-weight: 700; }
+.delta.late  { color: #fb923c; }
+.delta.early { color: #4ade80; }
 </style>
 </head>
 <body>
@@ -602,7 +724,7 @@ function renderDepartures(trains) {
         : formatCountdown(mins);
 
     return (
-      '<div class="dep-row ' + t.type + (isDep ? ' is-departed' : '') + '">' +
+      '<div class="dep-row ' + t.type + (isDep ? ' is-departed' : '') + '" style="cursor:pointer" onclick="openModal(\'' + esc(t.trainNum) + '\')">' +
         '<div class="dep-main">' +
           '<span class="dep-time">' + fmtNYP(t.nypSchDep) + '</span>' +
           '<span class="dep-dest">' + esc(t.destName) + '</span>' +
@@ -641,7 +763,7 @@ function renderCard(t) {
     meta += t.distToNext.toFixed(1) + ' mi to ' + esc(t.nextStop.name);
   }
   return (
-    '<div class="train-row ' + t.type + '">' +
+    '<div class="train-row ' + t.type + '" style="cursor:pointer" onclick="openModal(\'' + esc(t.trainNum) + '\')">' +
       '<div class="tr-main">' +
         '<span class="tr-num">' + esc(t.trainNum) + '</span>' +
         '<span class="tr-dest">' + esc(t.destName) + '</span>' +
@@ -678,6 +800,7 @@ async function refresh() {
   try {
     var res = await fetch('/api/trains');
     var trains = await res.json();
+    allTrains = trains;
 
     trainLayer.clearLayers();
     trains.forEach(function(t) {
@@ -717,7 +840,130 @@ async function refresh() {
 
 refresh();
 setInterval(refresh, 30000);
+
+// ── Train detail modal ──
+var allTrains = [];
+
+function fmtTime(iso) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleTimeString('en-US', {
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York'
+  });
+}
+
+function deltaLabel(actualIso, schedIso) {
+  if (!actualIso || !schedIso) return '';
+  var d = Math.round((new Date(actualIso) - new Date(schedIso)) / 60000);
+  if (Math.abs(d) <= 1) return '';
+  if (d > 0) return '<span class="delta late">+' + d + 'm late</span>';
+  return '<span class="delta early">' + Math.abs(d) + 'm early</span>';
+}
+
+function renderStopTime(label, timeIso, schedIso) {
+  var t = fmtTime(timeIso);
+  if (!t) return '';
+  return '<span class="stop-time-item"><span class="stop-time-label">' + label + '</span>' +
+    '<span class="stop-time-val">' + t + '</span>' +
+    deltaLabel(timeIso, schedIso) + '</span>';
+}
+
+function openModal(num) {
+  var t = allTrains.find(function(x){ return String(x.trainNum) === String(num); });
+  if (!t || !t.stops) return;
+
+  var typeClr = { acela:'#2dd4bf', regional:'#3b82f6', keystone:'#eab308', empire:'#4a8c4a', longdistance:'#ef4444' };
+  var clr = typeClr[t.type] || '#ef4444';
+  var velText = t.velocity > 0 ? '<span class="modal-vel">' + t.velocity + ' mph</span>' : '';
+
+  document.getElementById('modal-header-content').innerHTML =
+    '<div class="modal-hdr-left">' +
+      '<div style="display:flex;align-items:baseline;gap:10px">' +
+        '<span class="modal-num" style="color:' + clr + '">' + esc(t.trainNum) + '</span>' +
+        '<span class="modal-route">' + esc(t.routeName) + '</span>' +
+      '</div>' +
+      '<div class="modal-meta">' +
+        '<span class="modal-dest">' + esc(t.destName) + '</span>' +
+        '<span class="badge ' + t.status.class + '">' + esc(t.status.label) + '</span>' +
+        velText +
+      '</div>' +
+    '</div>';
+
+  // Determine current position: last stop that has a dep (or arr for terminal)
+  var currentIdx = -1;
+  for (var i = t.stops.length - 1; i >= 0; i--) {
+    if (t.stops[i].dep) { currentIdx = i; break; }
+  }
+  // If no dep found but arr found, train is at that terminal
+  if (currentIdx === -1) {
+    for (var i = t.stops.length - 1; i >= 0; i--) {
+      if (t.stops[i].arr) { currentIdx = i; break; }
+    }
+  }
+
+  var html = '';
+  t.stops.forEach(function(s, i) {
+    var hasDep = !!s.dep;
+    var hasArr = !!s.arr;
+    var isTerminal = (i === t.stops.length - 1);
+    var isPast    = hasDep || (hasArr && isTerminal);
+    var isCurrent = hasArr && !hasDep && !isTerminal;
+    var isUpcoming= !hasArr && !hasDep;
+
+    var cls = isPast ? 'past' : isCurrent ? 'current' : 'upcoming';
+    var isLast = (i === t.stops.length - 1);
+
+    // For upcoming stops: use arr/dep as estimated times if provided, else sch
+    var arrDisplay = s.arr || s.schArr;
+    var depDisplay = s.dep || s.schDep;
+    var arrSch = s.schArr, depSch = s.schDep;
+
+    // For past stops, only show delta vs scheduled
+    var arrDelta = (isPast || isCurrent) ? deltaLabel(s.arr, s.schArr) : deltaLabel(s.arr || s.schArr, s.schArr);
+    var depDelta = isPast ? deltaLabel(s.dep, s.schDep) : deltaLabel(s.dep || s.schDep, s.schDep);
+
+    var timesHtml = '';
+    if (arrDisplay && !isCurrent) timesHtml += renderStopTime('arr', arrDisplay, arrSch);
+    if (depDisplay && !isTerminal) timesHtml += renderStopTime('dep', depDisplay, depSch);
+
+    html +=
+      '<div class="stop-row ' + cls + '">' +
+        '<div class="stop-spine">' +
+          '<div class="stop-dot"></div>' +
+          (!isLast ? '<div class="stop-line"></div>' : '') +
+        '</div>' +
+        '<div class="stop-info">' +
+          '<div class="stop-name">' + esc(s.name) + '</div>' +
+          (timesHtml ? '<div class="stop-times">' + timesHtml + '</div>' : '') +
+        '</div>' +
+      '</div>';
+  });
+
+  document.getElementById('modal-stops').innerHTML = html;
+  document.getElementById('modal-overlay').classList.remove('hidden');
+
+  // Scroll to current/first upcoming stop
+  setTimeout(function() {
+    var rows = document.querySelectorAll('#modal-stops .stop-row');
+    var target = document.querySelector('#modal-stops .stop-row.current') ||
+                 document.querySelector('#modal-stops .stop-row.upcoming');
+    if (target) target.scrollIntoView({ block: 'center' });
+  }, 50);
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.add('hidden');
+}
 </script>
+
+<div id="modal-overlay" class="hidden" onclick="if(event.target===this)closeModal()">
+  <div id="modal">
+    <div class="modal-hdr">
+      <div id="modal-header-content"></div>
+      <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+    </div>
+    <div class="modal-stops" id="modal-stops"></div>
+  </div>
+</div>
 </body>
 </html>`;
 
