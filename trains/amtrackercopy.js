@@ -601,7 +601,7 @@ body {
           NEC TRACKER
           <span class="live-badge" id="live-badge"><span class="live-dot"></span>LIVE</span>
         </div>
-        <div class="hdr-sub" id="updated">Loading&hellip;</div>
+        <div class="hdr-sub" id="updated">v7 &mdash; connecting&hellip;</div>
       </div>
       <div class="hdr-right">
         <div class="hdr-count" id="train-count">&mdash;</div>
