@@ -1,10 +1,10 @@
 // NEC live tracker — all trains transiting NYP
-// Run with Node 18+ (built-in fetch).
 
-const http = require("http");
+const http  = require("http");
+const https = require("https");
 
 const PORT = 3000;
-const TRAINS_URL = "https://api-v3.amtraker.com/v3/trains";
+const TRAINS_URL   = "https://api-v3.amtraker.com/v3/trains";
 const STATIONS_URL = "https://api-v3.amtraker.com/v3/stations";
 
 const NEC_STATIONS = [
@@ -26,19 +26,24 @@ const NEC_STATIONS = [
 
 // ---------- API ----------
 
-async function fetchJSON(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 9000);
-  try {
-    const res = await fetch(url, { headers: { Accept: "application/json" }, signal: controller.signal });
-    if (!res.ok) throw new Error(`${url} → ${res.status} ${res.statusText}`);
-    return res.json();
-  } catch (e) {
-    if (e.name === "AbortError") throw new Error("Amtrak API timed out");
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
+function fetchJSON(url) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { Accept: "application/json" } }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP ${res.statusCode} from ${url}`));
+      }
+      let raw = "";
+      res.setEncoding("utf8");
+      res.on("data", chunk => { raw += chunk; });
+      res.on("end", () => {
+        try { resolve(JSON.parse(raw)); }
+        catch (e) { reject(new Error("JSON parse failed: " + e.message)); }
+      });
+    });
+    req.setTimeout(9000, () => { req.destroy(new Error("Amtrak API timed out")); });
+    req.on("error", reject);
+  });
 }
 
 let stationsCache = null, stationsCacheTime = 0;
