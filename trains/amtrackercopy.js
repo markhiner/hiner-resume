@@ -1,10 +1,10 @@
 // NEC live tracker — all trains transiting NYP
+// Run with Node 18+ (built-in fetch).
 
-const http  = require("http");
-const https = require("https");
+const http = require("http");
 
 const PORT = 3000;
-const TRAINS_URL   = "https://api-v3.amtraker.com/v3/trains";
+const TRAINS_URL = "https://api-v3.amtraker.com/v3/trains";
 const STATIONS_URL = "https://api-v3.amtraker.com/v3/stations";
 
 const NEC_STATIONS = [
@@ -26,24 +26,10 @@ const NEC_STATIONS = [
 
 // ---------- API ----------
 
-function fetchJSON(url) {
-  return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { Accept: "application/json" } }, (res) => {
-      if (res.statusCode !== 200) {
-        res.resume();
-        return reject(new Error(`HTTP ${res.statusCode} from ${url}`));
-      }
-      let raw = "";
-      res.setEncoding("utf8");
-      res.on("data", chunk => { raw += chunk; });
-      res.on("end", () => {
-        try { resolve(JSON.parse(raw)); }
-        catch (e) { reject(new Error("JSON parse failed: " + e.message)); }
-      });
-    });
-    req.setTimeout(9000, () => { req.destroy(new Error("Amtrak API timed out")); });
-    req.on("error", reject);
-  });
+async function fetchJSON(url) {
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`${url} → ${res.status} ${res.statusText}`);
+  return res.json();
 }
 
 let stationsCache = null, stationsCacheTime = 0;
@@ -389,10 +375,11 @@ body {
   padding-left: 96px;
 }
 .dep-train {
-  font-size: 13px;
-  color: #aaaaaa;
-  letter-spacing: 0.3px;
-  font-weight: 500;
+  font-size: 11px;
+  color: #999999;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
 }
 
 /* ── Status badges ── */
@@ -606,7 +593,7 @@ body {
           NEC TRACKER
           <span class="live-badge" id="live-badge"><span class="live-dot"></span>LIVE</span>
         </div>
-        <div class="hdr-sub" id="updated">v7 &mdash; connecting&hellip;</div>
+        <div class="hdr-sub" id="updated">Loading&hellip;</div>
       </div>
       <div class="hdr-right">
         <div class="hdr-count" id="train-count">&mdash;</div>
@@ -634,34 +621,22 @@ body {
   </div>
 </div>
 <script>
-// Surface any unhandled JS errors in the UI
-window.onerror = function(msg, src, line, col, err) {
-  var el = document.getElementById('updated');
-  if (el) el.textContent = 'JS Error: ' + msg + ' (L' + line + ')';
-  return false;
-};
-
 var NEC_STATIONS = ${JSON.stringify(NEC_STATIONS)};
 
-// ── Map (wrapped so a CDN failure doesn't kill the whole page) ──
-var map = null, trainLayer = null;
+// ── Map ──
+var map = L.map('map', { zoomControl: true });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 18, subdomains: 'abcd'
+}).addTo(map);
+var routeCoords = NEC_STATIONS.map(function(s){ return [s.lat, s.lon]; });
+L.polyline(routeCoords, { color: '#444', weight: 2, opacity: 0.7 }).addTo(map);
+map.fitBounds(L.latLngBounds(routeCoords), { padding: [30, 30] });
+NEC_STATIONS.forEach(function(s){
+  L.circleMarker([s.lat, s.lon], { radius: 3, color: '#777', weight: 1.5, fillColor: '#1a1a1a', fillOpacity: 1 })
+   .bindTooltip(s.name, { direction: 'top', offset: [0, -4] }).addTo(map);
+});
+var trainLayer = L.layerGroup().addTo(map);
 var HEADING = { N:0, NE:45, E:90, SE:135, S:180, SW:225, W:270, NW:315 };
-try {
-  map = L.map('map', { zoomControl: true });
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 18, subdomains: 'abcd'
-  }).addTo(map);
-  var routeCoords = NEC_STATIONS.map(function(s){ return [s.lat, s.lon]; });
-  L.polyline(routeCoords, { color: '#444', weight: 2, opacity: 0.7 }).addTo(map);
-  map.fitBounds(L.latLngBounds(routeCoords), { padding: [30, 30] });
-  NEC_STATIONS.forEach(function(s){
-    L.circleMarker([s.lat, s.lon], { radius: 3, color: '#777', weight: 1.5, fillColor: '#1a1a1a', fillOpacity: 1 })
-     .bindTooltip(s.name, { direction: 'top', offset: [0, -4] }).addTo(map);
-  });
-  trainLayer = L.layerGroup().addTo(map);
-} catch(mapErr) {
-  document.getElementById('updated').textContent = 'Map unavailable: ' + mapErr.message;
-}
 
 function typeColor(t) {
   return { acela:'#2dd4bf', regional:'#3b82f6', keystone:'#eab308', empire:'#4a8c4a', longdistance:'#ef4444' }[t] || '#ef4444';
@@ -721,21 +696,13 @@ function renderDepartures(trains) {
 
   depData = trains.filter(function(t) {
     if (!t.nypSchDep) return false;
-    // Always show predeparture trains (even if past scheduled time = delayed)
+    // Always show predeparture trains — even if scheduled time has passed (delayed)
     if (t.trainState === 'Predeparture') return true;
+    // Show DEPARTED for up to 3 minutes after actual departure
     if (t.nypActDep) {
-      var actMs = new Date(t.nypActDep).getTime();
-      // API often pre-fills dep with the ESTIMATED future time — ignore if not yet past
-      if (actMs > now) {
-        var m = minsUntil(t.nypSchDep);
-        return m !== null && m >= 0 && m <= 720;
-      }
-      // Actually departed: show DEPARTED row for 3 minutes only
-      return (now - actMs) / 60000 < 3;
+      return Math.round((now - new Date(t.nypActDep)) / 60000) < 3;
     }
-    // Active but no dep timestamp: show if scheduled departure is upcoming
-    var m = minsUntil(t.nypSchDep);
-    return m !== null && m >= 0 && m <= 720;
+    return false;
   }).sort(function(a, b) {
     return new Date(a.nypSchDep) - new Date(b.nypSchDep);
   });
@@ -746,11 +713,10 @@ function renderDepartures(trains) {
   }
 
   document.getElementById('departures').innerHTML = depData.map(function(t) {
-    // Only "actually departed" if nypActDep is in the past AND not predeparture
-    // (API pre-fills dep with future estimated time for approaching trains — ignore those)
-    var actMs = t.nypActDep ? new Date(t.nypActDep).getTime() : 0;
-    var isDep = !!(t.nypActDep && actMs <= now && t.trainState !== 'Predeparture');
+    // Only mark as departed if the train has actually left AND is no longer predeparture
+    var isDep = !!(t.nypActDep && t.trainState !== 'Predeparture');
     var mins = isDep ? null : minsUntil(t.nypSchDep);
+    // Predeparture but past scheduled time = delayed at station, not departed
     var cd = isDep
       ? { text: 'DEPARTED', cls: 'departed' }
       : (mins !== null && mins <= 0)
@@ -778,8 +744,7 @@ setInterval(function() {
   depData.forEach(function(t) {
     var el = document.getElementById('dc-' + t.trainNum);
     if (!el) return;
-    var actMs = t.nypActDep ? new Date(t.nypActDep).getTime() : 0;
-    if (t.nypActDep && actMs <= Date.now() && t.trainState !== 'Predeparture') return; // static DEPARTED
+    if (t.nypActDep && t.trainState !== 'Predeparture') return; // DEPARTED label is static
     var mins = minsUntil(t.nypSchDep);
     var cd = (mins !== null && mins <= 0)
       ? { text: 'delayed', cls: 'soon' }
@@ -833,31 +798,17 @@ function setLive(ok) {
 // ── Main refresh ──
 async function refresh() {
   try {
-    var ctrl = new AbortController();
-    var fetchTimer = setTimeout(function() { ctrl.abort(); }, 12000);
-    var res;
-    try {
-      res = await fetch('/api/trains', { signal: ctrl.signal });
-    } catch(fe) {
-      throw new Error(fe.name === 'AbortError' ? 'Request timed out' : fe.message);
-    } finally {
-      clearTimeout(fetchTimer);
-    }
-    if (!res.ok) throw new Error('Server error ' + res.status);
+    var res = await fetch('/api/trains');
     var trains = await res.json();
     allTrains = trains;
 
-    if (trainLayer) {
-      trainLayer.clearLayers();
-      trains.forEach(function(t) {
-        if (t.lat == null || t.lon == null) return;
-        try {
-          L.marker([t.lat, t.lon], { icon: trainIcon(t) })
-           .bindTooltip(tooltipFor(t), { direction: 'top', offset: [0,-10] })
-           .addTo(trainLayer);
-        } catch(e) { /* skip bad marker */ }
-      });
-    }
+    trainLayer.clearLayers();
+    trains.forEach(function(t) {
+      if (t.lat == null || t.lon == null) return;
+      L.marker([t.lat, t.lon], { icon: trainIcon(t) })
+       .bindTooltip(tooltipFor(t), { direction: 'top', offset: [0,-10] })
+       .addTo(trainLayer);
+    });
 
     renderDepartures(trains);
 
@@ -882,11 +833,7 @@ async function refresh() {
     setLive(true);
 
   } catch(e) {
-    var errHtml = '<div class="empty" style="color:#f87171">Error: ' + e.message + '</div>';
     document.getElementById('updated').textContent = 'Error: ' + e.message;
-    document.getElementById('departures').innerHTML = errHtml;
-    document.getElementById('southbound').innerHTML = errHtml;
-    document.getElementById('northbound').innerHTML = errHtml;
     setLive(false);
   }
 }
