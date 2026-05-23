@@ -620,22 +620,34 @@ body {
   </div>
 </div>
 <script>
+// Surface any unhandled JS errors in the UI
+window.onerror = function(msg, src, line, col, err) {
+  var el = document.getElementById('updated');
+  if (el) el.textContent = 'JS Error: ' + msg + ' (L' + line + ')';
+  return false;
+};
+
 var NEC_STATIONS = ${JSON.stringify(NEC_STATIONS)};
 
-// ── Map ──
-var map = L.map('map', { zoomControl: true });
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 18, subdomains: 'abcd'
-}).addTo(map);
-var routeCoords = NEC_STATIONS.map(function(s){ return [s.lat, s.lon]; });
-L.polyline(routeCoords, { color: '#444', weight: 2, opacity: 0.7 }).addTo(map);
-map.fitBounds(L.latLngBounds(routeCoords), { padding: [30, 30] });
-NEC_STATIONS.forEach(function(s){
-  L.circleMarker([s.lat, s.lon], { radius: 3, color: '#777', weight: 1.5, fillColor: '#1a1a1a', fillOpacity: 1 })
-   .bindTooltip(s.name, { direction: 'top', offset: [0, -4] }).addTo(map);
-});
-var trainLayer = L.layerGroup().addTo(map);
+// ── Map (wrapped so a CDN failure doesn't kill the whole page) ──
+var map = null, trainLayer = null;
 var HEADING = { N:0, NE:45, E:90, SE:135, S:180, SW:225, W:270, NW:315 };
+try {
+  map = L.map('map', { zoomControl: true });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 18, subdomains: 'abcd'
+  }).addTo(map);
+  var routeCoords = NEC_STATIONS.map(function(s){ return [s.lat, s.lon]; });
+  L.polyline(routeCoords, { color: '#444', weight: 2, opacity: 0.7 }).addTo(map);
+  map.fitBounds(L.latLngBounds(routeCoords), { padding: [30, 30] });
+  NEC_STATIONS.forEach(function(s){
+    L.circleMarker([s.lat, s.lon], { radius: 3, color: '#777', weight: 1.5, fillColor: '#1a1a1a', fillOpacity: 1 })
+     .bindTooltip(s.name, { direction: 'top', offset: [0, -4] }).addTo(map);
+  });
+  trainLayer = L.layerGroup().addTo(map);
+} catch(mapErr) {
+  document.getElementById('updated').textContent = 'Map unavailable: ' + mapErr.message;
+}
 
 function typeColor(t) {
   return { acela:'#2dd4bf', regional:'#3b82f6', keystone:'#eab308', empire:'#4a8c4a', longdistance:'#ef4444' }[t] || '#ef4444';
@@ -808,16 +820,21 @@ function setLive(ok) {
 async function refresh() {
   try {
     var res = await fetch('/api/trains');
+    if (!res.ok) throw new Error('Server returned ' + res.status);
     var trains = await res.json();
     allTrains = trains;
 
-    trainLayer.clearLayers();
-    trains.forEach(function(t) {
-      if (t.lat == null || t.lon == null) return;
-      L.marker([t.lat, t.lon], { icon: trainIcon(t) })
-       .bindTooltip(tooltipFor(t), { direction: 'top', offset: [0,-10] })
-       .addTo(trainLayer);
-    });
+    if (trainLayer) {
+      trainLayer.clearLayers();
+      trains.forEach(function(t) {
+        if (t.lat == null || t.lon == null) return;
+        try {
+          L.marker([t.lat, t.lon], { icon: trainIcon(t) })
+           .bindTooltip(tooltipFor(t), { direction: 'top', offset: [0,-10] })
+           .addTo(trainLayer);
+        } catch(e) { /* skip bad marker */ }
+      });
+    }
 
     renderDepartures(trains);
 
@@ -842,7 +859,11 @@ async function refresh() {
     setLive(true);
 
   } catch(e) {
+    var errHtml = '<div class="empty" style="color:#f87171">Error: ' + e.message + '</div>';
     document.getElementById('updated').textContent = 'Error: ' + e.message;
+    document.getElementById('departures').innerHTML = errHtml;
+    document.getElementById('southbound').innerHTML = errHtml;
+    document.getElementById('northbound').innerHTML = errHtml;
     setLive(false);
   }
 }
