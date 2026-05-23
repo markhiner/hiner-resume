@@ -27,9 +27,18 @@ const NEC_STATIONS = [
 // ---------- API ----------
 
 async function fetchJSON(url) {
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
-  if (!res.ok) throw new Error(`${url} → ${res.status} ${res.statusText}`);
-  return res.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 9000);
+  try {
+    const res = await fetch(url, { headers: { Accept: "application/json" }, signal: controller.signal });
+    if (!res.ok) throw new Error(`${url} → ${res.status} ${res.statusText}`);
+    return res.json();
+  } catch (e) {
+    if (e.name === "AbortError") throw new Error("Amtrak API timed out");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 let stationsCache = null, stationsCacheTime = 0;
@@ -819,8 +828,17 @@ function setLive(ok) {
 // ── Main refresh ──
 async function refresh() {
   try {
-    var res = await fetch('/api/trains');
-    if (!res.ok) throw new Error('Server returned ' + res.status);
+    var ctrl = new AbortController();
+    var fetchTimer = setTimeout(function() { ctrl.abort(); }, 12000);
+    var res;
+    try {
+      res = await fetch('/api/trains', { signal: ctrl.signal });
+    } catch(fe) {
+      throw new Error(fe.name === 'AbortError' ? 'Request timed out' : fe.message);
+    } finally {
+      clearTimeout(fetchTimer);
+    }
+    if (!res.ok) throw new Error('Server error ' + res.status);
     var trains = await res.json();
     allTrains = trains;
 
