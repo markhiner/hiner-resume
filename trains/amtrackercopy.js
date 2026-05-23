@@ -368,7 +368,7 @@ body {
 }
 .dep-train {
   font-size: 11px;
-  color: var(--text3);
+  color: #999999;
   text-transform: uppercase;
   letter-spacing: 1px;
   font-weight: 600;
@@ -574,13 +574,13 @@ function renderDepartures(trains) {
 
   depData = trains.filter(function(t) {
     if (!t.nypSchDep) return false;
+    // Always show predeparture trains — even if scheduled time has passed (delayed)
+    if (t.trainState === 'Predeparture') return true;
+    // Show DEPARTED for up to 3 minutes after actual departure
     if (t.nypActDep) {
-      // Show DEPARTED for up to 3 minutes
       return Math.round((now - new Date(t.nypActDep)) / 60000) < 3;
     }
-    // Show upcoming departures up to 12 hours out
-    var m = minsUntil(t.nypSchDep);
-    return m !== null && m >= 0 && m <= 720;
+    return false;
   }).sort(function(a, b) {
     return new Date(a.nypSchDep) - new Date(b.nypSchDep);
   });
@@ -591,9 +591,15 @@ function renderDepartures(trains) {
   }
 
   document.getElementById('departures').innerHTML = depData.map(function(t) {
-    var isDep = !!t.nypActDep;
+    // Only mark as departed if the train has actually left AND is no longer predeparture
+    var isDep = !!(t.nypActDep && t.trainState !== 'Predeparture');
     var mins = isDep ? null : minsUntil(t.nypSchDep);
-    var cd = isDep ? { text: 'DEPARTED', cls: 'departed' } : formatCountdown(mins);
+    // Predeparture but past scheduled time = delayed at station, not departed
+    var cd = isDep
+      ? { text: 'DEPARTED', cls: 'departed' }
+      : (mins !== null && mins <= 0)
+        ? { text: 'delayed', cls: 'soon' }
+        : formatCountdown(mins);
 
     return (
       '<div class="dep-row ' + t.type + (isDep ? ' is-departed' : '') + '">' +
@@ -615,9 +621,12 @@ function renderDepartures(trains) {
 setInterval(function() {
   depData.forEach(function(t) {
     var el = document.getElementById('dc-' + t.trainNum);
-    if (!el || t.nypActDep) return;
+    if (!el) return;
+    if (t.nypActDep && t.trainState !== 'Predeparture') return; // DEPARTED label is static
     var mins = minsUntil(t.nypSchDep);
-    var cd = formatCountdown(mins);
+    var cd = (mins !== null && mins <= 0)
+      ? { text: 'delayed', cls: 'soon' }
+      : formatCountdown(mins);
     el.innerHTML = cd.text;
     el.className = 'dep-countdown ' + cd.cls;
   });
