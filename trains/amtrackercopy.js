@@ -74,16 +74,18 @@ function statusInfo(scheduled, actual) {
   const diffMin = Math.round((actual - scheduled) / 60000);
   if (diffMin <= 5) return { label: "On Time", class: "ontime" };
   const h = Math.floor(diffMin / 60), m = diffMin % 60;
-  const label = `${h}:${String(m).padStart(2, "0")} late`;
   const cls = diffMin <= 15 ? "minor" : diffMin <= 30 ? "moderate" : "severe";
-  return { label, class: cls };
+  return { label: `${h}:${String(m).padStart(2,"0")} late`, class: cls };
 }
 
+// Only trains that actually depart FROM NYP — must have stops after NYP
 function isRelevantTrain(train) {
   if (!train.stations) return false;
   if (train.trainState === "Completed") return false;
-  const nypStop = train.stations.find(s => s.code === "NYP");
-  if (!nypStop) return false;
+  const nypIdx = train.stations.findIndex(s => s.code === "NYP");
+  if (nypIdx === -1) return false;
+  if (nypIdx >= train.stations.length - 1) return false; // terminates at NYP, skip
+  const nypStop = train.stations[nypIdx];
   return !!(parseTime(nypStop.schDep) || parseTime(nypStop.dep));
 }
 
@@ -113,12 +115,12 @@ function formatTimeShort(date) {
   return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "America/New_York" });
 }
 
-// Find the real final destination — the last stop after NYP that isn't NYP itself
+// Real final destination: last stop AFTER NYP in the station list
 function finalDestName(train, stationMap) {
   const nypIdx = train.stations.findIndex(s => s.code === "NYP");
-  const stopsAfterNYP = nypIdx >= 0 ? train.stations.slice(nypIdx + 1) : [];
-  if (stopsAfterNYP.length > 0) {
-    const last = stopsAfterNYP[stopsAfterNYP.length - 1];
+  const after = nypIdx >= 0 ? train.stations.slice(nypIdx + 1) : [];
+  if (after.length > 0) {
+    const last = after[after.length - 1];
     return last.name || stationMap[last.code]?.name || last.code;
   }
   return train.destName || "—";
@@ -127,10 +129,7 @@ function finalDestName(train, stationMap) {
 // ---------- data shaping ----------
 
 async function getTrainData() {
-  const [trainsObj, stations] = await Promise.all([
-    fetchJSON(TRAINS_URL),
-    fetchAllStations(),
-  ]);
+  const [trainsObj, stations] = await Promise.all([fetchJSON(TRAINS_URL), fetchAllStations()]);
   const relevant = Object.values(trainsObj).flat().filter(isRelevantTrain);
 
   return relevant.map(train => {
@@ -154,36 +153,30 @@ async function getTrainData() {
       }
     }
 
-    const nypStop = train.stations.find(s => s.code === "NYP");
-    const nypSchDepTime = nypStop ? parseTime(nypStop.schDep) : null;
-    const nypActDepTime = nypStop ? parseTime(nypStop.dep) : null;
-
-    // Arrival time at final destination
-    const finalStop = train.stations[train.stations.length - 1];
-    const finalArrTime = parseTime(finalStop.arr) || parseTime(finalStop.schArr);
+    const nypStop    = train.stations.find(s => s.code === "NYP");
+    const nypSchDep  = nypStop ? parseTime(nypStop.schDep) : null;
+    const nypActDep  = nypStop ? parseTime(nypStop.dep)    : null;
+    const finalStop  = train.stations[train.stations.length - 1];
+    const finalArr   = parseTime(finalStop.arr) || parseTime(finalStop.schArr);
 
     return {
-      trainNum:    train.trainNum,
-      trainID:     train.trainID,
-      routeName:   train.routeName,
-      type:        trainType(train.routeName),
-      destName:    finalDestName(train, stations),
-      lat:         train.lat,
-      lon:         train.lon,
-      velocity:    Math.round(train.velocity || 0),
-      heading:     train.heading,
-      trainState:  train.trainState,
-      direction:   dir,
-      nextStop:    nextStop ? {
-        code: nextStop.code,
-        name: nextStop.name || stations[nextStop.code]?.name || nextStop.code,
-      } : null,
-      distToNext:  distToNext != null ? Math.round(distToNext * 10) / 10 : null,
+      trainNum:   train.trainNum,
+      routeName:  train.routeName,
+      type:       trainType(train.routeName),
+      destName:   finalDestName(train, stations),
+      lat:        train.lat,
+      lon:        train.lon,
+      velocity:   Math.round(train.velocity || 0),
+      heading:    train.heading,
+      trainState: train.trainState,
+      direction:  dir,
+      nextStop:   nextStop ? { code: nextStop.code, name: nextStop.name || stations[nextStop.code]?.name || nextStop.code } : null,
+      distToNext: distToNext != null ? Math.round(distToNext * 10) / 10 : null,
       bearing,
       status,
-      finalArr:    formatTimeShort(finalArrTime),
-      nypSchDep:   nypSchDepTime ? nypSchDepTime.toISOString() : null,
-      nypActDep:   nypActDepTime ? nypActDepTime.toISOString() : null,
+      finalArr:   formatTimeShort(finalArr),
+      nypSchDep:  nypSchDep ? nypSchDep.toISOString() : null,
+      nypActDep:  nypActDep ? nypActDep.toISOString() : null,
     };
   });
 }
@@ -195,7 +188,7 @@ const htmlPage = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>NYP Live Tracker</title>
+<title>NEC Tracker</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
@@ -206,7 +199,7 @@ const htmlPage = `<!DOCTYPE html>
   --surface:  #111111;
   --border:   #1e1e1e;
   --text1:    #ffffff;
-  --text2:    #999999;
+  --text2:    #aaaaaa;
   --text3:    #555555;
   --acela:    #2dd4bf;
   --regional: #3b82f6;
@@ -239,118 +232,149 @@ body {
 
 /* ── Header ── */
 .hdr {
-  padding: 14px 18px;
+  padding: 13px 18px;
   border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   flex-shrink: 0;
 }
-.hdr-title { font-size: 13px; font-weight: 700; letter-spacing: 2px; color: var(--text1); }
-.hdr-sub   { font-size: 11px; color: var(--text3); margin-top: 2px; }
-.hdr-count { font-size: 22px; font-weight: 800; color: var(--text1); line-height: 1; }
-.hdr-count span { font-size: 11px; font-weight: 400; color: var(--text3); margin-left: 2px; }
+.hdr-left { display: flex; flex-direction: column; gap: 3px; }
+.hdr-title {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--text1);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hdr-sub { font-size: 11px; color: var(--text3); }
+
+.live-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: #ef4444;
+  opacity: 0;
+  transition: opacity 0.4s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.live-badge.on { opacity: 1; }
+.live-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #ef4444; flex-shrink: 0;
+}
+@keyframes live-blink { 0%,100%{opacity:1} 50%{opacity:0.1} }
+.live-badge.on .live-dot { animation: live-blink 1.6s ease-in-out infinite; }
+.live-badge.on { animation: live-blink 1.6s ease-in-out infinite; }
+
+.hdr-right { text-align: right; }
+.hdr-count { font-size: 26px; font-weight: 800; color: var(--text1); line-height: 1; }
+.hdr-active { font-size: 10px; color: var(--text3); letter-spacing: 1px; text-transform: uppercase; margin-top: 2px; }
 
 /* ── Legend ── */
 .legend {
   display: flex;
   flex-wrap: wrap;
   gap: 5px 12px;
-  padding: 10px 18px;
+  padding: 9px 18px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text2); }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.dot.acela      { background: var(--acela); }
-.dot.regional   { background: var(--regional); }
-.dot.keystone   { background: var(--keystone); }
-.dot.empire     { background: var(--empire); }
-.dot.longdistance { background: var(--longdist); }
+.dot.acela       { background: var(--acela); }
+.dot.regional    { background: var(--regional); }
+.dot.keystone    { background: var(--keystone); }
+.dot.empire      { background: var(--empire); }
+.dot.longdistance{ background: var(--longdist); }
 
-/* ── Section headers ── */
+/* ── Section label ── */
 .sec-hdr {
-  padding: 13px 18px;
+  padding: 11px 18px;
   font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.5px;
   color: #cccccc;
-  background: #1c1c1c;
+  background: #1a1a1a;
   border-bottom: 1px solid var(--border);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+  letter-spacing: 0.3px;
 }
-.sec-hdr.dep-hdr { background: #1c1c1c; }
 
 /* ── Departure rows ── */
-.dep-list { border-bottom: 1px solid var(--border); }
-
 .dep-row {
-  display: flex;
-  flex-direction: column;
-  padding: 10px 18px 10px 14px;
+  padding: 11px 16px 9px 14px;
   border-left: 3px solid transparent;
   border-bottom: 1px solid var(--border);
-  gap: 5px;
 }
-.dep-row:last-child { border-bottom: none; }
-.dep-row.acela      { border-left-color: var(--acela); }
-.dep-row.regional   { border-left-color: var(--regional); }
-.dep-row.keystone   { border-left-color: var(--keystone); }
-.dep-row.empire     { border-left-color: var(--empire); }
-.dep-row.longdistance { border-left-color: var(--longdist); }
+.dep-row.acela       { border-left-color: var(--acela); }
+.dep-row.regional    { border-left-color: var(--regional); }
+.dep-row.keystone    { border-left-color: var(--keystone); }
+.dep-row.empire      { border-left-color: var(--empire); }
+.dep-row.longdistance{ border-left-color: var(--longdist); }
+.dep-row.is-departed { opacity: 0.55; }
 
-.dep-top {
+/* Line 1: time | destination | countdown */
+.dep-main {
   display: flex;
   align-items: baseline;
-  gap: 0;
+  gap: 8px;
+  margin-bottom: 5px;
 }
-.dep-num {
-  font-size: 22px;
+.dep-time {
+  font-size: 20px;
   font-weight: 800;
   color: var(--text1);
-  line-height: 1;
-  min-width: 58px;
+  white-space: nowrap;
   flex-shrink: 0;
+  width: 88px;
+  line-height: 1;
 }
 .dep-dest {
   flex: 1;
   font-size: 14px;
   font-weight: 500;
-  color: #cccccc;
+  color: #d0d0d0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 0 8px;
-  padding-top: 4px;
+  padding-bottom: 1px;
 }
-.dep-dest::before { content: "\\2192\\00a0"; color: var(--text3); font-size: 12px; }
-.dep-sched {
-  font-size: 15px;
+.dep-dest::before { content: "\\2192\\00a0"; color: var(--text3); }
+.dep-countdown {
+  font-size: 13px;
   font-weight: 700;
-  color: var(--text1);
   white-space: nowrap;
   flex-shrink: 0;
-  padding-top: 3px;
+  color: var(--text3);
+  min-width: 72px;
+  text-align: right;
 }
+.dep-countdown.soon    { color: #fbbf24; }
+.dep-countdown.departed{ color: var(--text3); font-weight: 400; font-style: italic; font-size: 12px; }
+.dep-countdown.finalcall{ color: #fde047; font-weight: 800; font-size: 12px; letter-spacing: 0.5px; }
+@keyframes flash-num { 0%,100%{opacity:1} 50%{opacity:0.15} }
+.dep-countdown.flash { color: #fbbf24; animation: flash-num 0.75s ease-in-out infinite; }
 
-.dep-bot {
+/* Line 2: route+number | status */
+.dep-sub {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-left: 58px;
+  padding-left: 96px;
 }
-.dep-route {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 1.5px;
+.dep-train {
+  font-size: 11px;
   color: var(--text3);
   text-transform: uppercase;
-  white-space: nowrap;
+  letter-spacing: 1px;
+  font-weight: 600;
 }
-.dep-badges { display: flex; gap: 5px; align-items: center; }
 
-/* ── Badges ── */
+/* ── Status badges ── */
 .badge {
   display: inline-block;
   padding: 2px 8px;
@@ -358,107 +382,72 @@ body {
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
-  letter-spacing: 0.3px;
 }
-.badge.ontime   { background: rgba(74,222,128,0.12); color: #4ade80; }
-.badge.minor    { background: rgba(234,179,8,0.15);  color: #eab308; }
-.badge.moderate { background: rgba(251,146,60,0.15); color: #fb923c; }
-.badge.severe   { background: rgba(239,68,68,0.15);  color: #f87171; }
-.badge.unknown  { background: rgba(255,255,255,0.06); color: var(--text3); }
-.badge.countdown       { background: rgba(255,255,255,0.06); color: var(--text3); }
-.badge.countdown.soon  { background: rgba(234,179,8,0.18);  color: #fbbf24; }
-.badge.countdown.lastcall { background: rgba(234,179,8,0.22); color: #fde047; font-size: 12px; letter-spacing: 0.8px; }
-.badge.countdown.departed { background: transparent; color: var(--text3); font-style: italic; font-weight: 400; }
+.badge.ontime   { background: rgba(74,222,128,0.12);  color: #4ade80; }
+.badge.minor    { background: rgba(234,179,8,0.15);   color: #fbbf24; }
+.badge.moderate { background: rgba(251,146,60,0.15);  color: #fb923c; }
+.badge.severe   { background: rgba(239,68,68,0.15);   color: #f87171; }
+.badge.unknown  { background: rgba(255,255,255,0.05); color: var(--text3); }
 
 /* ── Active train rows ── */
-.active-list {}
-
 .train-row {
-  display: flex;
-  flex-direction: column;
-  padding: 10px 18px 10px 14px;
+  padding: 11px 16px 9px 14px;
   border-left: 3px solid transparent;
   border-bottom: 1px solid var(--border);
-  gap: 5px;
 }
-.train-row:last-child { border-bottom: none; }
-.train-row.acela      { border-left-color: var(--acela); }
-.train-row.regional   { border-left-color: var(--regional); }
-.train-row.keystone   { border-left-color: var(--keystone); }
-.train-row.empire     { border-left-color: var(--empire); }
-.train-row.longdistance { border-left-color: var(--longdist); }
+.train-row.acela       { border-left-color: var(--acela); }
+.train-row.regional    { border-left-color: var(--regional); }
+.train-row.keystone    { border-left-color: var(--keystone); }
+.train-row.empire      { border-left-color: var(--empire); }
+.train-row.longdistance{ border-left-color: var(--longdist); }
 
-.tr-top { display: flex; align-items: baseline; gap: 0; }
+.tr-main { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; }
 .tr-num {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 800;
   color: var(--text1);
-  line-height: 1;
-  min-width: 58px;
+  width: 58px;
   flex-shrink: 0;
+  line-height: 1;
 }
 .tr-dest {
   flex: 1;
   font-size: 14px;
   font-weight: 500;
-  color: #cccccc;
+  color: #d0d0d0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 0 8px;
-  padding-top: 4px;
+  padding-bottom: 1px;
 }
-.tr-dest::before { content: "\\2192\\00a0"; color: var(--text3); font-size: 12px; }
+.tr-dest::before { content: "\\2192\\00a0"; color: var(--text3); }
 .tr-arr {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
   color: var(--text2);
   white-space: nowrap;
   flex-shrink: 0;
-  padding-top: 4px;
 }
-.tr-arr span { color: var(--text3); font-weight: 400; font-size: 11px; margin-right: 3px; }
+.tr-arr em { font-style: normal; font-size: 10px; color: var(--text3); margin-right: 3px; }
 
-.tr-bot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-left: 58px;
-}
-.tr-meta {
-  font-size: 11px;
-  color: var(--text3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tr-meta .sep { margin: 0 5px; opacity: 0.4; }
+.tr-sub { display: flex; align-items: center; justify-content: space-between; padding-left: 66px; }
+.tr-meta { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-meta .sep { margin: 0 4px; opacity: 0.4; }
 
-/* ── Empty state ── */
-.empty {
-  padding: 16px 18px;
-  font-size: 13px;
-  color: var(--text3);
-  font-style: italic;
-}
+/* ── Empty ── */
+.empty { padding: 14px 18px; font-size: 13px; color: var(--text3); font-style: italic; }
 
-/* ── Leaflet ── */
+/* ── Leaflet overrides ── */
 .leaflet-container { background: #111; }
 .train-marker { background: transparent !important; border: none !important; }
-.leaflet-popup-content-wrapper,
-.leaflet-tooltip {
-  background: #1a1a1a;
-  color: #fff;
-  border: 1px solid #2a2a2a;
-  font-family: inherit;
-  font-size: 12px;
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+.leaflet-popup-content-wrapper, .leaflet-tooltip {
+  background: #1a1a1a; color: #fff; border: 1px solid #2a2a2a;
+  font-family: inherit; font-size: 12px; border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.6);
 }
 .leaflet-popup-tip { background: #1a1a1a; }
 .leaflet-tooltip-top:before { border-top-color: #2a2a2a; }
-.leaflet-bar a { background: #1a1a1a; color: #fff; border-color: #333; }
-.leaflet-bar a:hover { background: #2a2a2a; }
+.leaflet-bar a { background: #1a1a1a !important; color: #ddd !important; border-color: #333 !important; }
+.leaflet-bar a:hover { background: #2a2a2a !important; }
 
 /* ── Mobile ── */
 @media (max-width: 768px) {
@@ -466,9 +455,8 @@ body {
   #app { flex-direction: column; height: auto; min-height: 100vh; }
   #map { flex: none; height: 42vw; min-height: 180px; max-height: 260px; width: 100%; }
   #sidebar { width: 100%; height: auto; border-left: none; border-top: 1px solid var(--border); }
-  .dep-num, .tr-num { font-size: 20px; min-width: 52px; }
-  .dep-bot { padding-left: 52px; }
-  .tr-bot  { padding-left: 52px; }
+  .dep-sub { padding-left: 0; }
+  .tr-sub  { padding-left: 0; }
 }
 </style>
 </head>
@@ -476,13 +464,21 @@ body {
 <div id="app">
   <div id="map"></div>
   <div id="sidebar">
+
     <div class="hdr">
-      <div>
-        <div class="hdr-title">NEW YORK PENN</div>
+      <div class="hdr-left">
+        <div class="hdr-title">
+          NEC TRACKER
+          <span class="live-badge" id="live-badge"><span class="live-dot"></span>LIVE</span>
+        </div>
         <div class="hdr-sub" id="updated">Loading&hellip;</div>
       </div>
-      <div class="hdr-count"><span id="train-count">—</span><span>active</span></div>
+      <div class="hdr-right">
+        <div class="hdr-count" id="train-count">&mdash;</div>
+        <div class="hdr-active">active</div>
+      </div>
     </div>
+
     <div class="legend">
       <span class="legend-item"><span class="dot acela"></span>Acela</span>
       <span class="legend-item"><span class="dot regional"></span>NE Regional</span>
@@ -491,14 +487,15 @@ body {
       <span class="legend-item"><span class="dot longdistance"></span>Long Distance</span>
     </div>
 
-    <div class="sec-hdr dep-hdr">New York Penn Departures</div>
-    <div class="dep-list" id="departures"><div class="empty">Loading&hellip;</div></div>
+    <div class="sec-hdr">New York Penn Departures</div>
+    <div id="departures"><div class="empty">Loading&hellip;</div></div>
 
     <div class="sec-hdr">&#x2193;&nbsp; Southbound</div>
-    <div class="active-list" id="southbound"><div class="empty">Loading&hellip;</div></div>
+    <div id="southbound"><div class="empty">Loading&hellip;</div></div>
 
     <div class="sec-hdr">&#x2191;&nbsp; Northbound</div>
-    <div class="active-list" id="northbound"><div class="empty">Loading&hellip;</div></div>
+    <div id="northbound"><div class="empty">Loading&hellip;</div></div>
+
   </div>
 </div>
 <script>
@@ -510,10 +507,10 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 18, subdomains: 'abcd'
 }).addTo(map);
 var routeCoords = NEC_STATIONS.map(function(s){ return [s.lat, s.lon]; });
-L.polyline(routeCoords, { color: '#444', weight: 2, opacity: 0.6 }).addTo(map);
+L.polyline(routeCoords, { color: '#444', weight: 2, opacity: 0.7 }).addTo(map);
 map.fitBounds(L.latLngBounds(routeCoords), { padding: [30, 30] });
 NEC_STATIONS.forEach(function(s){
-  L.circleMarker([s.lat, s.lon], { radius: 3, color: '#888', weight: 1.5, fillColor: '#1a1a1a', fillOpacity: 1 })
+  L.circleMarker([s.lat, s.lon], { radius: 3, color: '#777', weight: 1.5, fillColor: '#1a1a1a', fillOpacity: 1 })
    .bindTooltip(s.name, { direction: 'top', offset: [0, -4] }).addTo(map);
 });
 var trainLayer = L.layerGroup().addTo(map);
@@ -525,8 +522,14 @@ function typeColor(t) {
 function trainIcon(t) {
   var color = typeColor(t.type);
   var angle = t.bearing != null ? t.bearing : (HEADING[t.heading] || 0);
-  var svg = '<svg width="20" height="20" viewBox="0 0 20 20"><polygon points="10,1 17,17 10,13 3,17" fill="' + color + '" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/></svg>';
-  return L.divIcon({ className: 'train-marker', html: '<div style="transform:rotate(' + angle + 'deg)">' + svg + '</div>', iconSize:[20,20], iconAnchor:[10,10] });
+  return L.divIcon({
+    className: 'train-marker',
+    html: '<div style="transform:rotate(' + angle + 'deg)">' +
+      '<svg width="20" height="20" viewBox="0 0 20 20">' +
+        '<polygon points="10,1 17,17 10,13 3,17" fill="' + color + '" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/>' +
+      '</svg></div>',
+    iconSize: [20,20], iconAnchor: [10,10]
+  });
 }
 
 function esc(s) {
@@ -535,70 +538,92 @@ function esc(s) {
   });
 }
 
+// ── Countdown formatting ──
+function minsUntil(iso) {
+  return iso ? Math.round((new Date(iso) - Date.now()) / 60000) : null;
+}
+
+function formatCountdown(mins) {
+  if (mins === null) return { text: '&mdash;', cls: '' };
+  if (mins <= 0)  return { text: 'DEPARTED', cls: 'departed' };
+  if (mins <= 3)  return { text: 'FINAL CALL', cls: 'finalcall' };
+  if (mins <= 10) return { text: mins + ' min', cls: 'flash' };
+  if (mins <= 20) return { text: mins + ' min', cls: 'soon' };
+  if (mins < 60)  return { text: mins + ' min', cls: '' };
+  if (mins < 300) {
+    // round to nearest 30 min
+    var rounded = Math.round(mins / 30) * 30;
+    var h = rounded / 60; // will be 1, 1.5, 2, 2.5, etc.
+    return { text: h + ' hrs', cls: '' };
+  }
+  return { text: Math.round(mins / 60) + ' hrs', cls: '' };
+}
+
 // ── Departure board ──
 var depData = [];
 
-function minsUntil(iso) { return iso ? Math.round((new Date(iso) - Date.now()) / 60000) : null; }
-
-function depBadgeState(t) {
-  if (t.nypActDep) return { label: 'DEPARTED', cls: 'departed' };
-  var m = minsUntil(t.nypSchDep);
-  if (m === null || m < 0) return { label: 'DEPARTED', cls: 'departed' };
-  if (m <= 2)  return { label: 'LAST CALL', cls: 'lastcall' };
-  if (m <= 20) return { label: m + ' min', cls: 'soon' };
-  return { label: m + ' min', cls: '' };
-}
-
 function fmtNYP(iso) {
   if (!iso) return '';
-  return new Date(iso).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', hour12:true, timeZone:'America/New_York' });
+  return new Date(iso).toLocaleTimeString('en-US', {
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York'
+  });
 }
 
 function renderDepartures(trains) {
+  var now = Date.now();
+
   depData = trains.filter(function(t) {
     if (!t.nypSchDep) return false;
-    if (t.nypActDep) return Math.round((Date.now() - new Date(t.nypActDep)) / 60000) < 3;
+    if (t.nypActDep) {
+      // Show DEPARTED for up to 3 minutes
+      return Math.round((now - new Date(t.nypActDep)) / 60000) < 3;
+    }
+    // Show upcoming departures up to 12 hours out
     var m = minsUntil(t.nypSchDep);
-    return m !== null && m >= -1 && m <= 240;
-  }).sort(function(a, b) { return new Date(a.nypSchDep) - new Date(b.nypSchDep); });
+    return m !== null && m >= 0 && m <= 720;
+  }).sort(function(a, b) {
+    return new Date(a.nypSchDep) - new Date(b.nypSchDep);
+  });
 
   if (!depData.length) {
     document.getElementById('departures').innerHTML = '<div class="empty">No upcoming departures.</div>';
     return;
   }
+
   document.getElementById('departures').innerHTML = depData.map(function(t) {
-    var b = depBadgeState(t);
+    var isDep = !!t.nypActDep;
+    var mins = isDep ? null : minsUntil(t.nypSchDep);
+    var cd = isDep ? { text: 'DEPARTED', cls: 'departed' } : formatCountdown(mins);
+
     return (
-      '<div class="dep-row ' + t.type + '">' +
-        '<div class="dep-top">' +
-          '<span class="dep-num">' + esc(t.trainNum) + '</span>' +
+      '<div class="dep-row ' + t.type + (isDep ? ' is-departed' : '') + '">' +
+        '<div class="dep-main">' +
+          '<span class="dep-time">' + fmtNYP(t.nypSchDep) + '</span>' +
           '<span class="dep-dest">' + esc(t.destName) + '</span>' +
-          '<span class="dep-sched">' + fmtNYP(t.nypSchDep) + '</span>' +
+          '<span class="dep-countdown ' + cd.cls + '" id="dc-' + esc(t.trainNum) + '">' + cd.text + '</span>' +
         '</div>' +
-        '<div class="dep-bot">' +
-          '<span class="dep-route">' + esc(t.routeName) + '</span>' +
-          '<div class="dep-badges">' +
-            '<span class="badge ' + t.status.class + '">' + esc(t.status.label) + '</span>' +
-            '<span class="badge countdown ' + b.cls + '" id="db-' + esc(t.trainNum) + '">' + b.label + '</span>' +
-          '</div>' +
+        '<div class="dep-sub">' +
+          '<span class="dep-train">' + esc(t.routeName) + ' #' + esc(t.trainNum) + '</span>' +
+          '<span class="badge ' + t.status.class + '">' + esc(t.status.label) + '</span>' +
         '</div>' +
       '</div>'
     );
   }).join('');
 }
 
-// Per-second countdown
+// Per-second countdown tick
 setInterval(function() {
   depData.forEach(function(t) {
-    var el = document.getElementById('db-' + t.trainNum);
-    if (!el) return;
-    var b = depBadgeState(t);
-    el.textContent = b.label;
-    el.className = 'badge countdown ' + b.cls;
+    var el = document.getElementById('dc-' + t.trainNum);
+    if (!el || t.nypActDep) return;
+    var mins = minsUntil(t.nypSchDep);
+    var cd = formatCountdown(mins);
+    el.innerHTML = cd.text;
+    el.className = 'dep-countdown ' + cd.cls;
   });
 }, 1000);
 
-// ── Active train cards ──
+// ── Active train rows ──
 function renderCard(t) {
   var meta = '';
   if (t.velocity > 0) meta += t.velocity + ' mph';
@@ -606,15 +631,14 @@ function renderCard(t) {
     if (meta) meta += '<span class="sep">&middot;</span>';
     meta += t.distToNext.toFixed(1) + ' mi to ' + esc(t.nextStop.name);
   }
-  var arrText = t.finalArr ? '<span>arr</span>' + esc(t.finalArr) : '';
   return (
     '<div class="train-row ' + t.type + '">' +
-      '<div class="tr-top">' +
+      '<div class="tr-main">' +
         '<span class="tr-num">' + esc(t.trainNum) + '</span>' +
         '<span class="tr-dest">' + esc(t.destName) + '</span>' +
-        '<span class="tr-arr">' + arrText + '</span>' +
+        (t.finalArr ? '<span class="tr-arr"><em>arr</em>' + esc(t.finalArr) + '</span>' : '') +
       '</div>' +
-      '<div class="tr-bot">' +
+      '<div class="tr-sub">' +
         '<span class="tr-meta">' + esc(t.routeName) + (meta ? '<span class="sep">&middot;</span>' + meta : '') + '</span>' +
         '<span class="badge ' + t.status.class + '">' + esc(t.status.label) + '</span>' +
       '</div>' +
@@ -627,6 +651,19 @@ function tooltipFor(t) {
   return '<b>' + esc(t.routeName) + ' #' + esc(t.trainNum) + '</b><br>' + t.status.label + ' &middot; ' + t.velocity + ' mph' + d;
 }
 
+// ── LIVE badge ──
+var liveTimer = null;
+function setLive(ok) {
+  var el = document.getElementById('live-badge');
+  if (ok) {
+    el.classList.add('on');
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(function(){ el.classList.remove('on'); }, 50000);
+  } else {
+    el.classList.remove('on');
+  }
+}
+
 // ── Main refresh ──
 async function refresh() {
   try {
@@ -637,7 +674,7 @@ async function refresh() {
     trains.forEach(function(t) {
       if (t.lat == null || t.lon == null) return;
       L.marker([t.lat, t.lon], { icon: trainIcon(t) })
-       .bindTooltip(tooltipFor(t), { direction: 'top', offset: [0, -10] })
+       .bindTooltip(tooltipFor(t), { direction: 'top', offset: [0,-10] })
        .addTo(trainLayer);
     });
 
@@ -661,10 +698,14 @@ async function refresh() {
 
     document.getElementById('train-count').textContent = trains.length;
     document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    setLive(true);
+
   } catch(e) {
     document.getElementById('updated').textContent = 'Error: ' + e.message;
+    setLive(false);
   }
 }
+
 refresh();
 setInterval(refresh, 30000);
 </script>
@@ -692,5 +733,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`\nNYP tracker running at http://localhost:${PORT}\n`);
+  console.log(`\nNEC tracker running at http://localhost:${PORT}\n`);
 });
