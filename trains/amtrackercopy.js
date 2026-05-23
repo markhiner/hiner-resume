@@ -270,16 +270,17 @@ body {
 
 /* ── Section headers ── */
 .sec-hdr {
-  padding: 12px 18px 8px;
-  font-size: 10px;
+  padding: 13px 18px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 2.5px;
-  color: var(--text3);
-  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #cccccc;
+  background: #1c1c1c;
   border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
-.sec-hdr.dep-hdr { background: #0f0f0f; }
+.sec-hdr.dep-hdr { background: #1c1c1c; }
 
 /* ── Departure rows ── */
 .dep-list { border-bottom: 1px solid var(--border); }
@@ -490,13 +491,13 @@ body {
       <span class="legend-item"><span class="dot longdistance"></span>Long Distance</span>
     </div>
 
-    <div class="sec-hdr dep-hdr">Departing New York Penn</div>
+    <div class="sec-hdr dep-hdr">New York Penn Departures</div>
     <div class="dep-list" id="departures"><div class="empty">Loading&hellip;</div></div>
 
-    <div class="sec-hdr">&#x2193; Southbound &amp; Westbound</div>
+    <div class="sec-hdr">&#x2193;&nbsp; Southbound</div>
     <div class="active-list" id="southbound"><div class="empty">Loading&hellip;</div></div>
 
-    <div class="sec-hdr">&#x2191; Northbound &amp; Eastbound</div>
+    <div class="sec-hdr">&#x2191;&nbsp; Northbound</div>
     <div class="active-list" id="northbound"><div class="empty">Loading&hellip;</div></div>
   </div>
 </div>
