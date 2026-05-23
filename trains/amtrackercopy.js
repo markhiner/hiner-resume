@@ -1,11 +1,8 @@
 // NEC live tracker — all trains transiting NYP
 
-const http  = require("http");
-const https = require("https");
+const http = require("http");
 
 const PORT = 3000;
-const TRAINS_URL   = "https://api-v3.amtraker.com/v3/trains";
-const STATIONS_URL = "https://api-v3.amtraker.com/v3/stations";
 
 const NEC_STATIONS = [
   { code: "NYP", name: "New York Penn",        lat: 40.7510, lon: -73.9963 },
@@ -24,185 +21,6 @@ const NEC_STATIONS = [
   { code: "WAS", name: "Washington Union",     lat: 38.8970, lon: -77.0064 },
 ];
 
-// ---------- API ----------
-
-function fetchJSON(url) {
-  return new Promise((resolve, reject) => {
-    console.log("[fetch]", url);
-    const req = https.get(url, { headers: { Accept: "application/json" } }, (res) => {
-      if (res.statusCode !== 200) {
-        res.resume();
-        return reject(new Error("HTTP " + res.statusCode));
-      }
-      let raw = "";
-      res.setEncoding("utf8");
-      res.on("data", c => { raw += c; });
-      res.on("end", () => {
-        try { console.log("[ok]", url.split("/").pop(), raw.length, "bytes"); resolve(JSON.parse(raw)); }
-        catch(e) { reject(new Error("JSON parse: " + e.message)); }
-      });
-    });
-    req.setTimeout(10000, () => { req.destroy(new Error("timeout after 10s")); });
-    req.on("error", e => { console.error("[err]", url, e.message); reject(e); });
-  });
-}
-
-let stationsCache = null, stationsCacheTime = 0;
-async function fetchAllStations() {
-  if (stationsCache && Date.now() - stationsCacheTime < 3600000) return stationsCache;
-  stationsCache = await fetchJSON(STATIONS_URL);
-  stationsCacheTime = Date.now();
-  return stationsCache;
-}
-
-// ---------- helpers ----------
-
-function parseTime(iso) {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return isNaN(d) ? null : d;
-}
-
-function haversineMi(lat1, lon1, lat2, lon2) {
-  const R = 3959, toRad = d => d * Math.PI / 180;
-  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
-function bearingDeg(lat1, lon1, lat2, lon2) {
-  const toRad = d => d * Math.PI / 180, toDeg = r => r * 180 / Math.PI;
-  const φ1 = toRad(lat1), φ2 = toRad(lat2), Δλ = toRad(lon2 - lon1);
-  return (toDeg(Math.atan2(Math.sin(Δλ)*Math.cos(φ2), Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ))) + 360) % 360;
-}
-
-function trainType(routeName) {
-  if (routeName === "Acela") return "acela";
-  if (routeName === "Northeast Regional") return "regional";
-  if (routeName === "Keystone" || routeName === "Pennsylvanian") return "keystone";
-  if (["Empire Service", "Maple Leaf", "Lake Shore Limited", "Adirondack", "Ethan Allen Express"].includes(routeName)) return "empire";
-  return "longdistance";
-}
-
-function statusInfo(scheduled, actual) {
-  if (!scheduled || !actual) return { label: "—", class: "unknown" };
-  const diffMin = Math.round((actual - scheduled) / 60000);
-  if (diffMin <= 5) return { label: "On Time", class: "ontime" };
-  const h = Math.floor(diffMin / 60), m = diffMin % 60;
-  const cls = diffMin <= 15 ? "minor" : diffMin <= 30 ? "moderate" : "severe";
-  return { label: `${h}:${String(m).padStart(2,"0")} late`, class: cls };
-}
-
-// Only trains that actually depart FROM NYP — must have stops after NYP
-function isRelevantTrain(train) {
-  if (!train.stations) return false;
-  if (train.trainState === "Completed") return false;
-  const nypIdx = train.stations.findIndex(s => s.code === "NYP");
-  if (nypIdx === -1) return false;
-  if (nypIdx >= train.stations.length - 1) return false; // terminates at NYP, skip
-  const nypStop = train.stations[nypIdx];
-  return !!(parseTime(nypStop.schDep) || parseTime(nypStop.dep));
-}
-
-function directionFromNYP(train) {
-  const codes = train.stations.map(s => s.code);
-  const nypIdx = codes.indexOf("NYP");
-  const wasIdx = codes.indexOf("WAS");
-  if (wasIdx !== -1) return nypIdx < wasIdx ? "south" : "north";
-  const northRoutes = ["Empire Service", "Maple Leaf", "Lake Shore Limited", "Adirondack", "Ethan Allen Express"];
-  if (northRoutes.includes(train.routeName)) return "north";
-  return "south";
-}
-
-function findNextStop(train) {
-  if (!train.stations) return null;
-  const now = new Date();
-  for (const stop of train.stations) {
-    const dep = parseTime(stop.dep) || parseTime(stop.schDep);
-    if (dep && dep < now) continue;
-    return stop;
-  }
-  return train.stations[train.stations.length - 1];
-}
-
-function formatTimeShort(date) {
-  if (!date) return null;
-  return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "America/New_York" });
-}
-
-// Real final destination: last stop AFTER NYP in the station list
-function finalDestName(train, stationMap) {
-  const nypIdx = train.stations.findIndex(s => s.code === "NYP");
-  const after = nypIdx >= 0 ? train.stations.slice(nypIdx + 1) : [];
-  if (after.length > 0) {
-    const last = after[after.length - 1];
-    return last.name || stationMap[last.code]?.name || last.code;
-  }
-  return train.destName || "—";
-}
-
-// ---------- data shaping ----------
-
-async function getTrainData() {
-  const [trainsObj, stations] = await Promise.all([fetchJSON(TRAINS_URL), fetchAllStations()]);
-  const relevant = Object.values(trainsObj).flat().filter(isRelevantTrain);
-
-  return relevant.map(train => {
-    const dir = directionFromNYP(train);
-    const nextStop = findNextStop(train);
-
-    let status = { label: "—", class: "unknown" };
-    if (nextStop) {
-      status = statusInfo(
-        parseTime(nextStop.schArr) || parseTime(nextStop.schDep),
-        parseTime(nextStop.arr)    || parseTime(nextStop.dep)
-      );
-    }
-
-    let distToNext = null, bearing = null;
-    if (nextStop && train.lat != null && train.lon != null) {
-      const sd = stations[nextStop.code];
-      if (sd && sd.lat && sd.lon) {
-        distToNext = haversineMi(train.lat, train.lon, sd.lat, sd.lon);
-        bearing = bearingDeg(train.lat, train.lon, sd.lat, sd.lon);
-      }
-    }
-
-    const nypStop    = train.stations.find(s => s.code === "NYP");
-    const nypSchDep  = nypStop ? parseTime(nypStop.schDep) : null;
-    const nypActDep  = nypStop ? parseTime(nypStop.dep)    : null;
-    const finalStop  = train.stations[train.stations.length - 1];
-    const finalArr   = parseTime(finalStop.arr) || parseTime(finalStop.schArr);
-
-    return {
-      trainNum:   train.trainNum,
-      routeName:  train.routeName,
-      type:       trainType(train.routeName),
-      destName:   finalDestName(train, stations),
-      lat:        train.lat,
-      lon:        train.lon,
-      velocity:   Math.round(train.velocity || 0),
-      heading:    train.heading,
-      trainState: train.trainState,
-      direction:  dir,
-      nextStop:   nextStop ? { code: nextStop.code, name: nextStop.name || stations[nextStop.code]?.name || nextStop.code } : null,
-      distToNext: distToNext != null ? Math.round(distToNext * 10) / 10 : null,
-      bearing,
-      status,
-      finalArr:   formatTimeShort(finalArr),
-      nypSchDep:  nypSchDep ? nypSchDep.toISOString() : null,
-      nypActDep:  nypActDep ? nypActDep.toISOString() : null,
-      stops: train.stations.map(s => ({
-        code:   s.code,
-        name:   s.name || stations[s.code]?.name || s.code,
-        schArr: s.schArr || null,
-        schDep: s.schDep || null,
-        arr:    s.arr    || null,
-        dep:    s.dep    || null,
-      })),
-    };
-  });
-}
 
 // ---------- HTML ----------
 
@@ -638,19 +456,184 @@ body {
 <script>
 var NEC_STATIONS = ${JSON.stringify(NEC_STATIONS)};
 
+// ── Data helpers (run in browser, fetch Amtrak API directly) ──
+function parseTime(iso) {
+  if (!iso) return null;
+  var d = new Date(iso);
+  return isNaN(d) ? null : d;
+}
+
+function haversineMi(lat1, lon1, lat2, lon2) {
+  var R = 3959;
+  var toRad = function(d){ return d * Math.PI / 180; };
+  var dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  var a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)*Math.sin(dLon/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function bearingDeg(lat1, lon1, lat2, lon2) {
+  var toRad = function(d){ return d * Math.PI / 180; };
+  var toDeg = function(r){ return r * 180 / Math.PI; };
+  var p1 = toRad(lat1), p2 = toRad(lat2), dl = toRad(lon2 - lon1);
+  return (toDeg(Math.atan2(Math.sin(dl)*Math.cos(p2), Math.cos(p1)*Math.sin(p2) - Math.sin(p1)*Math.cos(p2)*Math.cos(dl))) + 360) % 360;
+}
+
+function trainType(routeName) {
+  if (routeName === 'Acela') return 'acela';
+  if (routeName === 'Northeast Regional') return 'regional';
+  if (routeName === 'Keystone' || routeName === 'Pennsylvanian') return 'keystone';
+  if (['Empire Service','Maple Leaf','Lake Shore Limited','Adirondack','Ethan Allen Express'].indexOf(routeName) !== -1) return 'empire';
+  return 'longdistance';
+}
+
+function statusInfo(scheduled, actual) {
+  if (!scheduled || !actual) return { label: '—', class: 'unknown' };
+  var diffMin = Math.round((actual - scheduled) / 60000);
+  if (diffMin <= 5) return { label: 'On Time', class: 'ontime' };
+  var h = Math.floor(diffMin / 60), m = diffMin % 60;
+  var cls = diffMin <= 15 ? 'minor' : diffMin <= 30 ? 'moderate' : 'severe';
+  return { label: h + ':' + String(m).padStart(2, '0') + ' late', class: cls };
+}
+
+function isRelevantTrain(train) {
+  if (!train.stations) return false;
+  if (train.trainState === 'Completed') return false;
+  var nypIdx = -1;
+  for (var i = 0; i < train.stations.length; i++) {
+    if (train.stations[i].code === 'NYP') { nypIdx = i; break; }
+  }
+  if (nypIdx === -1 || nypIdx >= train.stations.length - 1) return false;
+  var nypStop = train.stations[nypIdx];
+  return !!(parseTime(nypStop.schDep) || parseTime(nypStop.dep));
+}
+
+function directionFromNYP(train) {
+  var codes = train.stations.map(function(s){ return s.code; });
+  var nypIdx = codes.indexOf('NYP');
+  var wasIdx = codes.indexOf('WAS');
+  if (wasIdx !== -1) return nypIdx < wasIdx ? 'south' : 'north';
+  var northRoutes = ['Empire Service','Maple Leaf','Lake Shore Limited','Adirondack','Ethan Allen Express'];
+  return northRoutes.indexOf(train.routeName) !== -1 ? 'north' : 'south';
+}
+
+function findNextStop(train) {
+  if (!train.stations) return null;
+  var now = new Date();
+  for (var i = 0; i < train.stations.length; i++) {
+    var stop = train.stations[i];
+    var dep = parseTime(stop.dep) || parseTime(stop.schDep);
+    if (dep && dep < now) continue;
+    return stop;
+  }
+  return train.stations[train.stations.length - 1];
+}
+
+function formatTimeShort(date) {
+  if (!date) return null;
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' });
+}
+
+function finalDestName(train, stationMap) {
+  var nypIdx = -1;
+  for (var i = 0; i < train.stations.length; i++) {
+    if (train.stations[i].code === 'NYP') { nypIdx = i; break; }
+  }
+  var after = nypIdx >= 0 ? train.stations.slice(nypIdx + 1) : [];
+  if (after.length > 0) {
+    var last = after[after.length - 1];
+    return last.name || (stationMap[last.code] && stationMap[last.code].name) || last.code;
+  }
+  return train.destName || '—';
+}
+
+function processTrains(trainsObj, stationsData) {
+  var relevant = [];
+  var vals = Object.values(trainsObj);
+  for (var i = 0; i < vals.length; i++) {
+    var arr = Array.isArray(vals[i]) ? vals[i] : [vals[i]];
+    for (var j = 0; j < arr.length; j++) {
+      if (isRelevantTrain(arr[j])) relevant.push(arr[j]);
+    }
+  }
+  return relevant.map(function(train) {
+    var dir = directionFromNYP(train);
+    var nextStop = findNextStop(train);
+    var status = { label: '—', class: 'unknown' };
+    if (nextStop) {
+      status = statusInfo(
+        parseTime(nextStop.schArr) || parseTime(nextStop.schDep),
+        parseTime(nextStop.arr) || parseTime(nextStop.dep)
+      );
+    }
+    var distToNext = null, bearing = null;
+    if (nextStop && train.lat != null && train.lon != null) {
+      var sd = stationsData[nextStop.code];
+      if (sd && sd.lat && sd.lon) {
+        distToNext = haversineMi(train.lat, train.lon, sd.lat, sd.lon);
+        bearing = bearingDeg(train.lat, train.lon, sd.lat, sd.lon);
+      }
+    }
+    var nypStop = null;
+    for (var i = 0; i < train.stations.length; i++) {
+      if (train.stations[i].code === 'NYP') { nypStop = train.stations[i]; break; }
+    }
+    var nypSchDep = nypStop ? parseTime(nypStop.schDep) : null;
+    var nypActDep = nypStop ? parseTime(nypStop.dep) : null;
+    var finalStop = train.stations[train.stations.length - 1];
+    var finalArr = parseTime(finalStop.arr) || parseTime(finalStop.schArr);
+    return {
+      trainNum:   train.trainNum,
+      routeName:  train.routeName,
+      type:       trainType(train.routeName),
+      destName:   finalDestName(train, stationsData),
+      lat:        train.lat,
+      lon:        train.lon,
+      velocity:   Math.round(train.velocity || 0),
+      heading:    train.heading,
+      trainState: train.trainState,
+      direction:  dir,
+      nextStop:   nextStop ? {
+        code: nextStop.code,
+        name: nextStop.name || (stationsData[nextStop.code] && stationsData[nextStop.code].name) || nextStop.code
+      } : null,
+      distToNext: distToNext != null ? Math.round(distToNext * 10) / 10 : null,
+      bearing:    bearing,
+      status:     status,
+      finalArr:   formatTimeShort(finalArr),
+      nypSchDep:  nypSchDep ? nypSchDep.toISOString() : null,
+      nypActDep:  nypActDep ? nypActDep.toISOString() : null,
+      stops: train.stations.map(function(s) {
+        return {
+          code:   s.code,
+          name:   s.name || (stationsData[s.code] && stationsData[s.code].name) || s.code,
+          schArr: s.schArr || null,
+          schDep: s.schDep || null,
+          arr:    s.arr    || null,
+          dep:    s.dep    || null
+        };
+      })
+    };
+  });
+}
+
 // ── Map ──
-var map = L.map('map', { zoomControl: true });
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 18, subdomains: 'abcd'
-}).addTo(map);
-var routeCoords = NEC_STATIONS.map(function(s){ return [s.lat, s.lon]; });
-L.polyline(routeCoords, { color: '#444', weight: 2, opacity: 0.7 }).addTo(map);
-map.fitBounds(L.latLngBounds(routeCoords), { padding: [30, 30] });
-NEC_STATIONS.forEach(function(s){
-  L.circleMarker([s.lat, s.lon], { radius: 3, color: '#777', weight: 1.5, fillColor: '#1a1a1a', fillOpacity: 1 })
-   .bindTooltip(s.name, { direction: 'top', offset: [0, -4] }).addTo(map);
-});
-var trainLayer = L.layerGroup().addTo(map);
+var map = null, trainLayer = null;
+try {
+  map = L.map('map', { zoomControl: true });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 18, subdomains: 'abcd'
+  }).addTo(map);
+  var routeCoords = NEC_STATIONS.map(function(s){ return [s.lat, s.lon]; });
+  L.polyline(routeCoords, { color: '#444', weight: 2, opacity: 0.7 }).addTo(map);
+  map.fitBounds(L.latLngBounds(routeCoords), { padding: [30, 30] });
+  NEC_STATIONS.forEach(function(s){
+    L.circleMarker([s.lat, s.lon], { radius: 3, color: '#777', weight: 1.5, fillColor: '#1a1a1a', fillOpacity: 1 })
+     .bindTooltip(s.name, { direction: 'top', offset: [0, -4] }).addTo(map);
+  });
+  trainLayer = L.layerGroup().addTo(map);
+} catch(mapErr) {
+  document.getElementById('updated').textContent = 'Map error: ' + mapErr.message;
+}
 var HEADING = { N:0, NE:45, E:90, SE:135, S:180, SW:225, W:270, NW:315 };
 
 function typeColor(t) {
@@ -811,19 +794,29 @@ function setLive(ok) {
 }
 
 // ── Main refresh ──
+var stationsCache = null;
 async function refresh() {
   try {
-    var res = await fetch('/api/trains');
-    var trains = await res.json();
+    var fetchStations = stationsCache
+      ? Promise.resolve(stationsCache)
+      : fetch('https://api-v3.amtraker.com/v3/stations').then(function(r){ return r.json(); });
+    var results = await Promise.all([
+      fetch('https://api-v3.amtraker.com/v3/trains').then(function(r){ return r.json(); }),
+      fetchStations
+    ]);
+    var trains = processTrains(results[0], results[1]);
+    stationsCache = results[1];
     allTrains = trains;
 
-    trainLayer.clearLayers();
-    trains.forEach(function(t) {
-      if (t.lat == null || t.lon == null) return;
-      L.marker([t.lat, t.lon], { icon: trainIcon(t) })
-       .bindTooltip(tooltipFor(t), { direction: 'top', offset: [0,-10] })
-       .addTo(trainLayer);
-    });
+    if (trainLayer) {
+      trainLayer.clearLayers();
+      trains.forEach(function(t) {
+        if (t.lat == null || t.lon == null) return;
+        L.marker([t.lat, t.lon], { icon: trainIcon(t) })
+         .bindTooltip(tooltipFor(t), { direction: 'top', offset: [0,-10] })
+         .addTo(trainLayer);
+      });
+    }
 
     renderDepartures(trains);
 
@@ -984,37 +977,12 @@ function closeModal() {
 
 // ---------- server ----------
 
-const server = http.createServer(async (req, res) => {
+const server = http.createServer(function(req, res) {
   if (req.url === "/favicon.ico") { res.writeHead(204); res.end(); return; }
-  if (req.url === "/api/trains") {
-    try {
-      const data = await getTrainData();
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(data));
-    } catch (err) {
-      console.error("API error:", err.message);
-      res.writeHead(500, { "Content-Type": "text/plain" });
-      res.end("Error: " + err.message);
-    }
-    return;
-  }
-  if (req.url === "/api/test") {
-    const t0 = Date.now();
-    try {
-      const data = await fetchJSON(TRAINS_URL);
-      const n = Object.keys(data).length;
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end("OK — got " + n + " trains in " + (Date.now()-t0) + "ms");
-    } catch(e) {
-      res.writeHead(500, { "Content-Type": "text/plain" });
-      res.end("FAIL: " + e.message + " (after " + (Date.now()-t0) + "ms)");
-    }
-    return;
-  }
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(htmlPage);
 });
 
-server.listen(PORT, () => {
-  console.log(`\nNEC tracker running at http://localhost:${PORT}\n`);
+server.listen(PORT, function() {
+  console.log("NEC tracker running at http://localhost:" + PORT);
 });
