@@ -375,11 +375,10 @@ body {
   padding-left: 96px;
 }
 .dep-train {
-  font-size: 11px;
-  color: #999999;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  font-weight: 600;
+  font-size: 13px;
+  color: #aaaaaa;
+  letter-spacing: 0.3px;
+  font-weight: 500;
 }
 
 /* ── Status badges ── */
@@ -696,13 +695,21 @@ function renderDepartures(trains) {
 
   depData = trains.filter(function(t) {
     if (!t.nypSchDep) return false;
-    // Always show predeparture trains — even if scheduled time has passed (delayed)
+    // Always show predeparture trains (even if past scheduled time = delayed)
     if (t.trainState === 'Predeparture') return true;
-    // Show DEPARTED for up to 3 minutes after actual departure
     if (t.nypActDep) {
-      return Math.round((now - new Date(t.nypActDep)) / 60000) < 3;
+      var actMs = new Date(t.nypActDep).getTime();
+      // API often pre-fills dep with the ESTIMATED future time — ignore if not yet past
+      if (actMs > now) {
+        var m = minsUntil(t.nypSchDep);
+        return m !== null && m >= 0 && m <= 720;
+      }
+      // Actually departed: show DEPARTED row for 3 minutes only
+      return (now - actMs) / 60000 < 3;
     }
-    return false;
+    // Active but no dep timestamp: show if scheduled departure is upcoming
+    var m = minsUntil(t.nypSchDep);
+    return m !== null && m >= 0 && m <= 720;
   }).sort(function(a, b) {
     return new Date(a.nypSchDep) - new Date(b.nypSchDep);
   });
@@ -713,10 +720,11 @@ function renderDepartures(trains) {
   }
 
   document.getElementById('departures').innerHTML = depData.map(function(t) {
-    // Only mark as departed if the train has actually left AND is no longer predeparture
-    var isDep = !!(t.nypActDep && t.trainState !== 'Predeparture');
+    // Only "actually departed" if nypActDep is in the past AND not predeparture
+    // (API pre-fills dep with future estimated time for approaching trains — ignore those)
+    var actMs = t.nypActDep ? new Date(t.nypActDep).getTime() : 0;
+    var isDep = !!(t.nypActDep && actMs <= now && t.trainState !== 'Predeparture');
     var mins = isDep ? null : minsUntil(t.nypSchDep);
-    // Predeparture but past scheduled time = delayed at station, not departed
     var cd = isDep
       ? { text: 'DEPARTED', cls: 'departed' }
       : (mins !== null && mins <= 0)
@@ -744,7 +752,8 @@ setInterval(function() {
   depData.forEach(function(t) {
     var el = document.getElementById('dc-' + t.trainNum);
     if (!el) return;
-    if (t.nypActDep && t.trainState !== 'Predeparture') return; // DEPARTED label is static
+    var actMs = t.nypActDep ? new Date(t.nypActDep).getTime() : 0;
+    if (t.nypActDep && actMs <= Date.now() && t.trainState !== 'Predeparture') return; // static DEPARTED
     var mins = minsUntil(t.nypSchDep);
     var cd = (mins !== null && mins <= 0)
       ? { text: 'delayed', cls: 'soon' }
