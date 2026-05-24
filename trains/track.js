@@ -535,8 +535,8 @@ body {
     <div class="legend">
       <span class="legend-item"><span class="dot acela"></span>Acela</span>
       <span class="legend-item"><span class="dot regional"></span>NE Regional</span>
-      <span class="legend-item"><span class="dot keystone"></span>Keystone / Pennsylvanian</span>
-      <span class="legend-item"><span class="dot empire"></span>Empire / Maple Leaf</span>
+      <span class="legend-item"><span class="dot keystone"></span>Keystone</span>
+      <span class="legend-item"><span class="dot empire"></span>Empire</span>
       <span class="legend-item"><span class="dot longdistance"></span>Long Distance</span>
     </div>
 
