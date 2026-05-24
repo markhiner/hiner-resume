@@ -82,8 +82,10 @@ function statusInfo(scheduled, actual) {
 function isRelevantTrain(train) {
   if (!train.stations) return false;
   if (train.trainState === "Completed") return false;
-  const nypStop = train.stations.find(s => s.code === "NYP");
-  if (!nypStop) return false;
+  const nypIdx = train.stations.findIndex(s => s.code === "NYP");
+  if (nypIdx < 0) return false;
+  if (nypIdx === train.stations.length - 1) return false; // terminates at NYP, not departing
+  const nypStop = train.stations[nypIdx];
   return !!(parseTime(nypStop.schDep) || parseTime(nypStop.dep));
 }
 
@@ -286,11 +288,12 @@ body {
 
 .dep-row {
   display: flex;
-  flex-direction: column;
-  padding: 10px 18px 10px 14px;
+  flex-direction: row;
+  align-items: center;
+  padding: 12px 18px 12px 14px;
   border-left: 3px solid transparent;
   border-bottom: 1px solid var(--border);
-  gap: 5px;
+  gap: 12px;
 }
 .dep-row:last-child { border-bottom: none; }
 .dep-row.acela      { border-left-color: var(--acela); }
@@ -299,55 +302,58 @@ body {
 .dep-row.empire     { border-left-color: var(--empire); }
 .dep-row.longdistance { border-left-color: var(--longdist); }
 
-.dep-top {
+.dep-left {
   display: flex;
-  align-items: baseline;
-  gap: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  flex-shrink: 0;
+  min-width: 82px;
 }
-.dep-num {
-  font-size: 22px;
+.dep-time {
+  font-size: 20px;
   font-weight: 800;
   color: var(--text1);
   line-height: 1;
-  min-width: 58px;
-  flex-shrink: 0;
+  white-space: nowrap;
+}
+.dep-mid {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 .dep-dest {
-  flex: 1;
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 500;
   color: #cccccc;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 0 8px;
-  padding-top: 4px;
 }
-.dep-dest::before { content: "\\2192\\00a0"; color: var(--text3); font-size: 12px; }
-.dep-sched {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text1);
-  white-space: nowrap;
-  flex-shrink: 0;
-  padding-top: 3px;
-}
-
-.dep-bot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-left: 58px;
-}
+.dep-dest::before { content: "\\2192\\00a0"; color: var(--text3); font-size: 13px; }
 .dep-route {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 1.5px;
-  color: var(--text3);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: #888888;
   text-transform: uppercase;
   white-space: nowrap;
 }
-.dep-badges { display: flex; gap: 5px; align-items: center; }
+.dep-right {
+  flex-shrink: 0;
+  text-align: right;
+}
+.dep-countdown {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--text3);
+  white-space: nowrap;
+}
+.dep-countdown.soon     { color: #fbbf24; }
+.dep-countdown.lastcall { color: #fde047; }
+.dep-countdown.departed { font-size: 12px; font-weight: 400; font-style: italic; color: var(--text3); }
 
 /* ── Badges ── */
 .badge {
@@ -540,9 +546,9 @@ var depData = [];
 function minsUntil(iso) { return iso ? Math.round((new Date(iso) - Date.now()) / 60000) : null; }
 
 function depBadgeState(t) {
-  if (t.nypActDep) return { label: 'DEPARTED', cls: 'departed' };
+  if (t.nypActDep && new Date(t.nypActDep) <= Date.now()) return { label: 'DEPARTED', cls: 'departed' };
   var m = minsUntil(t.nypSchDep);
-  if (m === null || m < 0) return { label: 'DEPARTED', cls: 'departed' };
+  if (m === null || m < -2) return { label: 'DEPARTED', cls: 'departed' };
   if (m <= 2)  return { label: 'LAST CALL', cls: 'lastcall' };
   if (m <= 20) return { label: m + ' min', cls: 'soon' };
   return { label: m + ' min', cls: '' };
@@ -569,17 +575,16 @@ function renderDepartures(trains) {
     var b = depBadgeState(t);
     return (
       '<div class="dep-row ' + t.type + '">' +
-        '<div class="dep-top">' +
-          '<span class="dep-num">' + esc(t.trainNum) + '</span>' +
-          '<span class="dep-dest">' + esc(t.destName) + '</span>' +
-          '<span class="dep-sched">' + fmtNYP(t.nypSchDep) + '</span>' +
+        '<div class="dep-left">' +
+          '<span class="dep-time">' + fmtNYP(t.nypSchDep) + '</span>' +
+          '<span class="badge ' + t.status.class + '">' + esc(t.status.label) + '</span>' +
         '</div>' +
-        '<div class="dep-bot">' +
+        '<div class="dep-mid">' +
+          '<span class="dep-dest">' + esc(t.destName) + '</span>' +
           '<span class="dep-route">' + esc(t.routeName) + '</span>' +
-          '<div class="dep-badges">' +
-            '<span class="badge ' + t.status.class + '">' + esc(t.status.label) + '</span>' +
-            '<span class="badge countdown ' + b.cls + '" id="db-' + esc(t.trainNum) + '">' + b.label + '</span>' +
-          '</div>' +
+        '</div>' +
+        '<div class="dep-right">' +
+          '<span class="dep-countdown ' + b.cls + '" id="db-' + esc(t.trainNum) + '">' + b.label + '</span>' +
         '</div>' +
       '</div>'
     );
@@ -593,7 +598,7 @@ setInterval(function() {
     if (!el) return;
     var b = depBadgeState(t);
     el.textContent = b.label;
-    el.className = 'badge countdown ' + b.cls;
+    el.className = 'dep-countdown ' + b.cls;
   });
 }, 1000);
 
