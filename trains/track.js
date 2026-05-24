@@ -545,13 +545,26 @@ var depData = [];
 
 function minsUntil(iso) { return iso ? Math.round((new Date(iso) - Date.now()) / 60000) : null; }
 
+function fmtMins(m) {
+  if (m > 300) {
+    var hrs = Math.round(m / 60);
+    return hrs + ' hr' + (hrs === 1 ? '' : 's');
+  }
+  if (m > 60) {
+    var half = Math.round(m / 30);
+    var val = half / 2;
+    return val + ' hr' + (val === 1 ? '' : 's');
+  }
+  return m + ' min';
+}
+
 function depBadgeState(t) {
   if (t.nypActDep && new Date(t.nypActDep) <= Date.now()) return { label: 'DEPARTED', cls: 'departed' };
   var m = minsUntil(t.nypSchDep);
   if (m === null || m < -2) return { label: 'DEPARTED', cls: 'departed' };
   if (m <= 2)  return { label: 'LAST CALL', cls: 'lastcall' };
-  if (m <= 20) return { label: m + ' min', cls: 'soon' };
-  return { label: m + ' min', cls: '' };
+  if (m <= 20) return { label: fmtMins(m), cls: 'soon' };
+  return { label: fmtMins(m), cls: '' };
 }
 
 function fmtNYP(iso) {
