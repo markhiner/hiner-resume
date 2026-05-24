@@ -307,7 +307,7 @@ body {
   gap: 12px;
 }
 .dep-row:last-child { border-bottom: none; }
-.dep-row.acela      { border-left-color: var(--acela); background: rgba(45,212,191,0.06); }
+.dep-row.acela      { border-left-color: var(--acela); background: rgba(45,212,191,0.11); }
 .dep-row.regional   { border-left-color: var(--regional); }
 .dep-row.keystone   { border-left-color: var(--keystone); }
 .dep-row.empire     { border-left-color: var(--empire); }
@@ -411,7 +411,7 @@ body {
   gap: 5px;
 }
 .train-row:last-child { border-bottom: none; }
-.train-row.acela      { border-left-color: var(--acela); background: rgba(45,212,191,0.06); }
+.train-row.acela      { border-left-color: var(--acela); background: rgba(45,212,191,0.11); }
 .train-row.regional   { border-left-color: var(--regional); }
 .train-row.keystone   { border-left-color: var(--keystone); }
 .train-row.empire     { border-left-color: var(--empire); }
@@ -654,25 +654,28 @@ function renderDepartures(trains) {
     );
   }).join('');
 
-  if (depData.length > 4 && !depExpanded) {
-    list.classList.add('collapsed');
+  if (depData.length > 4) {
+    if (depExpanded) {
+      list.classList.remove('collapsed');
+    } else {
+      list.classList.add('collapsed');
+    }
     if (!moreBtn) {
-      var btn = document.createElement('div');
-      btn.id = 'dep-more-btn';
-      btn.className = 'dep-more';
-      btn.textContent = '+ ' + (depData.length - 4) + ' more';
-      btn.onclick = function() {
-        depExpanded = true;
-        list.classList.remove('collapsed');
-        btn.remove();
-      };
-      list.insertAdjacentElement('afterend', btn);
+      moreBtn = document.createElement('div');
+      moreBtn.id = 'dep-more-btn';
+      moreBtn.className = 'dep-more';
+      list.insertAdjacentElement('afterend', moreBtn);
+    }
+    if (depExpanded) {
+      moreBtn.textContent = 'Show less';
+      moreBtn.onclick = function() { depExpanded = false; renderDepartures(depData); };
     } else {
       moreBtn.textContent = '+ ' + (depData.length - 4) + ' more';
+      moreBtn.onclick = function() { depExpanded = true; renderDepartures(depData); };
     }
   } else {
     list.classList.remove('collapsed');
-    if (moreBtn && depData.length <= 4) moreBtn.remove();
+    if (moreBtn) moreBtn.remove();
   }
 }
 
