@@ -248,7 +248,18 @@ body {
   align-items: flex-end;
   flex-shrink: 0;
 }
-.hdr-title { font-size: 13px; font-weight: 700; letter-spacing: 2px; color: var(--text1); }
+.hdr-title { font-size: 13px; font-weight: 700; letter-spacing: 2px; color: var(--text1); display: flex; align-items: center; gap: 8px; }
+.live-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: #ef4444;
+  animation: pulse-live 1.4s ease-in-out infinite;
+}
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
 .hdr-sub   { font-size: 11px; color: var(--text3); margin-top: 2px; }
 .hdr-count { font-size: 22px; font-weight: 800; color: var(--text1); line-height: 1; }
 .hdr-count span { font-size: 11px; font-weight: 400; color: var(--text3); margin-left: 2px; }
@@ -516,7 +527,7 @@ body {
   <div id="sidebar">
     <div class="hdr">
       <div>
-        <div class="hdr-title">NEW YORK PENN</div>
+        <div class="hdr-title">NORTHEAST CORRIDOR <span class="live-badge">LIVE</span></div>
         <div class="hdr-sub" id="updated">Loading&hellip;</div>
       </div>
       <div class="hdr-count"><span id="train-count">—</span><span>active</span></div>
