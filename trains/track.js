@@ -354,6 +354,19 @@ body {
 .dep-countdown.soon     { color: #fbbf24; }
 .dep-countdown.lastcall { color: #fde047; }
 .dep-countdown.departed { font-size: 12px; font-weight: 400; font-style: italic; color: var(--text3); }
+.dep-list.collapsed .dep-row:nth-child(n+5) { display: none; }
+.dep-more {
+  padding: 10px 18px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--text2);
+  cursor: pointer;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+}
+.dep-more:hover { background: #1a1a1a; color: var(--text1); }
 
 /* ── Badges ── */
 .badge {
@@ -562,6 +575,7 @@ function esc(s) {
 
 // ── Departure board ──
 var depData = [];
+var depExpanded = false;
 
 function minsUntil(iso) { return iso ? Math.round((new Date(iso) - Date.now()) / 60000) : null; }
 
@@ -595,16 +609,22 @@ function fmtNYP(iso) {
 function renderDepartures(trains) {
   depData = trains.filter(function(t) {
     if (!t.nypSchDep) return false;
-    if (t.nypActDep) return Math.round((Date.now() - new Date(t.nypActDep)) / 60000) < 3;
+    if (t.nypActDep) return Math.round((Date.now() - new Date(t.nypActDep)) / 60000) < 10;
     var m = minsUntil(t.nypSchDep);
     return m !== null && m >= -1 && m <= 240;
   }).sort(function(a, b) { return new Date(a.nypSchDep) - new Date(b.nypSchDep); });
 
+  var list = document.getElementById('departures');
+  var moreBtn = document.getElementById('dep-more-btn');
+
   if (!depData.length) {
-    document.getElementById('departures').innerHTML = '<div class="empty">No upcoming departures.</div>';
+    list.innerHTML = '<div class="empty">No upcoming departures.</div>';
+    list.classList.remove('collapsed');
+    if (moreBtn) moreBtn.remove();
     return;
   }
-  document.getElementById('departures').innerHTML = depData.map(function(t) {
+
+  list.innerHTML = depData.map(function(t) {
     var b = depBadgeState(t);
     return (
       '<div class="dep-row ' + t.type + '">' +
@@ -622,6 +642,27 @@ function renderDepartures(trains) {
       '</div>'
     );
   }).join('');
+
+  if (depData.length > 4 && !depExpanded) {
+    list.classList.add('collapsed');
+    if (!moreBtn) {
+      var btn = document.createElement('div');
+      btn.id = 'dep-more-btn';
+      btn.className = 'dep-more';
+      btn.textContent = '+ ' + (depData.length - 4) + ' more';
+      btn.onclick = function() {
+        depExpanded = true;
+        list.classList.remove('collapsed');
+        btn.remove();
+      };
+      list.insertAdjacentElement('afterend', btn);
+    } else {
+      moreBtn.textContent = '+ ' + (depData.length - 4) + ' more';
+    }
+  } else {
+    list.classList.remove('collapsed');
+    if (moreBtn && depData.length <= 4) moreBtn.remove();
+  }
 }
 
 // Per-second countdown
