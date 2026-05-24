@@ -186,7 +186,7 @@ body {
 }
 #app { max-width: 960px; margin: 0 auto; }
 
-.page-title { font-size: 16px; font-weight: 800; letter-spacing: 3px; color: #fff; margin-bottom: 20px; }
+.page-title { font-size: 16px; font-weight: 900; letter-spacing: 3px; color: var(--accent); margin-bottom: 20px; }
 
 /* ── search bar (collapsed state) ── */
 .search-bar {
@@ -329,44 +329,43 @@ body {
 /* ── flight card ── */
 .fcard {
   background: var(--card); border: 1px solid var(--border);
-  border-radius: 10px; margin-bottom: 9px; cursor: pointer; overflow: hidden;
+  border-radius: 10px; margin-bottom: 7px; cursor: pointer; overflow: hidden;
   transition: border-color .1s;
 }
 .fcard:active { opacity: .9; }
 .fcard.open   { border-color: #3a3a3a; }
-.fcard-face   { padding: 14px; }
+.fcard-face   { padding: 10px 12px 8px; }
 
-/* top row: logo + price */
-.fc-top {
-  display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px;
+/* 3-col grid: [badge+logo] [route+meta] [price+lowest] */
+.fc-row-main {
+  display: grid;
+  grid-template-columns: 58px 1fr auto;
+  gap: 10px; align-items: center;
 }
-.fc-logo-wrap { flex-shrink: 0; display: flex; align-items: center; }
-.fc-logo      { height: 30px; max-width: 90px; object-fit: contain; object-position: left; display: block; }
-.fc-al-text   { font-size: 13px; font-weight: 700; color: var(--dim); }
-.fc-spacer    { flex: 1; }
-.fc-price-col { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
-.fc-price     { font-size: 24px; font-weight: 800; color: #ffffff; white-space: nowrap; }
-.fc-badges    { display: flex; gap: 5px; justify-content: flex-end; flex-wrap: wrap; }
-.fc-lowest    { font-size: 9px; font-weight: 800; letter-spacing: .8px; color: #000; background: var(--accent); padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+.fc-col-left {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+}
+.fc-logo-wrap { display: flex; align-items: center; }
+.fc-logo      { height: 22px; max-width: 58px; object-fit: contain; object-position: left; display: block; }
+.fc-al-text   { font-size: 11px; font-weight: 700; color: var(--dim); }
 
-/* endpoints: stacked airport + time */
-.fc-endpoints {
-  display: grid; grid-template-columns: 1fr auto 1fr;
-  align-items: center; gap: 8px; margin-bottom: 10px;
-}
-.fc-ep-dep { }
-.fc-ep-arr { text-align: right; }
-.fc-ep-code { font-size: 22px; font-weight: 800; color: #fff; display: block; }
-.fc-ep-time { font-size: 14px; font-weight: 500; color: #bbb; display: block; margin-top: 2px; }
-.fc-ep-arrow { text-align: center; color: #444; font-size: 20px; line-height: 1; }
+.fc-col-center { min-width: 0; }
+.fc-route-row  { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.fc-ep         { display: flex; flex-direction: column; gap: 1px; }
+.fc-ep-code    { font-size: 20px; font-weight: 800; color: #fff; line-height: 1; }
+.fc-ep-time    { font-size: 12px; font-weight: 500; color: #bbb; }
+.fc-ep-arrow   { color: #444; font-size: 15px; flex-shrink: 0; }
 
-/* meta line: nonstop badge / stops / duration / aircraft */
-.fc-meta { font-size: 12px; color: var(--dim); line-height: 1.6; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.fc-nonstop {
-  font-size: 9px; font-weight: 800; letter-spacing: .8px;
-  color: var(--green); background: #052e16; padding: 2px 6px; border-radius: 4px;
-}
-.fc-sep { color: #444; }
+.fc-col-right  { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
+.fc-price      { font-size: 22px; font-weight: 800; color: #fff; white-space: nowrap; }
+
+/* badges */
+.fc-nonstop { font-size: 9px; font-weight: 800; letter-spacing: .8px; color: var(--accent-fg); background: var(--accent); padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+.fc-lowest  { font-size: 9px; font-weight: 800; letter-spacing: .8px; color: #4ade80; background: #052e16; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+
+/* meta: via / duration / aircraft */
+.fc-meta { font-size: 11px; color: var(--dim); line-height: 1.5; }
+.fc-via  { color: var(--accent); font-weight: 600; }
 
 /* expanded detail */
 .fcard-detail { display: none; border-top: 1px solid #1e1e1e; padding: 10px 14px 12px; background: #111; }
@@ -660,24 +659,19 @@ function renderCard(f, isLowest) {
     ? '<img class="fc-logo" src="'+esc(f.logo)+'" alt="'+esc(f.airline)+'" loading="lazy">'
     : '<span class="fc-al-text">'+esc(f.airline)+'</span>';
 
-  var badges = '';
-  if (isLowest) badges += '<span class="fc-lowest">LOWEST</span>';
-
-  // meta line
+  // meta: stops · duration · aircraft
   var metaParts = [];
-  if (f.nonstop) {
-    metaParts.push('<span class="fc-nonstop">NONSTOP</span>');
-  } else if (f.stops && f.stops.length === 1) {
-    metaParts.push('<span class="fc-sep">Via '+esc(f.stops[0].id)+'</span>');
-    metaParts.push('<span>'+esc(f.stops[0].dur)+'</span>');
-  } else if (f.stops && f.stops.length > 1) {
-    var vias = f.stops.map(function(s){return esc(s.id);}).join(', ');
-    metaParts.push('<span class="fc-sep">Via '+vias+'</span>');
-    var lvs = f.stops.map(function(s){return esc(s.id)+': '+esc(s.dur);}).join(' \xb7 ');
-    metaParts.push('<span>'+lvs+'</span>');
+  if (!f.nonstop) {
+    if (f.stops && f.stops.length === 1) {
+      metaParts.push('<span class="fc-via">Via '+esc(f.stops[0].id)+'</span> '+esc(f.stops[0].dur));
+    } else if (f.stops && f.stops.length > 1) {
+      var vias = f.stops.map(function(s){return esc(s.id);}).join(', ');
+      var lvs  = f.stops.map(function(s){return esc(s.id)+': '+esc(s.dur);}).join(' \xb7 ');
+      metaParts.push('<span class="fc-via">Via '+vias+'</span> \xb7 '+lvs);
+    }
   }
-  if (f.duration) metaParts.push('<span>'+esc(f.duration)+'</span>');
-  if (f.aircraft && f.aircraft.length) metaParts.push('<span>'+f.aircraft.map(esc).join(' / ')+'</span>');
+  if (f.duration) metaParts.push(esc(f.duration));
+  if (f.aircraft && f.aircraft.length) metaParts.push(f.aircraft.map(esc).join(' / '));
 
   // expanded detail
   var detailHtml = '';
@@ -700,26 +694,30 @@ function renderCard(f, isLowest) {
   return (
     '<div class="fcard">' +
       '<div class="fcard-face">' +
-        '<div class="fc-top">' +
-          '<div class="fc-logo-wrap">'+logoHtml+'</div>' +
-          '<div class="fc-spacer"></div>' +
-          '<div class="fc-price-col">' +
+        '<div class="fc-row-main">' +
+          '<div class="fc-col-left">' +
+            (f.nonstop ? '<span class="fc-nonstop">NONSTOP</span>' : '') +
+            '<div class="fc-logo-wrap">'+logoHtml+'</div>' +
+          '</div>' +
+          '<div class="fc-col-center">' +
+            '<div class="fc-route-row">' +
+              '<div class="fc-ep">' +
+                '<span class="fc-ep-code">'+esc(f.dep)+'</span>' +
+                '<span class="fc-ep-time">'+esc(f.depTime)+'</span>' +
+              '</div>' +
+              '<span class="fc-ep-arrow">→</span>' +
+              '<div class="fc-ep">' +
+                '<span class="fc-ep-code">'+esc(f.arr)+'</span>' +
+                '<span class="fc-ep-time">'+esc(f.arrTime)+'</span>' +
+              '</div>' +
+            '</div>' +
+            (metaParts.length ? '<div class="fc-meta">'+metaParts.join(' \xb7 ')+'</div>' : '') +
+          '</div>' +
+          '<div class="fc-col-right">' +
             '<span class="fc-price">$'+f.price+'</span>' +
-            (badges ? '<div class="fc-badges">'+badges+'</div>' : '') +
+            (isLowest ? '<span class="fc-lowest">LOWEST</span>' : '') +
           '</div>' +
         '</div>' +
-        '<div class="fc-endpoints">' +
-          '<div class="fc-ep-dep">' +
-            '<span class="fc-ep-code">'+esc(f.dep)+'</span>' +
-            '<span class="fc-ep-time">'+esc(f.depTime)+'</span>' +
-          '</div>' +
-          '<div class="fc-ep-arrow">→</div>' +
-          '<div class="fc-ep-arr">' +
-            '<span class="fc-ep-code">'+esc(f.arr)+'</span>' +
-            '<span class="fc-ep-time">'+esc(f.arrTime)+'</span>' +
-          '</div>' +
-        '</div>' +
-        '<div class="fc-meta">'+metaParts.join('<span class="fc-sep"> \xb7 </span>')+'</div>' +
       '</div>' +
       '<div class="fcard-detail">'+detailHtml+'</div>' +
     '</div>'
