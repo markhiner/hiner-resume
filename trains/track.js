@@ -393,42 +393,50 @@ body {
 .train-row.empire     { border-left-color: var(--empire); }
 .train-row.longdistance { border-left-color: var(--longdist); }
 
-.tr-top { display: flex; align-items: baseline; gap: 0; }
+.tr-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .tr-num {
   font-size: 22px;
   font-weight: 800;
   color: var(--text1);
   line-height: 1;
-  min-width: 58px;
+  min-width: 48px;
   flex-shrink: 0;
 }
-.tr-dest {
+.tr-mid {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tr-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tr-route {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text1);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+.tr-arrow { color: var(--text3); font-size: 11px; flex-shrink: 0; }
+.tr-dest {
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   color: #cccccc;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 0 8px;
-  padding-top: 4px;
-}
-.tr-dest::before { content: "\\2192\\00a0"; color: var(--text3); font-size: 12px; }
-.tr-arr {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text2);
-  white-space: nowrap;
-  flex-shrink: 0;
-  padding-top: 4px;
-}
-.tr-arr span { color: var(--text3); font-weight: 400; font-size: 11px; margin-right: 3px; }
-
-.tr-bot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-left: 58px;
 }
 .tr-meta {
   font-size: 11px;
@@ -437,7 +445,19 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tr-meta .sep { margin: 0 5px; opacity: 0.4; }
+.tr-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.tr-speed {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text2);
+  white-space: nowrap;
+}
+.tr-speed.fast { color: #fbbf24; }
 
 /* ── Empty state ── */
 .empty {
@@ -499,10 +519,10 @@ body {
     <div class="sec-hdr dep-hdr">Departing New York Penn</div>
     <div class="dep-list" id="departures"><div class="empty">Loading&hellip;</div></div>
 
-    <div class="sec-hdr">&#x2193; Southbound &amp; Westbound</div>
+    <div class="sec-hdr">&#x2193; Southbound</div>
     <div class="active-list" id="southbound"><div class="empty">Loading&hellip;</div></div>
 
-    <div class="sec-hdr">&#x2191; Northbound &amp; Eastbound</div>
+    <div class="sec-hdr">&#x2191; Northbound</div>
     <div class="active-list" id="northbound"><div class="empty">Loading&hellip;</div></div>
   </div>
 </div>
@@ -617,23 +637,27 @@ setInterval(function() {
 
 // ── Active train cards ──
 function renderCard(t) {
-  var meta = '';
-  if (t.velocity > 0) meta += t.velocity + ' mph';
-  if (t.distToNext != null && t.nextStop) {
-    if (meta) meta += '<span class="sep">&middot;</span>';
-    meta += t.distToNext.toFixed(1) + ' mi to ' + esc(t.nextStop.name);
-  }
-  var arrText = t.finalArr ? '<span>arr</span>' + esc(t.finalArr) : '';
+  var speedCls = t.velocity > 100 ? ' fast' : '';
+  var speedTxt = t.velocity > 0 ? t.velocity + ' mph' : '';
+  var subMeta = t.distToNext != null && t.nextStop
+    ? t.distToNext.toFixed(1) + ' mi to ' + esc(t.nextStop.name)
+    : '';
   return (
     '<div class="train-row ' + t.type + '">' +
       '<div class="tr-top">' +
         '<span class="tr-num">' + esc(t.trainNum) + '</span>' +
-        '<span class="tr-dest">' + esc(t.destName) + '</span>' +
-        '<span class="tr-arr">' + arrText + '</span>' +
-      '</div>' +
-      '<div class="tr-bot">' +
-        '<span class="tr-meta">' + esc(t.routeName) + (meta ? '<span class="sep">&middot;</span>' + meta : '') + '</span>' +
-        '<span class="badge ' + t.status.class + '">' + esc(t.status.label) + '</span>' +
+        '<div class="tr-mid">' +
+          '<div class="tr-head">' +
+            '<span class="tr-route">' + esc(t.routeName) + '</span>' +
+            '<span class="tr-arrow">&#x25BA;</span>' +
+            '<span class="tr-dest">' + esc(t.destName) + '</span>' +
+          '</div>' +
+          (subMeta ? '<div class="tr-meta">' + subMeta + '</div>' : '') +
+        '</div>' +
+        '<div class="tr-right">' +
+          (speedTxt ? '<span class="tr-speed' + speedCls + '">' + speedTxt + '</span>' : '') +
+          '<span class="badge ' + t.status.class + '">' + esc(t.status.label) + '</span>' +
+        '</div>' +
       '</div>' +
     '</div>'
   );
