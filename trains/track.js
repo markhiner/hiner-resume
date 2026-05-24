@@ -276,7 +276,7 @@ body {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 2.5px;
-  color: var(--text3);
+  color: #777777;
   text-transform: uppercase;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -529,7 +529,7 @@ body {
       <span class="legend-item"><span class="dot longdistance"></span>Long Distance</span>
     </div>
 
-    <div class="sec-hdr dep-hdr">Departing New York Penn</div>
+    <div class="sec-hdr dep-hdr">New York Departures</div>
     <div class="dep-list" id="departures"><div class="empty">Loading&hellip;</div></div>
 
     <div class="sec-hdr">&#x2193; Southbound</div>
