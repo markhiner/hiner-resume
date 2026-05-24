@@ -794,14 +794,18 @@ function setLive(ok) {
 // ── Main refresh ──
 var stationsCache = null;
 async function refresh() {
+  var ctrl = new AbortController();
+  var timer = setTimeout(function() { ctrl.abort(); }, 12000);
   try {
+    var sig = { signal: ctrl.signal };
     var fetchStations = stationsCache
       ? Promise.resolve(stationsCache)
-      : fetch('https://api-v3.amtraker.com/v3/stations').then(function(r){ return r.json(); });
+      : fetch('https://api-v3.amtraker.com/v3/stations', sig).then(function(r){ return r.json(); });
     var results = await Promise.all([
-      fetch('https://api-v3.amtraker.com/v3/trains').then(function(r){ return r.json(); }),
+      fetch('https://api-v3.amtraker.com/v3/trains', sig).then(function(r){ return r.json(); }),
       fetchStations
     ]);
+    clearTimeout(timer);
     var trains = processTrains(results[0], results[1]);
     stationsCache = results[1];
     allTrains = trains;
@@ -834,7 +838,9 @@ async function refresh() {
     setLive(true);
 
   } catch(e) {
-    document.getElementById('updated').textContent = 'Error: ' + e.message;
+    clearTimeout(timer);
+    document.getElementById('updated').textContent =
+      e.name === 'AbortError' ? 'Error: API timed out after 12s' : 'Error: ' + e.message;
     setLive(false);
   }
 }
