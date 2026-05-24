@@ -296,7 +296,7 @@ body {
   gap: 12px;
 }
 .dep-row:last-child { border-bottom: none; }
-.dep-row.acela      { border-left-color: var(--acela); }
+.dep-row.acela      { border-left-color: var(--acela); background: rgba(45,212,191,0.06); }
 .dep-row.regional   { border-left-color: var(--regional); }
 .dep-row.keystone   { border-left-color: var(--keystone); }
 .dep-row.empire     { border-left-color: var(--empire); }
@@ -400,7 +400,7 @@ body {
   gap: 5px;
 }
 .train-row:last-child { border-bottom: none; }
-.train-row.acela      { border-left-color: var(--acela); }
+.train-row.acela      { border-left-color: var(--acela); background: rgba(45,212,191,0.06); }
 .train-row.regional   { border-left-color: var(--regional); }
 .train-row.keystone   { border-left-color: var(--keystone); }
 .train-row.empire     { border-left-color: var(--empire); }
@@ -676,6 +676,10 @@ setInterval(function() {
   });
 }, 1000);
 
+function abbrevRoute(name) {
+  return name === 'Northeast Regional' ? 'NE Regional' : name;
+}
+
 // ── Active train cards ──
 function renderCard(t) {
   var speedCls = t.velocity > 100 ? ' fast' : '';
@@ -689,7 +693,7 @@ function renderCard(t) {
         '<span class="tr-num">' + esc(t.trainNum) + '</span>' +
         '<div class="tr-mid">' +
           '<div class="tr-head">' +
-            '<span class="tr-route">' + esc(t.routeName) + '</span>' +
+            '<span class="tr-route">' + esc(abbrevRoute(t.routeName)) + '</span>' +
             '<span class="tr-arrow">&#x25BA;</span>' +
             '<span class="tr-dest">' + esc(t.destName) + '</span>' +
           '</div>' +
