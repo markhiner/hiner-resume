@@ -1,0 +1,29 @@
+# Cloudflare Tunnel config for flights.hiner.nyc
+#
+# OPTION A — Add to your EXISTING tunnel (recommended if you already have amtrak.hiner.nyc)
+# Edit ~/.cloudflared/config.yml and add this ingress rule BEFORE the catch-all:
+#
+#   - hostname: flights.hiner.nyc
+#     service: http://localhost:3001
+#
+# Then add a CNAME in Cloudflare DNS:
+#   flights.hiner.nyc  →  <your-tunnel-id>.cfargotunnel.com
+#
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# OPTION B — Standalone tunnel just for flights
+# 1. Create the tunnel:       cloudflared tunnel create flights-hiner
+# 2. Copy the tunnel ID from the output and fill in below.
+# 3. Add DNS CNAME:           cloudflared tunnel route dns flights-hiner flights.hiner.nyc
+# 4. Copy this file to:       ~/.cloudflared/flights-config.yml
+# 5. Run:                     cloudflared tunnel --config ~/.cloudflared/flights-config.yml run
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+tunnel: YOUR_TUNNEL_ID
+credentials-file: /home/YOUR_USER/.cloudflared/YOUR_TUNNEL_ID.json
+
+ingress:
+  - hostname: flights.hiner.nyc
+    service: http://localhost:3001
+  - service: http_status:404

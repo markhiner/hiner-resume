@@ -1,0 +1,12 @@
+{
+  "name": "flights-hiner",
+  "version": "1.0.0",
+  "description": "Flight search UI served via Cloudflare Tunnel at flights.hiner.nyc",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
