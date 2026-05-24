@@ -213,7 +213,7 @@ const htmlPage = `<!DOCTYPE html>
   --acela:    #2dd4bf;
   --regional: #3b82f6;
   --keystone: #eab308;
-  --empire:   #4a8c4a;
+  --empire:   #22c55e;
   --longdist: #ef4444;
 }
 
