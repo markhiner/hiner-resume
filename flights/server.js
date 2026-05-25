@@ -353,7 +353,7 @@ body {
 .fc-route-row  { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .fc-ep         { display: flex; flex-direction: column; gap: 1px; }
 .fc-ep-code    { font-size: 20px; font-weight: 800; color: #fff; line-height: 1; }
-.fc-ep-time    { font-size: 12px; font-weight: 500; color: #bbb; }
+.fc-ep-time    { font-size: 12px; font-weight: 700; color: #ccc; }
 .fc-ep-arrow   { color: #444; font-size: 15px; flex-shrink: 0; }
 
 .fc-col-right  { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; flex-shrink: 0; }
