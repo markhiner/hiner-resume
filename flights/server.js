@@ -466,9 +466,9 @@ body {
   <!-- sort + highlights (shown with results) -->
   <div class="sort-bar" id="sort-bar">
     <span class="sort-label">Sort</span>
-    <button class="sort-btn active" data-sort="price">Lowest Price</button>
-    <button class="sort-btn" data-sort="arrival">Earliest Arrival</button>
-    <button class="sort-btn" data-sort="departure">Latest Departure</button>
+    <button class="sort-btn active" data-sort="price">Price</button>
+    <button class="sort-btn" data-sort="arrival">Early</button>
+    <button class="sort-btn" data-sort="departure">Late</button>
   </div>
 
   <div class="highlights-box" id="highlights-box">
