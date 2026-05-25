@@ -339,15 +339,15 @@ body {
 /* 3-col grid: [badge+logo] [route+meta] [price+lowest] */
 .fc-row-main {
   display: grid;
-  grid-template-columns: 58px 1fr auto;
+  grid-template-columns: 84px 1fr auto;
   gap: 10px; align-items: center;
 }
 .fc-col-left {
   display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
 }
 .fc-logo-wrap { display: flex; align-items: center; }
-.fc-logo      { height: 22px; max-width: 58px; object-fit: contain; object-position: left; display: block; }
-.fc-al-text   { font-size: 11px; font-weight: 700; color: var(--dim); }
+.fc-logo      { height: 40px; max-width: 80px; object-fit: contain; object-position: left; display: block; }
+.fc-al-text   { font-size: 12px; font-weight: 700; color: var(--dim); }
 
 .fc-col-center { min-width: 0; }
 .fc-route-row  { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
