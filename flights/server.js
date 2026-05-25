@@ -663,11 +663,11 @@ function renderCard(f, isLowest) {
   var metaParts = [];
   if (!f.nonstop) {
     if (f.stops && f.stops.length === 1) {
-      metaParts.push('<span class="fc-via">Via '+esc(f.stops[0].id)+'</span> '+esc(f.stops[0].dur));
+      metaParts.push('<span class="fc-via">via '+esc(f.stops[0].id)+'</span> '+esc(f.stops[0].dur));
     } else if (f.stops && f.stops.length > 1) {
       var vias = f.stops.map(function(s){return esc(s.id);}).join(', ');
       var lvs  = f.stops.map(function(s){return esc(s.id)+': '+esc(s.dur);}).join(' \xb7 ');
-      metaParts.push('<span class="fc-via">Via '+vias+'</span> \xb7 '+lvs);
+      metaParts.push('<span class="fc-via">via '+vias+'</span> \xb7 '+lvs);
     }
   }
   if (f.duration) metaParts.push(esc(f.duration));
