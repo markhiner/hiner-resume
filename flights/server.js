@@ -97,6 +97,8 @@ function shortAircraft(name) {
   s = s.replace(/\bRJ(\d*)/g, 'CRJ$1');
   // Safety: collapse any accidental CCRJ
   s = s.replace(/CCRJ/g, 'CRJ');
+  // Normalize CRJ: always "CRJ NNN" with a space and no dash
+  s = s.replace(/CRJ[\s-]*(\d)/g, 'CRJ $1');
   return s.replace(/\s+/g, ' ').trim();
 }
 
