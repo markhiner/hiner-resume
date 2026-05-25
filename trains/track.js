@@ -409,6 +409,18 @@ body {
   border-left: 3px solid transparent;
   border-bottom: 1px solid var(--border);
   gap: 5px;
+  cursor: pointer;
+}
+.tr-map {
+  height: 0;
+  overflow: hidden;
+  border-radius: 4px;
+  margin: 0 -18px 0 -14px;
+  transition: height 0.2s ease, margin-top 0.2s ease;
+}
+.train-row.expanded .tr-map {
+  height: 160px;
+  margin-top: 8px;
 }
 .train-row:last-child { border-bottom: none; }
 .train-row.acela      { border-left-color: var(--acela); background: rgba(45,212,191,0.11); }
@@ -567,6 +579,38 @@ NEC_STATIONS.forEach(function(s){
 });
 var trainLayer = L.layerGroup().addTo(map);
 var HEADING = { N:0, NE:45, E:90, SE:135, S:180, SW:225, W:270, NW:315 };
+var trainIndex = {};
+var expandedCards = {};
+var miniMaps = {};
+
+function initMiniMap(trainNum) {
+  var t = trainIndex[trainNum];
+  if (!t || t.lat == null || t.lon == null) return;
+  var mapDiv = document.getElementById('tr-map-' + trainNum);
+  if (!mapDiv || miniMaps[trainNum]) return;
+  var m = L.map(mapDiv, { zoomControl: false, attributionControl: false });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 18, subdomains: 'abcd'
+  }).addTo(m);
+  m.setView([t.lat, t.lon], 10);
+  L.marker([t.lat, t.lon], { icon: trainIcon(t) }).addTo(m);
+  miniMaps[trainNum] = m;
+}
+
+function toggleTrainCard(e, trainNum) {
+  if (e.target.closest && e.target.closest('.tr-map')) return;
+  var card = document.getElementById('tr-' + trainNum);
+  if (!card) return;
+  if (expandedCards[trainNum]) {
+    delete expandedCards[trainNum];
+    card.classList.remove('expanded');
+    if (miniMaps[trainNum]) { miniMaps[trainNum].remove(); delete miniMaps[trainNum]; }
+  } else {
+    expandedCards[trainNum] = true;
+    card.classList.add('expanded');
+    setTimeout(function() { initMiniMap(trainNum); }, 50);
+  }
+}
 
 function typeColor(t) {
   return { acela:'#2dd4bf', regional:'#3b82f6', keystone:'#eab308', empire:'#4a8c4a', longdistance:'#ef4444' }[t] || '#ef4444';
@@ -701,10 +745,11 @@ function renderCard(t) {
   var subMeta = t.distToNext != null && t.nextStop
     ? t.distToNext.toFixed(1) + ' mi to ' + esc(t.nextStop.name)
     : '';
+  var num = esc(t.trainNum);
   return (
-    '<div class="train-row ' + t.type + '">' +
+    '<div class="train-row ' + t.type + '" id="tr-' + num + '" onclick="toggleTrainCard(event,\'' + num + '\')">' +
       '<div class="tr-top">' +
-        '<span class="tr-num">' + esc(t.trainNum) + '</span>' +
+        '<span class="tr-num">' + num + '</span>' +
         '<div class="tr-mid">' +
           '<div class="tr-head">' +
             '<span class="tr-route">' + esc(abbrevRoute(t.routeName)) + '</span>' +
@@ -718,6 +763,7 @@ function renderCard(t) {
           '<span class="badge ' + t.status.class + '">' + esc(t.status.label) + '</span>' +
         '</div>' +
       '</div>' +
+      '<div class="tr-map" id="tr-map-' + num + '"></div>' +
     '</div>'
   );
 }
@@ -732,6 +778,9 @@ async function refresh() {
   try {
     var res = await fetch('/api/trains');
     var trains = await res.json();
+
+    trainIndex = {};
+    trains.forEach(function(t) { trainIndex[t.trainNum] = t; });
 
     trainLayer.clearLayers();
     trains.forEach(function(t) {
@@ -758,6 +807,18 @@ async function refresh() {
       south.length ? south.map(renderCard).join('') : '<div class="empty">No trains en route.</div>';
     document.getElementById('northbound').innerHTML =
       north.length ? north.map(renderCard).join('') : '<div class="empty">No trains en route.</div>';
+
+    Object.keys(miniMaps).forEach(function(num) { try { miniMaps[num].remove(); } catch(e){} });
+    miniMaps = {};
+    Object.keys(expandedCards).forEach(function(num) {
+      var card = document.getElementById('tr-' + num);
+      if (card) {
+        card.classList.add('expanded');
+        (function(n){ setTimeout(function(){ initMiniMap(n); }, 50); })(num);
+      } else {
+        delete expandedCards[num];
+      }
+    });
 
     document.getElementById('train-count').textContent = trains.length;
     document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
