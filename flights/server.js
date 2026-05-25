@@ -78,7 +78,23 @@ function fmtLayover(mins) {
 }
 function shortAircraft(name) {
   if (!name) return '';
-  return name.replace(/^(boeing|airbus|embraer|bombardier|mcdonnell\s*douglas|canadair|atr)\s*/i, '').trim();
+  var s = name;
+  // Remove manufacturer prefix
+  s = s.replace(/^(boeing|airbus|embraer|bombardier|mcdonnell\s*douglas|canadair|atr)\s*/i, '');
+  // Remove "Passenger" and "Sharklets"
+  s = s.replace(/\s*\bpassenger\b\s*/gi, ' ');
+  s = s.replace(/\s*\bsharklets?\b\s*/gi, ' ');
+  // 737MAX X → 737-X00  (e.g. MAX 8 → 737-800, MAX 10 → 737-1000)
+  s = s.replace(/737\s*max\s*(\d+)/i, function(_, n) { return '737-' + parseInt(n, 10) + '00'; });
+  // Contains 550 → CRJ 550
+  if (/550/.test(s)) return 'CRJ 550';
+  // Standalone 170 or 175 → E170 / E175
+  s = s.replace(/\b(170|175)\b/, 'E$1');
+  // RJ prefix → CRJ (skips existing CRJ via word-boundary — C is a word char so \bRJ won't fire inside CRJ)
+  s = s.replace(/\bRJ(\d*)/g, 'CRJ$1');
+  // Safety: collapse any accidental CCRJ
+  s = s.replace(/CCRJ/g, 'CRJ');
+  return s.replace(/\s+/g, ' ').trim();
 }
 
 // ── parse flights ────────────────────────────────────────────
