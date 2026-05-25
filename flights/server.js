@@ -76,6 +76,9 @@ function fmtLayover(mins) {
   if (m === 0) return h + ' hr';
   return h + ' hr, ' + m + ' min';
 }
+const WIDEBODY_RE = /747|767|777|787|330|350|380/;
+function isWidebody(ac) { return WIDEBODY_RE.test(ac); }
+
 function shortAircraft(name) {
   if (!name) return '';
   var s = name;
@@ -126,6 +129,7 @@ function parseFlights(data, cabin) {
         nonstop:  legs.length === 1,
         stops: layovers.map(lv => ({ id: lv.id || '', dur: fmtLayover(lv.duration) })),
         aircraft: legs.map(l => shortAircraft(l.airplane || '')).filter(Boolean),
+        widebodyTypes: [...new Set(legs.map(l => shortAircraft(l.airplane || '')).filter(isWidebody))],
         legs: legs.map((leg, i) => ({
           dep:       leg.departure_airport?.id || '?',
           depT:      fmtTime(leg.departure_airport?.time),
@@ -313,6 +317,7 @@ body {
 .hl-stat { display: flex; flex-direction: column; gap: 2px; }
 .hl-label { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
 .hl-value { font-size: 18px; font-weight: 800; color: #fff; }
+.hl-widebody { font-size: 11px; font-weight: 700; color: var(--accent); margin-top: 10px; letter-spacing: .3px; }
 
 /* sort bar */
 .sort-bar {
@@ -489,6 +494,7 @@ body {
 
   <div class="highlights-box" id="highlights-box">
     <div class="hl-grid" id="hl-grid"></div>
+    <div class="hl-widebody" id="hl-widebody" style="display:none"></div>
   </div>
 
   <div id="results"></div>
@@ -534,6 +540,7 @@ function esc(s) {
   });
 }
 function expandCount(c) { return c==='NYC'?3:c==='HOME'?2:1; }
+function isWidebody(ac) { return /747|767|777|787|330|350|380/.test(ac); }
 
 function dateSummary() {
   var val = document.getElementById('date-input').value;
@@ -666,6 +673,20 @@ function buildHighlights(econ, first) {
            '<span class="hl-value">'+esc(s.value)+'</span></div>';
   }).join('');
 
+  // Widebody flag
+  var wideMap = {};
+  econ.concat(first).forEach(function(f) {
+    (f.widebodyTypes || []).forEach(function(t) { wideMap[t] = true; });
+  });
+  var wideTypes = Object.keys(wideMap).sort();
+  var wideEl = document.getElementById('hl-widebody');
+  if (wideTypes.length) {
+    wideEl.textContent = 'WIDEBODY AVAILABLE \xb7 ' + wideTypes.join(', ');
+    wideEl.style.display = 'block';
+  } else {
+    wideEl.style.display = 'none';
+  }
+
   document.getElementById('highlights-box').style.display = stats.length ? 'block' : 'none';
 }
 
@@ -687,7 +708,13 @@ function renderCard(f, isLowest) {
     }
   }
   if (f.duration) metaParts.push(esc(f.duration));
-  if (f.aircraft && f.aircraft.length) metaParts.push(f.aircraft.map(esc).join(' / '));
+  if (f.aircraft && f.aircraft.length) {
+    metaParts.push(f.aircraft.map(function(ac) {
+      return isWidebody(ac)
+        ? '<span style="color:var(--accent);font-weight:700">'+esc(ac)+'</span>'
+        : esc(ac);
+    }).join(' / '));
+  }
 
   // expanded detail
   var detailHtml = '';
