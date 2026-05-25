@@ -696,7 +696,6 @@ function renderCard(f, isLowest) {
       '<div class="fcard-face">' +
         '<div class="fc-row-main">' +
           '<div class="fc-col-left">' +
-            (f.nonstop ? '<span class="fc-nonstop">NONSTOP</span>' : '') +
             '<div class="fc-logo-wrap">'+logoHtml+'</div>' +
           '</div>' +
           '<div class="fc-col-center">' +
