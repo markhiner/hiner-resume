@@ -689,7 +689,7 @@ function renderDepartures(trains) {
         '</div>' +
         '<div class="dep-mid">' +
           '<span class="dep-dest">' + esc(t.destName) + '</span>' +
-          '<span class="dep-route">' + esc(t.routeName) + '</span>' +
+          '<span class="dep-route">' + esc(t.routeName) + ' <span style="opacity:0.55">#' + esc(t.trainNum) + '</span></span>' +
         '</div>' +
         '<div class="dep-right">' +
           '<span class="dep-countdown ' + b.cls + '" id="db-' + esc(t.trainNum) + '">' + b.label + '</span>' +
