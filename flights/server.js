@@ -86,7 +86,7 @@ function shortAircraft(name) {
   s = s.replace(/^(boeing|airbus|embraer|bombardier|mcdonnell\s*douglas|canadair|atr)\s*/i, '');
   // Remove "Passenger" and "Sharklets"
   s = s.replace(/\s*\bpassenger\b\s*/gi, ' ');
-  s = s.replace(/\s*\bsharklets?\b\s*/gi, ' ');
+  s = s.replace(/\s*\bsharklets?\b\s*/gi, ' Transcon ');
   // 737MAX X → 737-X00  (e.g. MAX 8 → 737-800, MAX 10 → 737-1000)
   s = s.replace(/737\s*max\s*(\d+)/i, function(_, n) { return '737-' + parseInt(n, 10) + '00'; });
   // Contains 550 → CRJ 550
