@@ -529,12 +529,18 @@ var currentSort = 'price';
 function todayStr()   { return new Date().toISOString().slice(0, 10); }
 function tmrwStr()    { var d = new Date(); d.setDate(d.getDate()+1); return d.toISOString().slice(0, 10); }
 
+var DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+function dayName(val) {
+  var p = val.split('-');
+  return DAY_NAMES[new Date(+p[0], +p[1]-1, +p[2]).getDay()];
+}
 function updateDateLabel() {
   var val   = document.getElementById('date-input').value;
   var label = document.getElementById('date-label');
-  if      (val === todayStr()) label.textContent = 'Today';
+  if      (!val)               label.textContent = '';
+  else if (val === todayStr()) label.textContent = 'Today';
   else if (val === tmrwStr())  label.textContent = 'Tomorrow';
-  else                         label.textContent = '';
+  else                         label.textContent = dayName(val);
 }
 
 (function initDate() {
@@ -565,7 +571,7 @@ function dateSummary() {
   var val = document.getElementById('date-input').value;
   if (val === todayStr()) return 'Today';
   if (val === tmrwStr())  return 'Tomorrow';
-  return val;
+  return val ? dayName(val) : val;
 }
 
 // ── airport selection ──────────────────────────────────────────
