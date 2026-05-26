@@ -132,18 +132,27 @@ function parseFlights(data, cabin) {
         stops: layovers.map(lv => ({ id: lv.id || '', dur: fmtLayover(lv.duration) })),
         aircraft: legs.map(l => shortAircraft(l.airplane || '')).filter(Boolean),
         widebodyTypes: [...new Set(legs.map(l => shortAircraft(l.airplane || '')).filter(isWidebody))],
-        legs: legs.map((leg, i) => ({
-          dep:       leg.departure_airport?.id || '?',
-          depT:      fmtTime(leg.departure_airport?.time),
-          arr:       leg.arrival_airport?.id  || '?',
-          arrT:      fmtTime(leg.arrival_airport?.time),
-          fn:        leg.flight_number || '',
-          ac:        shortAircraft(leg.airplane || ''),
-          al:        leg.airline || '',
-          dur:       fmtDur(leg.duration),
-          layover:   layovers[i] ? fmtLayover(layovers[i].duration) : null,
-          layoverId: layovers[i]?.id || null,
-        })),
+        legs: legs.map((leg, i) => {
+          const rawFn  = leg.flight_number || '';
+          const rawAl  = leg.airline       || '';
+          const isAA   = /^AA[\s-]?\d/i.test(rawFn) || /american/i.test(rawAl);
+          const aaNum  = rawFn.replace(/^AA[\s-]*/i, '').replace(/\D/g, '');
+          console.log(`    leg fn="${rawFn}" al="${rawAl}" isAA=${isAA} aaNum="${aaNum}"`);
+          return {
+            dep:       leg.departure_airport?.id || '?',
+            depT:      fmtTime(leg.departure_airport?.time),
+            arr:       leg.arrival_airport?.id  || '?',
+            arrT:      fmtTime(leg.arrival_airport?.time),
+            fn:        rawFn,
+            ac:        shortAircraft(leg.airplane || ''),
+            al:        rawAl,
+            dur:       fmtDur(leg.duration),
+            layover:   layovers[i] ? fmtLayover(layovers[i].duration) : null,
+            layoverId: layovers[i]?.id || null,
+            isAA,
+            aaNum,
+          };
+        }),
       });
     }
   }
@@ -701,9 +710,8 @@ function buildHighlights(econ, first) {
 }
 
 // ── AA seatmap URL ─────────────────────────────────────────────
-function aaSeaatmapUrl(fn, date, dep, arr) {
-  var num = fn.replace(/^AA\s*/i, '').trim();
-  if (!num || !/^\d+$/.test(num)) return null;
+function aaSeaatmapUrl(num, date, dep, arr) {
+  if (!num) return null;
   var parts = date.split('-');
   if (parts.length < 3) return null;
   return 'https://www.aa.com/seats/view?' +
@@ -745,8 +753,8 @@ function renderCard(f, isLowest) {
   (f.legs||[]).forEach(function(leg,i){
     var infoParts = [leg.fn, leg.al, leg.ac, leg.dur].filter(Boolean).map(esc).join(' \xb7 ');
     var seatmapHtml = '';
-    if (/^AA\s*\d/i.test(leg.fn) && searchData.date) {
-      var smUrl = aaSeaatmapUrl(leg.fn, searchData.date, leg.dep, leg.arr);
+    if (leg.isAA && leg.aaNum && searchData.date) {
+      var smUrl = aaSeaatmapUrl(leg.aaNum, searchData.date, leg.dep, leg.arr);
       if (smUrl) seatmapHtml = '<a href="'+esc(smUrl)+'" target="_blank" rel="noopener" class="seatmap-link">SEATMAP</a>';
     }
     detailHtml +=
