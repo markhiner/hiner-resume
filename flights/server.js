@@ -395,10 +395,12 @@ body {
 .fcard.open .fcard-detail { display: block; }
 .leg-row { display: flex; gap: 4px; align-items: baseline; font-size: 12px; color: var(--dim); padding: 3px 0; flex-wrap: wrap; }
 .leg-ap  { font-weight: 800; color: #ccc; min-width: 2.4rem; }
-.leg-tm  { color: #666; min-width: 3.6rem; }
+.leg-tm  { color: #aaa; min-width: 3.6rem; }
 .leg-arr { display: contents; }
-.leg-info { font-size: 11px; color: #555; margin-left: auto; }
-.lv-row  { font-size: 11px; color: #92400e; padding: 2px 0 2px 8px; border-left: 2px solid #78350f; margin: 2px 0; }
+.leg-info { font-size: 11px; color: #999; margin-left: auto; }
+.lv-row  { font-size: 11px; padding: 2px 0 2px 8px; border-left: 2px solid #78350f; margin: 2px 0; }
+.lv-loc  { font-weight: 700; color: #d97706; }
+.lv-dur  { font-weight: 600; color: #b45309; }
 
 .empty { color: #2a2a2a; font-style: italic; font-size: 13px; padding: 8px 0; }
 
@@ -726,13 +728,13 @@ function renderCard(f, isLowest) {
       '<div class="leg-row">' +
         '<span class="leg-ap">'+esc(leg.dep)+'</span>' +
         '<span class="leg-tm">'+esc(leg.depT)+'</span>' +
-        '<span style="color:#444">→</span>' +
+        '<span style="color:#666">→</span>' +
         '<span class="leg-ap">'+esc(leg.arr)+'</span>' +
         '<span class="leg-tm">'+esc(leg.arrT)+'</span>' +
         '<span class="leg-info">'+esc(info)+'</span>' +
       '</div>';
     if (leg.layoverId) {
-      detailHtml += '<div class="lv-row">Layover at '+esc(leg.layoverId)+' \xb7 '+esc(leg.layover)+'</div>';
+      detailHtml += '<div class="lv-row"><span class="lv-loc">Layover at '+esc(leg.layoverId)+'</span> \xb7 <span class="lv-dur">'+esc(leg.layover)+'</span></div>';
     }
   });
 
