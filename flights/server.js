@@ -401,6 +401,12 @@ body {
 .lv-row  { font-size: 11px; padding: 2px 0 2px 8px; border-left: 2px solid #78350f; margin: 2px 0; }
 .lv-loc  { font-weight: 700; color: #d97706; }
 .lv-dur  { font-weight: 600; color: #b45309; }
+.seatmap-link {
+  font-size: 9px; font-weight: 800; letter-spacing: .8px;
+  color: #000; background: var(--accent);
+  padding: 2px 6px; border-radius: 4px;
+  text-decoration: none; white-space: nowrap; margin-left: 4px;
+}
 
 .empty { color: #2a2a2a; font-style: italic; font-size: 13px; padding: 8px 0; }
 
@@ -507,7 +513,7 @@ body {
 <script>
 // ── state ──────────────────────────────────────────────────────
 var state = { dep: 'NYC', arr: 'HOME', cabin: 'all' };
-var searchData = { economy: [], firstClass: [] };
+var searchData = { economy: [], firstClass: [], date: '' };
 var currentSort = 'price';
 
 // ── date logic ─────────────────────────────────────────────────
@@ -694,6 +700,20 @@ function buildHighlights(econ, first) {
   document.getElementById('highlights-box').style.display = stats.length ? 'block' : 'none';
 }
 
+// ── AA seatmap URL ─────────────────────────────────────────────
+function aaSeaatmapUrl(fn, date, dep, arr) {
+  var num = fn.replace(/^AA\s*/i, '').trim();
+  if (!num || !/^\d+$/.test(num)) return null;
+  var parts = date.split('-');
+  if (parts.length < 3) return null;
+  return 'https://www.aa.com/seats/view?' +
+    'flightNumber=' + encodeURIComponent(num) +
+    '&departureMonth=' + parseInt(parts[1], 10) +
+    '&departureDay='   + parseInt(parts[2], 10) +
+    '&originAirport='      + encodeURIComponent(dep) +
+    '&destinationAirport=' + encodeURIComponent(arr);
+}
+
 // ── render card ────────────────────────────────────────────────
 function renderCard(f, isLowest) {
   var logoHtml = f.logo
@@ -723,7 +743,12 @@ function renderCard(f, isLowest) {
   // expanded detail
   var detailHtml = '';
   (f.legs||[]).forEach(function(leg,i){
-    var info = [leg.fn, leg.al, leg.ac, leg.dur].filter(Boolean).join(' \xb7 ');
+    var infoParts = [leg.fn, leg.al, leg.ac, leg.dur].filter(Boolean).map(esc).join(' \xb7 ');
+    var seatmapHtml = '';
+    if (/^AA\s*\d/i.test(leg.fn) && searchData.date) {
+      var smUrl = aaSeaatmapUrl(leg.fn, searchData.date, leg.dep, leg.arr);
+      if (smUrl) seatmapHtml = '<a href="'+esc(smUrl)+'" target="_blank" rel="noopener" class="seatmap-link">SEATMAP</a>';
+    }
     detailHtml +=
       '<div class="leg-row">' +
         '<span class="leg-ap">'+esc(leg.dep)+'</span>' +
@@ -731,7 +756,8 @@ function renderCard(f, isLowest) {
         '<span style="color:#666">→</span>' +
         '<span class="leg-ap">'+esc(leg.arr)+'</span>' +
         '<span class="leg-tm">'+esc(leg.arrT)+'</span>' +
-        '<span class="leg-info">'+esc(info)+'</span>' +
+        '<span class="leg-info">'+infoParts+'</span>' +
+        seatmapHtml +
       '</div>';
     if (leg.layoverId) {
       detailHtml += '<div class="lv-row"><span class="lv-loc">Layover at '+esc(leg.layoverId)+'</span> \xb7 <span class="lv-dur">'+esc(leg.layover)+'</span></div>';
@@ -801,6 +827,7 @@ function renderFlightResults(econ, first) {
 
 // event delegation — no re-binding needed after re-renders
 document.getElementById('results').addEventListener('click', function(e) {
+  if (e.target.closest('a')) return;
   var card = e.target.closest('.fcard');
   if (card) card.classList.toggle('open');
 });
@@ -845,7 +872,7 @@ document.getElementById('search-btn').addEventListener('click', function() {
         return;
       }
 
-      searchData = { economy: data.economy||[], firstClass: data.firstClass||[] };
+      searchData = { economy: data.economy||[], firstClass: data.firstClass||[], date: date };
       currentSort = 'price';
       document.querySelectorAll('.sort-btn').forEach(function(b){
         b.classList.toggle('active', b.dataset.sort === 'price');
