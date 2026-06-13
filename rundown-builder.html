@@ -314,6 +314,12 @@ function guestLine(e) {
   return ">"+e.name;
 }
 
+function guestLineNoPrefix(e) {
+  if (e.type==="reporter") return e.location ? e.name+" LIVE FROM "+e.location : e.name+" LIVE";
+  if (e.type==="guest") return e.title ? e.name+", "+e.title : e.name;
+  return e.name;
+}
+
 function blockGuestLabel(b) {
   if (b.isRead) return "reader";
   if (b.isPkg) return "PKG";
@@ -399,17 +405,41 @@ function formatRundown(blocks) {
   ["A","B","C","D"].forEach(letter => {
     const subs=Object.keys(blocks).filter(k=>blocks[k].letter===letter).sort();
     if (!subs.length) return;
-    subs.forEach((key,idx) => {
+    subs.forEach((key) => {
       const b=blocks[key];
-      lines.push(idx===0?letter+":":letter+b.num+" -");
       const body=b.editorial||b.slug;
-      if (b.isRead){lines.push("TELL: "+body);}
-      else if (b.isPkg){lines.push(body);lines.push(">PKG");}
-      else{lines.push(body);b.guests.forEach(g=>lines.push(guestLine(g)));}
+      const header=b.num ? letter+b.num+" - " : letter+": ";
+      if (b.isRead) {
+        lines.push(header+"TELL: "+body);
+        lines.push("");
+      } else if (b.isPkg) {
+        lines.push(header+body);
+        lines.push("");
+        lines.push(">PKG");
+        lines.push("");
+      } else {
+        lines.push(header+body);
+        lines.push("");
+        if (b.guests.length===1) {
+          lines.push(guestLine(b.guests[0]));
+          lines.push("");
+        } else if (b.guests.length>1) {
+          lines.push(guestLine(b.guests[0])+" &");
+          for (let i=1;i<b.guests.length;i++) lines.push(guestLineNoPrefix(b.guests[i]));
+          lines.push("");
+        }
+      }
     });
-    lines.push("");
   });
+  while (lines.length && lines[lines.length-1]==="") lines.pop();
   return lines.join("\n");
+}
+
+function renderOutputHTML(text) {
+  return text.split('\n').map(line => {
+    const esc = escHtml(line);
+    return line.startsWith('>') ? '<em>'+esc+'</em>' : esc;
+  }).join('\n');
 }
 
 // ── ROSTER REFERENCE (for stack page) ────────────────────────────────────────
@@ -507,7 +537,7 @@ function generateRundown() {
   });
   state.blocks=updated;
   state.output=formatRundown(updated);
-  document.getElementById("rundown-output").textContent=state.output;
+  document.getElementById("rundown-output").innerHTML=renderOutputHTML(state.output);
   goToStep(3);
 }
 
@@ -527,7 +557,7 @@ function startFresh() {
   document.getElementById("order-input").value="";
   document.getElementById("roster-preview").innerHTML="";
   document.getElementById("editorial-blocks").innerHTML="";
-  document.getElementById("rundown-output").textContent="";
+  document.getElementById("rundown-output").innerHTML="";
   document.getElementById("save-indicator").textContent="";
   document.getElementById("stack-roster-ref").innerHTML="";
   goToStep(0);
@@ -542,7 +572,7 @@ function restoreUI() {
     ).join("<br>");
   }
   if (Object.keys(state.blocks).length) renderEditorialBlocks();
-  if (state.output) document.getElementById("rundown-output").textContent=state.output;
+  if (state.output) document.getElementById("rundown-output").innerHTML=renderOutputHTML(state.output);
   document.querySelectorAll(".panel").forEach((p,i)=>p.classList.toggle("active",i===state.step));
   document.querySelectorAll(".tab").forEach((t,i)=>t.classList.toggle("active",i===state.step));
   if (state.step===1) renderStackRosterRef();
@@ -669,7 +699,7 @@ function renderArchive() {
         <button class="archive-entry-del" onclick="event.stopPropagation();deleteArchiveEntry(${i})">DELETE</button>
       </div>
       <div class="archive-entry-body" id="arch-body-${i}">
-        <pre>${escHtml(entry.text)}</pre>
+        <pre>${renderOutputHTML(entry.text)}</pre>
         <button class="archive-copy" onclick="navigator.clipboard.writeText(${JSON.stringify(entry.text)})">COPY</button>
       </div>
     </div>`).join("");
