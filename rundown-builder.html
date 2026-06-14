@@ -229,6 +229,39 @@ const CORRECT_PIN = "1234";
 const STORAGE_KEY = "rundown_v1";
 const SESSION_KEY = "rundown_auth";
 
+const KNOWN_REPORTERS = {
+  "MCHUGH": "RICH MCHUGH",
+  "LOO": "NANCY LOO",
+  "SHERMAN": "ROBERT SHERMAN",
+  "KARTALIJA": "JESSICA KARTALIJA",
+  "DEAN": "LIBBEY DEAN",
+  "BRADLEY": "ALI BRADLEY",
+  "ENTIN": "BRIAN ENTIN",
+  "BATYA": "BATYA UNGAR-SARGON",
+  "UNGAR-SARGON": "BATYA UNGAR-SARGON",
+  "UNGAR": "BATYA UNGAR-SARGON",
+  "GERALDO": "GERALDO RIVERA",
+  "RIVERA": "GERALDO RIVERA",
+  "STIREWALT": "CHRIS STIREWALT",
+  "PAVLICH": "KATIE PAVLICH"
+};
+
+const KNOWN_GUESTS_MAP = {
+  "MULVANEY": { name: "MICK MULVANEY", title: "NEWSNATION CONTRIBUTOR & FMR TRUMP CHIEF OF STAFF" },
+  "MICK": { name: "MICK MULVANEY", title: "NEWSNATION CONTRIBUTOR & FMR TRUMP CHIEF OF STAFF" },
+  "MICK MULVANEY": { name: "MICK MULVANEY", title: "NEWSNATION CONTRIBUTOR & FMR TRUMP CHIEF OF STAFF" },
+  "ELIZONDO": { name: "LUE ELIZONDO", title: "FMR PENTAGON UFO INVESTIGATOR" },
+  "LUE": { name: "LUE ELIZONDO", title: "FMR PENTAGON UFO INVESTIGATOR" },
+  "LUE ELIZONDO": { name: "LUE ELIZONDO", title: "FMR PENTAGON UFO INVESTIGATOR" },
+  "CILLIZZA": { name: "CHRIS CILLIZZA", title: "NEWSNATION POLITICAL CONTRIBUTOR" },
+  "CHRIS CILLIZZA": { name: "CHRIS CILLIZZA", title: "NEWSNATION POLITICAL CONTRIBUTOR" },
+  "CLYPOOL": { name: "BRIAN CLYPOOL", title: "DEFENSE ATTORNEY" },
+  "BRIAN CLYPOOL": { name: "BRIAN CLYPOOL", title: "DEFENSE ATTORNEY" },
+  "RAHMANI": { name: "NEAMA RAHMANI", title: "FORMER FEDERAL PROSECUTOR" },
+  "NEAMA": { name: "NEAMA RAHMANI", title: "FORMER FEDERAL PROSECUTOR" },
+  "NEAMA RAHMANI": { name: "NEAMA RAHMANI", title: "FORMER FEDERAL PROSECUTOR" }
+};
+
 let state = { step:0, rosterRaw:"", orderRaw:"", roster:{}, blocks:{}, editorialInputs:{}, output:"" };
 
 // ── PERSISTENCE ───────────────────────────────────────────────────────────────
@@ -273,14 +306,20 @@ function parseRoster(raw) {
     line = line.trim(); if (!line) return;
     const lm = line.match(/^(.+?)\s+LIVE(?:\s+(?:IN\s+)?(.+))?$/i);
     if (lm) {
-      const name = lm[1].trim().toUpperCase();
+      let name = lm[1].trim().toUpperCase();
       const loc = (lm[2]||"").trim().toUpperCase();
+      if (KNOWN_REPORTERS[name]) name = KNOWN_REPORTERS[name];
       indexEntry(name, { type:"reporter", name, location:loc });
     } else {
       const ci = line.indexOf(",");
-      const name = ci === -1 ? line.trim().toUpperCase() : line.slice(0,ci).trim().toUpperCase();
-      const title = ci === -1 ? "" : line.slice(ci+1).trim().toUpperCase();
-      indexEntry(name, { type:"guest", name, title, noTitle: ci === -1 });
+      let name = ci === -1 ? line.trim().toUpperCase() : line.slice(0,ci).trim().toUpperCase();
+      let title = ci === -1 ? "" : line.slice(ci+1).trim().toUpperCase();
+      let noTitle = ci === -1;
+      if (ci === -1 && KNOWN_GUESTS_MAP[name]) {
+        const known = KNOWN_GUESTS_MAP[name];
+        name = known.name; title = known.title; noTitle = false;
+      }
+      indexEntry(name, { type:"guest", name, title, noTitle });
     }
   });
   return roster;
