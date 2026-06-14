@@ -68,6 +68,9 @@ body { background: #0a0a0a; color: #e8e8e8; font-family: 'Courier New', monospac
 
 .card { background: #141414; border: 1px solid #2a2a2a; border-radius: 4px; padding: 20px; margin-bottom: 16px; }
 .card.red-left { border-left: 3px solid #c8102e; }
+.card.green-left { border-left: 3px solid #4a9; }
+.card.blue-left { border-left: 3px solid #5a8fd0; }
+.card.orange-left { border-left: 3px solid #e07a30; }
 .card-label { font-size: 10px; letter-spacing: 0.15em; color: #888; margin-bottom: 8px; display: block; text-transform: uppercase; }
 .hint { font-size: 11px; color: #555; margin-bottom: 10px; line-height: 1.9; }
 .hint span { color: #777; }
@@ -255,8 +258,8 @@ const KNOWN_GUESTS_MAP = {
   "LUE ELIZONDO": { name: "LUE ELIZONDO", title: "FMR PENTAGON UFO INVESTIGATOR" },
   "CILLIZZA": { name: "CHRIS CILLIZZA", title: "NEWSNATION POLITICAL CONTRIBUTOR" },
   "CHRIS CILLIZZA": { name: "CHRIS CILLIZZA", title: "NEWSNATION POLITICAL CONTRIBUTOR" },
-  "CLYPOOL": { name: "BRIAN CLYPOOL", title: "DEFENSE ATTORNEY" },
-  "BRIAN CLYPOOL": { name: "BRIAN CLYPOOL", title: "DEFENSE ATTORNEY" },
+  "CLAYPOOL": { name: "BRIAN CLAYPOOL", title: "DEFENSE ATTORNEY" },
+  "BRIAN CLAYPOOL": { name: "BRIAN CLAYPOOL", title: "DEFENSE ATTORNEY" },
   "RAHMANI": { name: "NEAMA RAHMANI", title: "FORMER FEDERAL PROSECUTOR" },
   "NEAMA": { name: "NEAMA RAHMANI", title: "FORMER FEDERAL PROSECUTOR" },
   "NEAMA RAHMANI": { name: "NEAMA RAHMANI", title: "FORMER FEDERAL PROSECUTOR" }
@@ -370,6 +373,23 @@ function blockSlugLabel(b) {
   if (b.isPkg) return "STORY";
   if (b.guests.length) return "TOPIC";
   return "STORY";
+}
+
+function blockHeadingNames(b) {
+  if (b.isRead) return "TELL";
+  if (b.isPkg) return "PKG";
+  if (!b.guests.length) return "";
+  const last = b.guests.map(g => g.name.split(" ").pop());
+  if (last.length === 1) return last[0];
+  if (last.length === 2) return last[0] + " & " + last[1];
+  return last.join(" / ");
+}
+
+function blockColorClass(b) {
+  if (b.isRead || b.isPkg) return "orange-left";
+  if (b.guests.some(g => g.type === "reporter")) return "blue-left";
+  if (b.guests.length > 0) return "green-left";
+  return "orange-left";
 }
 
 function extractSegment(chunk, roster, isRead) {
@@ -550,15 +570,15 @@ function renderEditorialBlocks() {
   const container = document.getElementById("editorial-blocks");
   container.innerHTML = Object.keys(state.blocks).sort().map(key => {
     const b = state.blocks[key];
-    const gnames = blockGuestLabel(b);
-    const slugLbl = blockSlugLabel(b);
+    const names = blockHeadingNames(b);
+    const header = b.num ? `${b.letter}${b.num} - ${names}` : `${b.letter}: ${names}`;
+    const colorClass = blockColorClass(b);
     const val = state.editorialInputs[key] || b.editorial || "";
-    return `<div class="card red-left">
+    return `<div class="card ${colorClass}">
       <div class="card-row">
-        <span class="block-title">${b.letter}${b.num||""}${b.isRead?" — TELL":b.isPkg?" — PKG":""}</span>
-        <span class="block-meta">${gnames}</span>
+        <span class="block-title">${header}</span>
+        <span class="block-meta">${b.slug}</span>
       </div>
-      <div class="slug-label">${slugLbl}: ${b.slug}</div>
       <textarea id="ed-${key}" rows="3" oninput="state.editorialInputs['${key}']=this.value">${escHtml(val)}</textarea>
     </div>`;
   }).join("");
