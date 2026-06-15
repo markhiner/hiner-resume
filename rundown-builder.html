@@ -843,10 +843,32 @@ async function fetchLibraryURL() {
   setLibStatus("FETCHING…", true);
   const btn = document.querySelector('[onclick="fetchLibraryURL()"]');
   if (btn) btn.disabled = true;
+
+  const encoded = encodeURIComponent(url);
+  async function tryProxy(proxyUrl, isJson) {
+    try {
+      const res = await Promise.race([
+        fetch(proxyUrl),
+        new Promise((_,rej) => setTimeout(() => rej(new Error("timeout")), 8000))
+      ]);
+      if (!res.ok) return null;
+      if (isJson) { const d = await res.json(); return d.contents || null; }
+      return await res.text();
+    } catch(e) { return null; }
+  }
+
+  const html =
+    await tryProxy(`https://corsproxy.io/?${encoded}`, false) ||
+    await tryProxy(`https://api.allorigins.win/get?url=${encoded}`, true) ||
+    await tryProxy(`https://api.codetabs.com/v1/proxy?quest=${encoded}`, false);
+
+  if (!html) {
+    setLibStatus("FETCH FAILED — site may block scrapers or be paywalled. Fill in manually.");
+    if (btn) btn.disabled = false;
+    return;
+  }
+
   try {
-    const res = await fetch("https://api.allorigins.win/get?url=" + encodeURIComponent(url));
-    const data = await res.json();
-    const html = data.contents || "";
     // Extract title: og:title → twitter:title → <title>
     const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
     const twitterTitle = html.match(/<meta[^>]+name=["']twitter:title["'][^>]+content=["']([^"']+)["']/i);
@@ -863,7 +885,7 @@ async function fetchLibraryURL() {
     if (text) document.getElementById("lib-extracted").value = text;
     setLibStatus(title ? "FETCHED ✓" : "FETCHED — no title found. Try saving manually.");
   } catch(e) {
-    setLibStatus("FETCH FAILED — site may block scrapers or be paywalled. Fill in manually.");
+    setLibStatus("PARSE ERROR — saved raw URL. Fill in manually.");
   }
   if (btn) btn.disabled = false;
 }
