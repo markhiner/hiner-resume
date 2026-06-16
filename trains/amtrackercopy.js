@@ -45,7 +45,7 @@ const htmlPage = `<!DOCTYPE html>
   --acela:    #2dd4bf;
   --regional: #3b82f6;
   --keystone: #eab308;
-  --empire:   #4a8c4a;
+  --empire:   #228b22;
   --longdist: #ef4444;
 }
 
@@ -176,9 +176,9 @@ body {
 }
 .dep-dest {
   flex: 1;
-  font-size: 14px;
-  font-weight: 500;
-  color: #d0d0d0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #ffffff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -269,6 +269,9 @@ body {
   flex-shrink: 0;
 }
 .tr-arr em { font-style: normal; font-size: 10px; color: var(--text3); margin-right: 3px; }
+
+.tr-speed { font-size: 13px; font-weight: 700; color: var(--text3); flex-shrink: 0; white-space: nowrap; }
+.tr-speed.fast { color: #fbbf24; }
 
 .tr-sub { display: flex; align-items: center; justify-content: space-between; padding-left: 66px; }
 .tr-meta { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -438,7 +441,7 @@ body {
       <span class="legend-item"><span class="dot acela"></span>Acela</span>
       <span class="legend-item"><span class="dot regional"></span>NE Regional</span>
       <span class="legend-item"><span class="dot keystone"></span>Keystone / Pennsylvanian</span>
-      <span class="legend-item"><span class="dot empire"></span>Empire / Maple Leaf</span>
+      <span class="legend-item"><span class="dot empire"></span>Empire Service</span>
       <span class="legend-item"><span class="dot longdistance"></span>Long Distance</span>
     </div>
 
@@ -479,7 +482,7 @@ function trainType(routeName) {
   if (routeName === 'Acela') return 'acela';
   if (routeName === 'Northeast Regional') return 'regional';
   if (routeName === 'Keystone' || routeName === 'Pennsylvanian') return 'keystone';
-  if (['Empire Service','Maple Leaf','Lake Shore Limited','Adirondack','Ethan Allen Express'].indexOf(routeName) !== -1) return 'empire';
+  if (routeName === 'Empire Service') return 'empire';
   return 'longdistance';
 }
 
@@ -657,23 +660,21 @@ function esc(s) {
 
 // ── Countdown formatting ──
 function minsUntil(iso) {
-  return iso ? Math.round((new Date(iso) - Date.now()) / 60000) : null;
+  return iso ? Math.floor((new Date(iso) - Date.now()) / 60000) : null;
 }
 
 function formatCountdown(mins) {
   if (mins === null) return { text: '&mdash;', cls: '' };
-  if (mins <= 0)  return { text: 'DEPARTED', cls: 'departed' };
-  if (mins <= 3)  return { text: 'FINAL CALL', cls: 'finalcall' };
-  if (mins <= 10) return { text: mins + ' min', cls: 'flash' };
-  if (mins <= 20) return { text: mins + ' min', cls: 'soon' };
-  if (mins < 60)  return { text: mins + ' min', cls: '' };
-  if (mins < 300) {
-    // round to nearest 30 min
-    var rounded = Math.round(mins / 30) * 30;
-    var h = rounded / 60; // will be 1, 1.5, 2, 2.5, etc.
-    return { text: h + ' hrs', cls: '' };
+  if (mins <= 0) return { text: 'DEPARTED', cls: 'departed' };
+  if (mins < 180) {
+    var h = Math.floor(mins / 60), m = mins % 60;
+    var text = h + ':' + String(m).padStart(2, '0');
+    if (mins <= 5)  return { text: text, cls: 'flash' };
+    if (mins <= 20) return { text: text, cls: 'soon' };
+    return { text: text, cls: '' };
   }
-  return { text: Math.round(mins / 60) + ' hrs', cls: '' };
+  var hrs = Math.round(mins / 60);
+  return { text: hrs + ' hr' + (hrs !== 1 ? 's' : ''), cls: '' };
 }
 
 // ── Departure board ──
@@ -727,7 +728,7 @@ function renderDepartures(trains) {
           '<span class="dep-countdown ' + cd.cls + '" id="dc-' + esc(t.trainNum) + '">' + cd.text + '</span>' +
         '</div>' +
         '<div class="dep-sub">' +
-          '<span class="dep-train">' + esc(t.routeName) + ' #' + esc(t.trainNum) + '</span>' +
+          '<span class="dep-train">#' + esc(t.trainNum) + ' &middot; ' + esc(t.routeName) + '</span>' +
           '<span class="badge ' + t.status.class + '">' + esc(t.status.label) + '</span>' +
         '</div>' +
       '</div>'
@@ -752,21 +753,24 @@ setInterval(function() {
 
 // ── Active train rows ──
 function renderCard(t) {
-  var meta = '';
-  if (t.velocity > 0) meta += t.velocity + ' mph';
+  var speedHtml = '';
+  if (t.velocity > 0) {
+    speedHtml = '<span class="tr-speed' + (t.velocity >= 100 ? ' fast' : '') + '">' + t.velocity + ' mph</span>';
+  }
+  var distMeta = '';
   if (t.distToNext != null && t.nextStop) {
-    if (meta) meta += '<span class="sep">&middot;</span>';
-    meta += t.distToNext.toFixed(1) + ' mi to ' + esc(t.nextStop.name);
+    distMeta = '<span class="sep">&middot;</span>' + t.distToNext.toFixed(1) + ' mi to ' + esc(t.nextStop.name);
   }
   return (
     '<div class="train-row ' + t.type + '" style="cursor:pointer" onclick="openModal(\'' + esc(t.trainNum) + '\')">' +
       '<div class="tr-main">' +
         '<span class="tr-num">' + esc(t.trainNum) + '</span>' +
+        speedHtml +
         '<span class="tr-dest">' + esc(t.destName) + '</span>' +
         (t.finalArr ? '<span class="tr-arr"><em>arr</em>' + esc(t.finalArr) + '</span>' : '') +
       '</div>' +
       '<div class="tr-sub">' +
-        '<span class="tr-meta">' + esc(t.routeName) + (meta ? '<span class="sep">&middot;</span>' + meta : '') + '</span>' +
+        '<span class="tr-meta">' + esc(t.routeName) + distMeta + '</span>' +
         '<span class="badge ' + t.status.class + '">' + esc(t.status.label) + '</span>' +
       '</div>' +
     '</div>'
