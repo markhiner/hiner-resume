@@ -627,10 +627,29 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 .ex-pct.flat { color: var(--text3); }
 
 /* ── outlook (chance) card ── */
-.outlook-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
+.outlook-stack { display: grid; }
+.outlook-stack > * { grid-area: 1 / 1; align-self: start; }
+.outlook-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; opacity: 1; transition: opacity 0.35s ease; }
+.outlook-card.hc-hidden { opacity: 0; pointer-events: none; }
+
+/* ── hour-close average banner ── */
+.hourclose-wrap {
+  width: 100vw;
+  margin: 0 calc(50% - 50vw);
+  padding: 14px 0 12px;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  background-color: transparent;
+  transition: opacity 0.35s ease, background-color 0.4s ease;
+}
+.hourclose-wrap.hc-visible { opacity: 1; pointer-events: auto; }
+.hourclose-label { font-size: 10.5px; letter-spacing: 2px; color: rgba(255,255,255,0.8); font-weight: 800; text-transform: uppercase; margin-bottom: 4px; }
+.hourclose-price { font-size: clamp(46px, 15.5vw, 64px); font-weight: 800; letter-spacing: -1.5px; line-height: 1; color: var(--text1); font-variant-numeric: tabular-nums; }
 .trend-headline { font-size: 14px; font-weight: 700; line-height: 1.35; color: var(--text1); }
 .trend-headline b.up { color: var(--green); }
 .trend-headline b.down { color: var(--red); }
+.trend-headline .trend-sub { color: var(--text3); font-weight: 600; font-size: 0.82em; }
 .gauge { position: relative; height: 8px; border-radius: 4px; margin: 10px 0 6px; background: linear-gradient(90deg, var(--red) 0%, var(--yellow) 50%, var(--green) 100%); }
 .gauge-pointer { position: absolute; top: -4px; width: 3px; height: 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 4px rgba(0,0,0,0.6); transform: translateX(-50%); animation: gaugePulse 1.4s ease-in-out infinite; }
 @keyframes gaugePulse { 0%, 100% { opacity: 1; transform: translateX(-50%) scaleY(1); } 50% { opacity: 0.5; transform: translateX(-50%) scaleY(1.3); } }
@@ -702,8 +721,14 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     <div class="countdown" id="countdown">60:00</div>
   </div>
 
-  <div class="outlook-card">
-    <div id="outlookBody"><div class="trend-warmup">Gathering data for a projection…</div></div>
+  <div class="outlook-stack">
+    <div class="outlook-card" id="outlookCard">
+      <div id="outlookBody"><div class="trend-warmup">Gathering data for a projection…</div></div>
+    </div>
+    <div class="hourclose-wrap" id="hourCloseWrap">
+      <div class="hourclose-label">60s Hour-Close Avg</div>
+      <div class="hourclose-price" id="hourClosePrice">—</div>
+    </div>
   </div>
 
   <div class="range-row-sm">
@@ -784,7 +809,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
       wrap.style.transition = "background-color 0.6s ease-out";
       wrap.style.backgroundColor = "transparent";
       flashTimeout = null;
-    }, 5000);
+    }, 10000);
   }
   function checkBigMove(avg) {
     if (avg == null) return;
@@ -911,6 +936,91 @@ canvas#chart { width: 100%; height: 230px; display: block; }
   }
   setInterval(updateCountdown, 1000);
   updateCountdown();
+
+  // ---------- hour-close average banner ----------
+  // During HH:59:00-HH:59:59 sample the live blended price once a second and
+  // show its running average in place of the outlook card; lock that average
+  // (value + up/down color vs. the price at this hour's HH:00:00) the instant
+  // the new hour starts, hold it for 10s, then hand the card back.
+
+  var hourClose = {
+    openPrice: null,
+    openHourBucket: null,
+    referencePrice: null,
+    samples: [],
+    runningSum: 0,
+    sampleBucket: null,
+    finalAvg: null,
+    finalColor: null,
+    phase: "idle", // idle | collecting | holding
+  };
+
+  function hourCloseSetColor(dir) {
+    document.getElementById("hourCloseWrap").style.backgroundColor =
+      dir === "up" ? "rgba(0,200,0,0.6)" : "rgba(255,0,0,0.6)";
+  }
+
+  function hourCloseShow(visible, fast) {
+    var outlook = document.getElementById("outlookCard");
+    var wrap = document.getElementById("hourCloseWrap");
+    var dur = fast ? "0.2s" : "0.35s";
+    outlook.style.transition = "opacity " + dur + " ease";
+    wrap.style.transition = "opacity " + dur + " ease, background-color 0.4s ease";
+    outlook.classList.toggle("hc-hidden", visible);
+    wrap.classList.toggle("hc-visible", visible);
+  }
+
+  function updateHourClose() {
+    var now = new Date();
+    var minute = now.getMinutes();
+    var second = now.getSeconds();
+    var epochSec = Math.floor(now.getTime() / 1000);
+    var curAvg = recomputeAverage();
+
+    if (minute === 0 && second === 0) {
+      var hourBucket = Math.floor(now.getTime() / 3600000);
+      if (hourClose.openHourBucket !== hourBucket && curAvg != null) {
+        hourClose.openPrice = curAvg;
+        hourClose.openHourBucket = hourBucket;
+      }
+    }
+
+    if (minute === 59) {
+      if (hourClose.phase !== "collecting") {
+        hourClose.phase = "collecting";
+        hourClose.samples = [];
+        hourClose.runningSum = 0;
+        hourClose.sampleBucket = null;
+        hourClose.referencePrice = hourClose.openPrice != null ? hourClose.openPrice : curAvg;
+        document.getElementById("hourClosePrice").textContent = fmtUSD(curAvg);
+        hourCloseShow(true, false);
+      }
+      if (curAvg != null && hourClose.sampleBucket !== epochSec) {
+        hourClose.samples.push(curAvg);
+        hourClose.runningSum += curAvg;
+        hourClose.sampleBucket = epochSec;
+        var runningAvg = hourClose.runningSum / hourClose.samples.length;
+        var liveDir = (hourClose.referencePrice != null && runningAvg < hourClose.referencePrice) ? "down" : "up";
+        document.getElementById("hourClosePrice").textContent = fmtUSD(runningAvg);
+        hourCloseSetColor(liveDir);
+      }
+    } else if (hourClose.phase === "collecting") {
+      // just crossed HH:59:59 -> HH:00:00 — lock the final average in place
+      var finalAvg = hourClose.samples.length ? hourClose.runningSum / hourClose.samples.length : curAvg;
+      hourClose.finalAvg = finalAvg;
+      hourClose.finalColor = (hourClose.referencePrice != null && finalAvg < hourClose.referencePrice) ? "down" : "up";
+      hourClose.phase = "holding";
+      document.getElementById("hourClosePrice").textContent = fmtUSD(finalAvg);
+      hourCloseSetColor(hourClose.finalColor);
+    } else if (hourClose.phase === "holding") {
+      if (!(minute === 0 && second < 10)) {
+        hourClose.phase = "idle";
+        hourCloseShow(false, true);
+      }
+    }
+  }
+  setInterval(updateHourClose, 1000);
+  updateHourClose();
 
   // ---------- chart ----------
 
@@ -1080,9 +1190,22 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     var now = new Date();
     var minutesRemaining = 60 - now.getMinutes() - now.getSeconds() / 60;
     if (minutesRemaining <= 0) minutesRemaining = 60;
-    var drift = trend.driftPerMin * minutesRemaining;
+
+    // Target the fixed Kalshi strike (the "benchmark level") instead of the
+    // live price — the live price moves every tick, which made this card
+    // restate a new question every time it redrew. A strike only changes
+    // when price drifts into a different bracket or the hourly market rolls,
+    // so the question being asked stays put.
+    var kalshiForModel = trend.kalshi;
+    var benchmark = (kalshiForModel && kalshiForModel.available && kalshiForModel.nearestStrike)
+      ? kalshiForModel.nearestStrike.strike
+      : null;
+    var threshold = benchmark != null ? benchmark : trend.currentPrice;
+
+    var expectedMove = trend.driftPerMin * minutesRemaining;
+    var edgeToThreshold = threshold - trend.currentPrice;
     var std = trend.volPerMin * Math.sqrt(Math.max(minutesRemaining, 0.01));
-    var z = std > 0 ? drift / std : 0;
+    var z = std > 0 ? (expectedMove - edgeToThreshold) / std : (expectedMove >= edgeToThreshold ? 5 : -5);
     var probUp = normalCDF(z);
     // clamp: a thin sample can saturate the CDF, and 100% is never honest
     probUp = Math.min(Math.max(probUp, 0.03), 0.97);
@@ -1099,7 +1222,8 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     var headline =
       '<div class="trend-headline">' +
       probPct + "% chance BTC is <b class=\\"" + direction + "\\">" + (direction === "up" ? "above" : "below") + "</b> " +
-      fmtUSD(trend.currentPrice) + " by <b>" + targetLabel + "</b></div>";
+      fmtUSD(threshold) + (benchmark != null ? ' <span class="trend-sub">(Kalshi benchmark)</span>' : "") +
+      " by <b>" + targetLabel + "</b></div>";
 
     var pointerPct = Math.min(Math.max(probPct, 2), 98);
     var gauge =
@@ -1126,13 +1250,17 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 
   function renderKalshi(k, modelPct) {
     var card = document.getElementById("kalshiCard");
-    if (!k || !k.available || k.impliedProbAbove == null) {
+    var ns = k && k.nearestStrike;
+    if (!k || !k.available || !ns || !isFinite(ns.bid) || !isFinite(ns.ask)) {
       card.innerHTML =
         '<div class="kalshi-hdr"><span class="kalshi-title">Kalshi Market Check</span></div>' +
         '<div class="kalshi-off">Kalshi hourly BTC market unavailable right now.</div>';
       return;
     }
-    var marketPct = Math.round(k.impliedProbAbove * 100);
+    // Kalshi % is this specific strike's own quote (bid/ask mid) — the same
+    // fixed benchmark the model above is now targeting, so the two numbers
+    // answer the identical question and "Edge" is a real apples-to-apples gap.
+    var marketPct = Math.round(((ns.bid + ns.ask) / 2) * 100);
     var edgeStr = "\\u2013", edgeCls = "flat";
     if (modelPct != null) {
       var edge = modelPct - marketPct;
@@ -1143,14 +1271,9 @@ canvas#chart { width: 100%; height: 230px; display: block; }
       ? new Date(k.closeTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
       : "";
 
-    var detail = "";
-    if (k.nearestStrike) {
-      var ns = k.nearestStrike;
-      var quote = (isFinite(ns.bid) ? Math.round(ns.bid * 100) : "\\u2013") + "\\u00a2/" +
-                  (isFinite(ns.ask) ? Math.round(ns.ask * 100) : "\\u2013") + "\\u00a2";
-      detail = '<div class="kalshi-detail">Nearest bracket: <b>' + ns.subtitle + "</b> \\u00b7 " + quote +
-        (ns.vol ? " \\u00b7 " + Math.round(ns.vol).toLocaleString() + " vol" : "") + "</div>";
-    }
+    var quote = Math.round(ns.bid * 100) + "\\u00a2/" + Math.round(ns.ask * 100) + "\\u00a2";
+    var detail = '<div class="kalshi-detail">Nearest bracket: <b>' + ns.subtitle + "</b> \\u00b7 " + quote +
+      (ns.vol ? " \\u00b7 " + Math.round(ns.vol).toLocaleString() + " vol" : "") + "</div>";
 
     card.innerHTML =
       '<div class="kalshi-hdr"><span class="kalshi-title">Kalshi Market Check</span>' +
