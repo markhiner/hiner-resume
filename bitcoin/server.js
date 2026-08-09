@@ -578,7 +578,7 @@ body {
 .price-delta.up   { background: var(--green-dim); color: var(--green); }
 .price-delta.down { background: var(--red-dim); color: var(--red); }
 .price-delta.flat { background: rgba(255,255,255,0.06); color: var(--text2); }
-.countdown { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; transition: color 0.6s linear; }
+.countdown { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; transition: color 0.9s ease-out; }
 .countdown.flashing { animation: countdownFlash 1s step-start infinite; }
 @keyframes countdownFlash { 50% { opacity: 0.15; } }
 
@@ -861,8 +861,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     var WHITE = [255, 255, 255], YELLOW = [245, 197, 24], ORANGE = [249, 115, 22], RED = [239, 68, 68];
     function lerp(a, b, t) { return [0, 1, 2].map(function (i) { return Math.round(a[i] + (b[i] - a[i]) * t); }); }
     function rgb(c) { return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")"; }
-    if (remainingSec >= 2400) return rgb(WHITE);
-    if (remainingSec >= 1800) return rgb(lerp(WHITE, YELLOW, (2400 - remainingSec) / 600));
+    if (remainingSec >= 1800) return rgb(WHITE);
     if (remainingSec >= 900) return rgb(lerp(YELLOW, ORANGE, (1800 - remainingSec) / 900));
     if (remainingSec >= 300) return rgb(lerp(ORANGE, RED, (900 - remainingSec) / 600));
     return rgb(RED);
