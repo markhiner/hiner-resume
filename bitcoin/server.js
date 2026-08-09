@@ -560,7 +560,7 @@ body {
 .brand-text { font-size: 10.5px; letter-spacing: 2px; color: var(--text3); font-weight: 800; text-transform: uppercase; }
 .brand-sep { color: var(--text3); font-size: 11px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
-.status-dot.live { background: var(--green); box-shadow: 0 0 0 0 rgba(34,197,94,0.5); animation: pulse 2s infinite; }
+.status-dot.live { background: var(--red); box-shadow: 0 0 0 0 rgba(239,68,68,0.5); animation: pulseRed 1.4s infinite; }
 .status-dot.degraded { background: var(--yellow); }
 .status-dot.down { background: var(--red); }
 @keyframes pulse {
@@ -568,9 +568,14 @@ body {
   70%  { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
   100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
 }
+@keyframes pulseRed {
+  0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+  70%  { box-shadow: 0 0 0 7px rgba(239,68,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+}
 
 /* ── big price ── */
-.price-flash-wrap { border-radius: 18px; padding: 8px 6px; margin: -8px -6px 0; background-color: transparent; }
+.price-flash-wrap { width: 100vw; padding: 8px 0; margin: -8px calc(50% - 50vw) 0; background-color: transparent; }
 .price-big { font-size: clamp(46px, 15.5vw, 64px); font-weight: 800; letter-spacing: -1.5px; line-height: 1; text-align: center; color: var(--text1); font-variant-numeric: tabular-nums; }
 
 /* ── hero row: delta + countdown ── */
@@ -774,7 +779,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     var wrap = document.getElementById("priceFlashWrap");
     if (flashTimeout) clearTimeout(flashTimeout);
     wrap.style.transition = "background-color 0.15s ease-in";
-    wrap.style.backgroundColor = direction === "up" ? "rgba(34,197,94,0.5)" : "rgba(239,68,68,0.5)";
+    wrap.style.backgroundColor = direction === "up" ? "rgba(0,200,0,0.6)" : "rgba(255,0,0,0.6)";
     flashTimeout = setTimeout(function () {
       wrap.style.transition = "background-color 0.6s ease-out";
       wrap.style.backgroundColor = "transparent";
