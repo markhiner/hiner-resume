@@ -1,0 +1,942 @@
+{
+  "search_metadata": {
+    "id": "6a0fda948976f712f0c53e29",
+    "status": "Success",
+    "json_endpoint": "https://serpapi.com/searches/U2CtFEA66bWZQOW3PvsYnw/6a0fda948976f712f0c53e29.json",
+    "created_at": "2026-05-22 04:24:52 UTC",
+    "processed_at": "2026-05-22 04:24:52 UTC",
+    "google_flights_url": "https://www.google.com/travel/flights?hl=en&gl=us&curr=USD&tfs=CBwQAhoeEgoyMDI2LTA1LTIyagcIARIDUkRVcgcIARIDTEdBQAFIAXABmAEC&tfu=EgIIAQ",
+    "raw_html_file": "https://serpapi.com/searches/U2CtFEA66bWZQOW3PvsYnw/6a0fda948976f712f0c53e29.html",
+    "prettify_html_file": "https://serpapi.com/searches/U2CtFEA66bWZQOW3PvsYnw/6a0fda948976f712f0c53e29.prettify",
+    "total_time_taken": 1.26
+  },
+  "search_parameters": {
+    "engine": "google_flights",
+    "hl": "en",
+    "gl": "us",
+    "type": "2",
+    "departure_id": "RDU",
+    "arrival_id": "LGA",
+    "outbound_date": "2026-05-22",
+    "travel_class": 1,
+    "adults": 1,
+    "currency": "USD"
+  },
+  "best_flights": [
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Raleigh-Durham International Airport",
+            "id": "RDU",
+            "time": "2026-05-22 14:19"
+          },
+          "arrival_airport": {
+            "name": "LaGuardia Airport",
+            "id": "LGA",
+            "time": "2026-05-22 16:10"
+          },
+          "duration": 111,
+          "airplane": "Embraer 170",
+          "airline": "American",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+          "travel_class": "Economy",
+          "flight_number": "AA 4546",
+          "legroom": "30 in",
+          "extensions": [
+            "Average legroom (30 in)",
+            "Free Wi-Fi",
+            "In-seat power & USB outlets",
+            "Stream media to your device",
+            "Carbon emissions estimate: 123 kg"
+          ],
+          "plane_and_crew_by": "Republic Airways as American Eagle"
+        }
+      ],
+      "total_duration": 111,
+      "carbon_emissions": {
+        "this_flight": 124000,
+        "typical_for_this_route": 119000,
+        "difference_percent": 4
+      },
+      "price": 289,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+      "extensions": [
+        "Checked baggage for a fee"
+      ],
+      "booking_token": "WyJDalJJZVd0eVZVNUVUek5uZVZsQlFuVjBMV2RDUnkwdExTMHRMUzB0Y0dwaWRHTXhNVUZCUVVGQlIyOVFNbkJWVGtSUmRXVkJFZ1pCUVRRMU5EWWFDd2lvNFFFUUFob0RWVk5FT0J4d3FPRUIiLFtbIlJEVSIsIjIwMjYtMDUtMjIiLCJMR0EiLG51bGwsIkFBIiwiNDU0NiJdXV0="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Raleigh-Durham International Airport",
+            "id": "RDU",
+            "time": "2026-05-22 15:53"
+          },
+          "arrival_airport": {
+            "name": "LaGuardia Airport",
+            "id": "LGA",
+            "time": "2026-05-22 17:44"
+          },
+          "duration": 111,
+          "airplane": "Embraer 170",
+          "airline": "American",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+          "travel_class": "Economy",
+          "flight_number": "AA 4497",
+          "legroom": "30 in",
+          "extensions": [
+            "Average legroom (30 in)",
+            "Free Wi-Fi",
+            "In-seat power & USB outlets",
+            "Stream media to your device",
+            "Carbon emissions estimate: 123 kg"
+          ],
+          "plane_and_crew_by": "Republic Airways as American Eagle"
+        }
+      ],
+      "total_duration": 111,
+      "carbon_emissions": {
+        "this_flight": 124000,
+        "typical_for_this_route": 119000,
+        "difference_percent": 4
+      },
+      "price": 289,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+      "extensions": [
+        "Checked baggage for a fee"
+      ],
+      "booking_token": "WyJDalJJZVd0eVZVNUVUek5uZVZsQlFuVjBMV2RDUnkwdExTMHRMUzB0Y0dwaWRHTXhNVUZCUVVGQlIyOVFNbkJWVGtSUmRXVkJFZ1pCUVRRME9UY2FDd2lvNFFFUUFob0RWVk5FT0J4d3FPRUIiLFtbIlJEVSIsIjIwMjYtMDUtMjIiLCJMR0EiLG51bGwsIkFBIiwiNDQ5NyJdXV0="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Raleigh-Durham International Airport",
+            "id": "RDU",
+            "time": "2026-05-22 19:59"
+          },
+          "arrival_airport": {
+            "name": "LaGuardia Airport",
+            "id": "LGA",
+            "time": "2026-05-22 21:53"
+          },
+          "duration": 114,
+          "airplane": "Canadair RJ 900",
+          "airline": "Delta",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+          "travel_class": "Economy",
+          "flight_number": "DL 5232",
+          "legroom": "31 in",
+          "extensions": [
+            "Average legroom (31 in)",
+            "Free Wi-Fi",
+            "Carbon emissions estimate: 109 kg"
+          ],
+          "often_delayed_by_over_30_min": true,
+          "plane_and_crew_by": "Endeavor Air DBA Delta Connection"
+        }
+      ],
+      "total_duration": 114,
+      "carbon_emissions": {
+        "this_flight": 109000,
+        "typical_for_this_route": 119000,
+        "difference_percent": -8
+      },
+      "price": 289,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+      "extensions": [
+        "Checked baggage for a fee"
+      ],
+      "booking_token": "WyJDalJJZVd0eVZVNUVUek5uZVZsQlFuVjBMV2RDUnkwdExTMHRMUzB0Y0dwaWRHTXhNVUZCUVVGQlIyOVFNbkJWVGtSUmRXVkJFZ1pFVERVeU16SWFDd2lvNFFFUUFob0RWVk5FT0J4d3FPRUIiLFtbIlJEVSIsIjIwMjYtMDUtMjIiLCJMR0EiLG51bGwsIkRMIiwiNTIzMiJdXV0="
+    }
+  ],
+  "other_flights": [
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Raleigh-Durham International Airport",
+            "id": "RDU",
+            "time": "2026-05-22 17:12"
+          },
+          "arrival_airport": {
+            "name": "Chicago O'Hare International Airport",
+            "id": "ORD",
+            "time": "2026-05-22 18:42"
+          },
+          "duration": 150,
+          "airplane": "Boeing 737",
+          "airline": "United",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+          "travel_class": "Economy",
+          "flight_number": "UA 630",
+          "legroom": "30 in",
+          "extensions": [
+            "Average legroom (30 in)",
+            "Wi-Fi for a fee",
+            "Stream media to your device",
+            "Carbon emissions estimate: 136 kg"
+          ],
+          "often_delayed_by_over_30_min": true
+        },
+        {
+          "departure_airport": {
+            "name": "Chicago O'Hare International Airport",
+            "id": "ORD",
+            "time": "2026-05-22 19:45"
+          },
+          "arrival_airport": {
+            "name": "LaGuardia Airport",
+            "id": "LGA",
+            "time": "2026-05-22 23:15"
+          },
+          "duration": 150,
+          "airplane": "Boeing 737",
+          "airline": "United",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+          "travel_class": "Economy",
+          "flight_number": "UA 1655",
+          "legroom": "30 in",
+          "extensions": [
+            "Average legroom (30 in)",
+            "Wi-Fi for a fee",
+            "In-seat power & USB outlets",
+            "On-demand video",
+            "Carbon emissions estimate: 113 kg"
+          ]
+        }
+      ],
+      "layovers": [
+        {
+          "duration": 63,
+          "name": "Chicago O'Hare International Airport",
+          "id": "ORD"
+        }
+      ],
+      "total_duration": 363,
+      "carbon_emissions": {
+        "this_flight": 250000,
+        "typical_for_this_route": 119000,
+        "difference_percent": 110
+      },
+      "price": 254,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+      "extensions": [
+        "Checked baggage for a fee"
+      ],
+      "booking_token": "WyJDalJJZVd0eVZVNUVUek5uZVZsQlFuVjBMV2RDUnkwdExTMHRMUzB0Y0dwaWRHTXhNVUZCUVVGQlIyOVFNbkJWVGtSUmRXVkJFZ3hWUVRZek1IeFZRVEUyTlRVYUN3am94UUVRQWhvRFZWTkVPQnh3Nk1VQiIsW1siUkRVIiwiMjAyNi0wNS0yMiIsIk9SRCIsbnVsbCwiVUEiLCI2MzAiXSxbIk9SRCIsIjIwMjYtMDUtMjIiLCJMR0EiLG51bGwsIlVBIiwiMTY1NSJdXV0="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Raleigh-Durham International Airport",
+            "id": "RDU",
+            "time": "2026-05-22 06:28"
+          },
+          "arrival_airport": {
+            "name": "LaGuardia Airport",
+            "id": "LGA",
+            "time": "2026-05-22 08:00"
+          },
+          "duration": 92,
+          "airplane": "Boeing 737",
+          "airline": "American",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+          "travel_class": "Economy",
+          "flight_number": "AA 337",
+          "legroom": "30 in",
+          "extensions": [
+            "Average legroom (30 in)",
+            "Free Wi-Fi",
+            "In-seat power & USB outlets",
+            "Stream media to your device",
+            "Carbon emissions estimate: 80 kg"
+          ]
+        }
+      ],
+      "total_duration": 92,
+      "carbon_emissions": {
+        "this_flight": 81000,
+        "typical_for_this_route": 119000,
+        "difference_percent": -32
+      },
+      "price": 289,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+      "extensions": [
+        "Checked baggage for a fee"
+      ],
+      "booking_token": "WyJDalJJZVd0eVZVNUVUek5uZVZsQlFuVjBMV2RDUnkwdExTMHRMUzB0Y0dwaWRHTXhNVUZCUVVGQlIyOVFNbkJWVGtSUmRXVkJFZ1ZCUVRNek54b0xDS2poQVJBQ0dnTlZVMFE0SEhDbzRRRT0iLFtbIlJEVSIsIjIwMjYtMDUtMjIiLCJMR0EiLG51bGwsIkFBIiwiMzM3Il1dXQ=="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Raleigh-Durham International Airport",
+            "id": "RDU",
+            "time": "2026-05-22 08:42"
+          },
+          "arrival_airport": {
+            "name": "LaGuardia Airport",
+            "id": "LGA",
+            "time": "2026-05-22 10:30"
+          },
+          "duration": 108,
+          "airplane": "Embraer 175",
+          "airline": "American",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+          "travel_class": "Economy",
+          "flight_number": "AA 4494",
+          "legroom": "30 in",
+          "extensions": [
+            "Average legroom (30 in)",
+            "Free Wi-Fi",
+            "In-seat power & USB outlets",
+            "Stream media to your device",
+            "Carbon emissions estimate: 107 kg"
+          ],
+          "plane_and_crew_by": "Republic Airways as American Eagle"
+        }
+      ],
+      "total_duration": 108,
+      "carbon_emissions": {
+        "this_flight": 108000,
+        "typical_for_this_route": 119000,
+        "difference_percent": -9
+      },
+      "price": 289,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+      "extensions": [
+        "Checked baggage for a fee"
+      ],
+      "booking_token": "WyJDalJJZVd0eVZVNUVUek5uZVZsQlFuVjBMV2RDUnkwdExTMHRMUzB0Y0dwaWRHTXhNVUZCUVVGQlIyOVFNbkJWVGtSUmRXVkJFZ1pCUVRRME9UUWFDd2lvNFFFUUFob0RWVk5FT0J4d3FPRUIiLFtbIlJEVSIsIjIwMjYtMDUtMjIiLCJMR0EiLG51bGwsIkFBIiwiNDQ5NCJdXV0="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Raleigh-Durham International Airport",
+            "id": "RDU",
+            "time": "2026-05-22 20:11"
+          },
+          "arrival_airport": {
+            "name": "LaGuardia Airport",
+            "id": "LGA",
+            "time": "2026-05-22 22:05"
+          },
+          "duration": 114,
+          "airplane": "Embraer 175",
+          "airline": "American",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+          "travel_class": "Economy",
+          "flight_number": "AA 4560",
+          "legroom": "30 in",
+          "extensions": [
+            "Average legroom (30 in)",
+            "Free Wi-Fi",
+            "In-seat power & USB outlets",
+            "Stream media to your device",
+            "Carbon emissions estimate: 107 kg"
+          ],
+          "plane_and_crew_by": "Republic Airways as American Eagle"
+        }
+      ],
+      "total_duration": 114,
+      "carbon_emissions": {
+        "this_flight": 108000,
+        "typical_for_this_route": 119000,
+        "difference_percent": -9
+      },
+      "price": 289,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
+      "extensions": [
+        "Checked baggage for a fee"
+      ],
+      "booking_token": "WyJDalJJZVd0eVZVNUVUek5uZVZsQlFuVjBMV2RDUnkwdExTMHRMUzB0Y0dwaWRHTXhNVUZCUVVGQlIyOVFNbkJWVGtSUmRXVkJFZ1pCUVRRMU5qQWFDd2lvNFFFUUFob0RWVk5FT0J4d3FPRUIiLFtbIlJEVSIsIjIwMjYtMDUtMjIiLCJMR0EiLG51bGwsIkFBIiwiNDU2MCJdXV0="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Raleigh-Durham International Airport",
+            "id": "RDU",
+            "time": "2026-05-22 17:10"
+          },
+          "arrival_airport": {
+            "name": "LaGuardia Airport",
+            "id": "LGA",
+            "time": "2026-05-22 18:58"
+          },
+          "duration": 108,
+          "airplane": "Canadair RJ 900",
+          "airline": "Delta",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+          "travel_class": "Economy",
+          "flight_number": "DL 4808",
+          "legroom": "31 in",
+          "extensions": [
+            "Average legroom (31 in)",
+            "Free Wi-Fi",
+            "Carbon emissions estimate: 109 kg"
+          ],
+          "plane_and_crew_by": "Endeavor Air DBA Delta Connection"
+        }
+      ],
+      "total_duration": 108,
+      "carbon_emissions": {
+        "this_flight": 109000,
+        "typical_for_this_route": 119000,
+        "difference_percent": -8
+      },
+      "price": 469,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+      "extensions": [
+        "Checked baggage for a fee"
+      ],
+      "booking_token": "WyJDalJJZVd0eVZVNUVUek5uZVZsQlFuVjBMV2RDUnkwdExTMHRMUzB0Y0dwaWRHTXhNVUZCUVVGQlIyOVFNbkJWVGtSUmRXVkJFZ1pFVERRNE1EZ2FDd2ozN1FJUUFob0RWVk5FT0J4dzkrMEMiLFtbIlJEVSIsIjIwMjYtMDUtMjIiLCJMR0EiLG51bGwsIkRMIiwiNDgwOCJdXV0="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Raleigh-Durham International Airport",
+            "id": "RDU",
+            "time": "2026-05-22 06:15"
+          },
+          "arrival_airport": {
+            "name": "Dulles International Airport",
+            "id": "IAD",
+            "time": "2026-05-22 07:26"
+          },
+          "duration": 71,
+          "airplane": "Boeing 737MAX 8 Passenger",
+          "airline": "United",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+          "travel_class": "Economy",
+          "flight_number": "UA 1789",
+          "legroom": "30 in",
+          "extensions": [
+            "Average legroom (30 in)",
+            "Wi-Fi for a fee",
+            "In-seat power & USB outlets",
+            "On-demand video",
+            "Carbon emissions estimate: 50 kg"
+          ]
+        },
+        {
+          "departure_airport": {
+            "name": "Dulles International Airport",
+            "id": "IAD",
+            "time": "2026-05-22 08:19"
+          },
+          "arrival_airport": {
+            "name": "LaGuardia Airport",
+            "id": "LGA",
+            "time": "2026-05-22 09:48"
+          },
+          "duration": 89,
+          "airplane": "Embraer 175",
+          "airline": "United",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+          "travel_class": "Economy",
+          "flight_number": "UA 6116",
+          "legroom": "31 in",
+          "extensions": [
+            "Average legroom (31 in)",
+            "Free Wi-Fi",
+            "Stream media to your device",
+            "Carbon emissions estimate: 78 kg"
+          ],
+          "plane_and_crew_by": "Mesa Airlines DBA United Express"
+        }
+      ],
+      "layovers": [
+        {
+          "duration": 53,
+          "name": "Dulles International Airport",
+          "id": "IAD"
+        }
+      ],
+      "total_duration": 213,
+      "carbon_emissions": {
+        "this_flight": 129000,
+        "typical_for_this_route": 119000,
+        "difference_percent": 8
+      },
+      "price": 489,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
+      "extensions": [
+        "Checked baggage for a fee"
+      ],
+      "booking_token": "WyJDalJJZVd0eVZVNUVUek5uZVZsQlFuVjBMV2RDUnkwdExTMHRMUzB0Y0dwaWRHTXhNVUZCUVVGQlIyOVFNbkJWVGtSUmRXVkJFZzFWUVRFM09EbDhWVUUyTVRFMkdnc0lzLzBDRUFJYUExVlRSRGdjY0xQOUFnPT0iLFtbIlJEVSIsIjIwMjYtMDUtMjIiLCJJQUQiLG51bGwsIlVBIiwiMTc4OSJdLFsiSUFEIiwiMjAyNi0wNS0yMiIsIkxHQSIsbnVsbCwiVUEiLCI2MTE2Il1dXQ=="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Raleigh-Durham International Airport",
+            "id": "RDU",
+            "time": "2026-05-22 08:25"
+          },
+          "arrival_airport": {
+            "name": "LaGuardia Airport",
+            "id": "LGA",
+            "time": "2026-05-22 10:12"
+          },
+          "duration": 107,
+          "airplane": "Canadair RJ 900",
+          "airline": "Delta",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+          "travel_class": "Economy",
+          "flight_number": "DL 4956",
+          "legroom": "31 in",
+          "extensions": [
+            "Average legroom (31 in)",
+            "Free Wi-Fi",
+            "Carbon emissions estimate: 109 kg"
+          ],
+          "often_delayed_by_over_30_min": true,
+          "plane_and_crew_by": "Endeavor Air DBA Delta Connection"
+        }
+      ],
+      "total_duration": 107,
+      "carbon_emissions": {
+        "this_flight": 109000,
+        "typical_for_this_route": 119000,
+        "difference_percent": -8
+      },
+      "price": 549,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+      "extensions": [
+        "Checked baggage for a fee"
+      ],
+      "booking_token": "WyJDalJJZVd0eVZVNUVUek5uZVZsQlFuVjBMV2RDUnkwdExTMHRMUzB0Y0dwaWRHTXhNVUZCUVVGQlIyOVFNbkJWVGtSUmRXVkJFZ1pFVERRNU5UWWFDd2k0ckFNUUFob0RWVk5FT0J4d3VLd0QiLFtbIlJEVSIsIjIwMjYtMDUtMjIiLCJMR0EiLG51bGwsIkRMIiwiNDk1NiJdXV0="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Raleigh-Durham International Airport",
+            "id": "RDU",
+            "time": "2026-05-22 15:20"
+          },
+          "arrival_airport": {
+            "name": "LaGuardia Airport",
+            "id": "LGA",
+            "time": "2026-05-22 16:59"
+          },
+          "duration": 99,
+          "airplane": "Canadair RJ 900",
+          "airline": "Delta",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+          "travel_class": "Economy",
+          "flight_number": "DL 5184",
+          "legroom": "31 in",
+          "extensions": [
+            "Average legroom (31 in)",
+            "Free Wi-Fi",
+            "Carbon emissions estimate: 109 kg"
+          ],
+          "plane_and_crew_by": "Endeavor Air DBA Delta Connection"
+        }
+      ],
+      "total_duration": 99,
+      "carbon_emissions": {
+        "this_flight": 109000,
+        "typical_for_this_route": 119000,
+        "difference_percent": -8
+      },
+      "price": 549,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+      "extensions": [
+        "Checked baggage for a fee"
+      ],
+      "booking_token": "WyJDalJJZVd0eVZVNUVUek5uZVZsQlFuVjBMV2RDUnkwdExTMHRMUzB0Y0dwaWRHTXhNVUZCUVVGQlIyOVFNbkJWVGtSUmRXVkJFZ1pFVERVeE9EUWFDd2k0ckFNUUFob0RWVk5FT0J4d3VLd0QiLFtbIlJEVSIsIjIwMjYtMDUtMjIiLCJMR0EiLG51bGwsIkRMIiwiNTE4NCJdXV0="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Raleigh-Durham International Airport",
+            "id": "RDU",
+            "time": "2026-05-22 11:40"
+          },
+          "arrival_airport": {
+            "name": "LaGuardia Airport",
+            "id": "LGA",
+            "time": "2026-05-22 13:17"
+          },
+          "duration": 97,
+          "airplane": "Embraer 170",
+          "airline": "Delta",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+          "travel_class": "First Class",
+          "flight_number": "DL 5592",
+          "extensions": [
+            "Standard recliner seat",
+            "Wi-Fi for a fee",
+            "In-seat power outlet",
+            "Carbon emissions estimate: 176 kg"
+          ],
+          "plane_and_crew_by": "Republic Airways Delta Connection"
+        }
+      ],
+      "total_duration": 97,
+      "carbon_emissions": {
+        "this_flight": 176000,
+        "typical_for_this_route": 119000,
+        "difference_percent": 48
+      },
+      "price": 950,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+      "extensions": [
+        "1 checked bag included"
+      ],
+      "booking_token": "WyJDalJJZVd0eVZVNUVUek5uZVZsQlFuVjBMV2RDUnkwdExTMHRMUzB0Y0dwaWRHTXhNVUZCUVVGQlIyOVFNbkJWVGtSUmRXVkJFZ1pFVERVMU9USWFDd2pjNVFVUUFob0RWVk5FT0J4dzNPVUYiLFtbIlJEVSIsIjIwMjYtMDUtMjIiLCJMR0EiLG51bGwsIkRMIiwiNTU5MiJdXV0="
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Raleigh-Durham International Airport",
+            "id": "RDU",
+            "time": "2026-05-22 13:15"
+          },
+          "arrival_airport": {
+            "name": "LaGuardia Airport",
+            "id": "LGA",
+            "time": "2026-05-22 15:00"
+          },
+          "duration": 105,
+          "airplane": "Canadair RJ 900",
+          "airline": "Delta",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+          "travel_class": "First Class",
+          "flight_number": "DL 5017",
+          "extensions": [
+            "Standard recliner seat",
+            "Free Wi-Fi",
+            "In-seat power outlet",
+            "Carbon emissions estimate: 163 kg"
+          ],
+          "plane_and_crew_by": "Endeavor Air DBA Delta Connection"
+        }
+      ],
+      "total_duration": 105,
+      "carbon_emissions": {
+        "this_flight": 164000,
+        "typical_for_this_route": 119000,
+        "difference_percent": 38
+      },
+      "price": 950,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
+      "extensions": [
+        "1 checked bag included"
+      ],
+      "booking_token": "WyJDalJJZVd0eVZVNUVUek5uZVZsQlFuVjBMV2RDUnkwdExTMHRMUzB0Y0dwaWRHTXhNVUZCUVVGQlIyOVFNbkJWVGtSUmRXVkJFZ1pFVERVd01UY2FDd2pjNVFVUUFob0RWVk5FT0J4dzNPVUYiLFtbIlJEVSIsIjIwMjYtMDUtMjIiLCJMR0EiLG51bGwsIkRMIiwiNTAxNyJdXV0="
+    }
+  ],
+  "price_insights": {
+    "lowest_price": 254,
+    "price_level": "high",
+    "typical_price_range": [
+      75,
+      140
+    ],
+    "price_history": [
+      [
+        1774152000,
+        121
+      ],
+      [
+        1774238400,
+        121
+      ],
+      [
+        1774324800,
+        141
+      ],
+      [
+        1774411200,
+        99
+      ],
+      [
+        1774497600,
+        135
+      ],
+      [
+        1774584000,
+        135
+      ],
+      [
+        1774670400,
+        135
+      ],
+      [
+        1774756800,
+        135
+      ],
+      [
+        1774843200,
+        135
+      ],
+      [
+        1774929600,
+        141
+      ],
+      [
+        1775016000,
+        79
+      ],
+      [
+        1775102400,
+        79
+      ],
+      [
+        1775188800,
+        110
+      ],
+      [
+        1775275200,
+        110
+      ],
+      [
+        1775361600,
+        101
+      ],
+      [
+        1775448000,
+        101
+      ],
+      [
+        1775534400,
+        79
+      ],
+      [
+        1775620800,
+        95
+      ],
+      [
+        1775707200,
+        95
+      ],
+      [
+        1775793600,
+        95
+      ],
+      [
+        1775880000,
+        95
+      ],
+      [
+        1775966400,
+        97
+      ],
+      [
+        1776052800,
+        97
+      ],
+      [
+        1776139200,
+        97
+      ],
+      [
+        1776225600,
+        97
+      ],
+      [
+        1776312000,
+        97
+      ],
+      [
+        1776398400,
+        97
+      ],
+      [
+        1776484800,
+        97
+      ],
+      [
+        1776571200,
+        97
+      ],
+      [
+        1776657600,
+        97
+      ],
+      [
+        1776744000,
+        97
+      ],
+      [
+        1776830400,
+        97
+      ],
+      [
+        1776916800,
+        97
+      ],
+      [
+        1777003200,
+        129
+      ],
+      [
+        1777089600,
+        129
+      ],
+      [
+        1777176000,
+        129
+      ],
+      [
+        1777262400,
+        129
+      ],
+      [
+        1777348800,
+        129
+      ],
+      [
+        1777435200,
+        121
+      ],
+      [
+        1777521600,
+        121
+      ],
+      [
+        1777608000,
+        129
+      ],
+      [
+        1777694400,
+        94
+      ],
+      [
+        1777780800,
+        129
+      ],
+      [
+        1777867200,
+        149
+      ],
+      [
+        1777953600,
+        94
+      ],
+      [
+        1778040000,
+        119
+      ],
+      [
+        1778126400,
+        174
+      ],
+      [
+        1778212800,
+        119
+      ],
+      [
+        1778299200,
+        149
+      ],
+      [
+        1778385600,
+        174
+      ],
+      [
+        1778472000,
+        174
+      ],
+      [
+        1778558400,
+        174
+      ],
+      [
+        1778644800,
+        174
+      ],
+      [
+        1778731200,
+        184
+      ],
+      [
+        1778817600,
+        184
+      ],
+      [
+        1778904000,
+        194
+      ],
+      [
+        1778990400,
+        224
+      ],
+      [
+        1779076800,
+        224
+      ],
+      [
+        1779163200,
+        210
+      ],
+      [
+        1779249600,
+        211
+      ],
+      [
+        1779336000,
+        211
+      ],
+      [
+        1779422400,
+        254
+      ]
+    ]
+  },
+  "airports": [
+    {
+      "departure": [
+        {
+          "airport": {
+            "id": "RDU",
+            "name": "Raleigh-Durham International Airport"
+          },
+          "city": "Raleigh",
+          "country": "United States",
+          "country_code": "US",
+          "image": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSAeLP5M69Jg8_Cd6-HqhUon5v57KHwg4Eft_PrDQpMIlV9tiPzO1YTm0iFNPY3GzpKS_cowzTMDwKU_Q",
+          "thumbnail": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS6z-xlYQt-6a4mo_YN7F3B47ZHoKMyxQdTxiSkt6SwAUvZKQb47ajtDacFZVPFxS025qCdQ6MgN6YrqaVDHEHSFexAYOXjAIaJeyF4bKI"
+        }
+      ],
+      "arrival": [
+        {
+          "airport": {
+            "id": "LGA",
+            "name": "LaGuardia Airport"
+          },
+          "city": "New York",
+          "country": "United States",
+          "country_code": "US",
+          "image": "https://encrypted-tbn1.gstatic.com/images?q=tbn:ANd9GcRa1dwH1NZQk4dsbPiyA9Vrq2RX75jXSZ-OkHn7NkLHl-11HercqDXoZ4p2cDxJkH6vca2degawrCzHEQ",
+          "thumbnail": "https://encrypted-tbn1.gstatic.com/images?q=tbn:ANd9GcQEaUa9NsdPWGpAUGkTApkZDT_4M6_6V8wTcC0v1b1wJAJX-BuMSiipXbsoznGgcI1xLOc5QiTcR_xovexgjdOz0gqQe0tRQ9h0bUkZ07Q"
+        }
+      ]
+    }
+  ]
+}
