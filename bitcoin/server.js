@@ -1249,7 +1249,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     var headline =
       '<div class="trend-headline">' +
       headlinePct + "% chance BTC is <b class=\\"" + direction + "\\">" + (direction === "up" ? "above" : "below") + "</b> " +
-      fmtUSD(threshold) + (benchmark != null ? ' <span class="trend-sub">(Kalshi benchmark)</span>' : "") +
+      "$" + Math.round(threshold).toLocaleString("en-US") + (benchmark != null ? ' <span class="trend-sub">(Kalshi benchmark)</span>' : "") +
       " by <b>" + targetLabel + "</b></div>";
 
     var pointerPct = Math.min(Math.max(probPct, 2), 98);
