@@ -1209,8 +1209,9 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     var probUp = normalCDF(z);
     // clamp: a thin sample can saturate the CDF, and 100% is never honest
     probUp = Math.min(Math.max(probUp, 0.03), 0.97);
-    var probPct = Math.round(probUp * 100);
+    var probPct = Math.round(probUp * 100); // always "P(above)" — matches the gauge and the Kalshi card
     var direction = probUp >= 0.5 ? "up" : "down";
+    var headlinePct = direction === "up" ? probPct : 100 - probPct; // P(the stated direction)
     var earlyRead = trend.sampleMinutes < 10;
 
     var targetHour = new Date(now.getTime() + minutesRemaining * 60000);
@@ -1221,7 +1222,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 
     var headline =
       '<div class="trend-headline">' +
-      probPct + "% chance BTC is <b class=\\"" + direction + "\\">" + (direction === "up" ? "above" : "below") + "</b> " +
+      headlinePct + "% chance BTC is <b class=\\"" + direction + "\\">" + (direction === "up" ? "above" : "below") + "</b> " +
       fmtUSD(threshold) + (benchmark != null ? ' <span class="trend-sub">(Kalshi benchmark)</span>' : "") +
       " by <b>" + targetLabel + "</b></div>";
 
