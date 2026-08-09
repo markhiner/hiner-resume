@@ -653,7 +653,6 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 .trend-headline { font-size: 14px; font-weight: 700; line-height: 1.35; color: var(--text1); }
 .trend-headline b.up { color: var(--green); }
 .trend-headline b.down { color: var(--red); }
-.trend-headline .trend-sub { color: var(--text3); font-weight: 600; font-size: 0.82em; }
 .gauge { position: relative; height: 8px; border-radius: 4px; margin: 10px 0 6px; background: linear-gradient(90deg, var(--red) 0%, var(--yellow) 50%, var(--green) 100%); }
 .gauge-pointer { position: absolute; top: -4px; width: 3px; height: 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 4px rgba(0,0,0,0.6); transform: translateX(-50%); animation: gaugePulse 1.4s ease-in-out infinite; }
 @keyframes gaugePulse { 0%, 100% { opacity: 1; transform: translateX(-50%) scaleY(1); } 50% { opacity: 0.5; transform: translateX(-50%) scaleY(1.3); } }
@@ -1249,7 +1248,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     var headline =
       '<div class="trend-headline">' +
       headlinePct + "% chance BTC is <b class=\\"" + direction + "\\">" + (direction === "up" ? "above" : "below") + "</b> " +
-      "$" + Math.round(threshold).toLocaleString("en-US") + (benchmark != null ? ' <span class="trend-sub">(Kalshi benchmark)</span>' : "") +
+      "$" + Math.round(threshold).toLocaleString("en-US") +
       " by <b>" + targetLabel + "</b></div>";
 
     var pointerPct = Math.min(Math.max(probPct, 2), 98);
