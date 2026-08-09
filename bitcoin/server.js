@@ -570,6 +570,7 @@ body {
 }
 
 /* ── big price ── */
+.price-flash-wrap { border-radius: 18px; padding: 8px 6px; margin: -8px -6px 0; background-color: transparent; }
 .price-big { font-size: clamp(46px, 15.5vw, 64px); font-weight: 800; letter-spacing: -1.5px; line-height: 1; text-align: center; color: var(--text1); font-variant-numeric: tabular-nums; }
 
 /* ── hero row: delta + countdown ── */
@@ -687,7 +688,9 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     <span class="status-dot" id="statusDot"></span>
   </div>
 
-  <div class="price-big" id="bigPrice">—</div>
+  <div class="price-flash-wrap" id="priceFlashWrap">
+    <div class="price-big" id="bigPrice">—</div>
+  </div>
 
   <div class="hero-row">
     <div class="price-delta flat" id="priceDelta">— %</div>
@@ -762,7 +765,30 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     high24: null,
     low24: null,
     lastMsgAt: 0,
+    lastSnapshotAvg: null,
   };
+
+  var BIG_MOVE_THRESHOLD = 10; // dollars of blended-price change within one snapshot tick (~1s)
+  var flashTimeout = null;
+  function triggerBigMoveFlash(direction) {
+    var wrap = document.getElementById("priceFlashWrap");
+    if (flashTimeout) clearTimeout(flashTimeout);
+    wrap.style.transition = "background-color 0.15s ease-in";
+    wrap.style.backgroundColor = direction === "up" ? "rgba(34,197,94,0.5)" : "rgba(239,68,68,0.5)";
+    flashTimeout = setTimeout(function () {
+      wrap.style.transition = "background-color 0.6s ease-out";
+      wrap.style.backgroundColor = "transparent";
+      flashTimeout = null;
+    }, 5000);
+  }
+  function checkBigMove(avg) {
+    if (avg == null) return;
+    if (state.lastSnapshotAvg != null) {
+      var delta = avg - state.lastSnapshotAvg;
+      if (Math.abs(delta) >= BIG_MOVE_THRESHOLD) triggerBigMoveFlash(delta > 0 ? "up" : "down");
+    }
+    state.lastSnapshotAvg = avg;
+  }
 
   var fmtUSD = function (n) {
     if (n == null || !isFinite(n)) return "—";
@@ -1165,6 +1191,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
         state.high24 = snap.high24;
         state.low24 = snap.low24;
         state.lastMsgAt = Date.now();
+        checkBigMove(snap.average);
         refreshHeaderAndRows();
         updateStatus();
       }).catch(function () {});
@@ -1182,6 +1209,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     state.high24 = snap.high24;
     state.low24 = snap.low24;
     state.lastMsgAt = Date.now();
+    checkBigMove(snap.average);
     refreshHeaderAndRows();
     updateStatus();
   }
