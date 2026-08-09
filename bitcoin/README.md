@@ -123,6 +123,38 @@ full-screen launch.
   exchange), `trend` (every 10s, includes Kalshi), plus a `bootstrap`
   message on connect.
 
+## Kalshi portfolio card (optional)
+
+With API credentials, the page adds a "My Kalshi" card showing your open
+contracts marked to the live bid, plus cash and total. Create a key at
+kalshi.com → Settings → API keys, then start the server with the same
+two env vars the Python lab uses:
+
+```bash
+export KALSHI_API_KEY_ID="..."
+export KALSHI_PRIVATE_KEY_PATH="$HOME/.kalshi/kalshi_private_key"
+npm start
+```
+
+If you run it under launchd, add them to the plist instead:
+
+```xml
+<key>EnvironmentVariables</key>
+<dict>
+  <key>KALSHI_API_KEY_ID</key><string>...</string>
+  <key>KALSHI_PRIVATE_KEY_PATH</key><string>/Users/YOUR_USER/.kalshi/kalshi_private_key</string>
+</dict>
+```
+
+Without the env vars the card never renders and no authenticated calls
+are made. The key is only used to *read* balance/positions — the server
+never places orders.
+
+**Privacy note:** btc.hiner.nyc is public. With this enabled, anyone who
+finds the URL sees your balance and positions. If that matters, put the
+hostname behind Cloudflare Access (free for personal use) or run the
+card only on the LAN.
+
 ## Python lab
 
 `lab/` holds the research/execution side — a lumibot strategy that trades

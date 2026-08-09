@@ -9,6 +9,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const WebSocket = require("ws");
 
 const PORT = process.env.PORT || 3001;
@@ -522,6 +523,119 @@ async function pollKalshi() {
 setInterval(pollKalshi, KALSHI_POLL_MS);
 pollKalshi();
 
+// ---------- Kalshi portfolio (optional — needs API credentials) ----------
+// Set KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY_PATH (same env vars the
+// Python lab uses) and the ticker shows your open contracts marked to the
+// live bid, plus cash. Without credentials this whole module is inert.
+// Request signing: RSA-PSS/SHA256 over "{timestamp_ms}{METHOD}{path}",
+// query string excluded from the signed path — same scheme as
+// lab/kalshi_client.py.
+
+const KALSHI_KEY_ID = process.env.KALSHI_API_KEY_ID || null;
+const KALSHI_KEY_PATH = process.env.KALSHI_PRIVATE_KEY_PATH || null;
+const PORTFOLIO_POLL_MS = 30_000;
+
+let kalshiPrivateKey = null;
+if (KALSHI_KEY_ID && KALSHI_KEY_PATH) {
+  try {
+    kalshiPrivateKey = crypto.createPrivateKey(fs.readFileSync(KALSHI_KEY_PATH));
+    console.log("Kalshi portfolio: credentials loaded");
+  } catch (e) {
+    console.error("Kalshi portfolio: could not load private key:", e.message);
+  }
+}
+
+let portfolioState = {
+  enabled: !!(KALSHI_KEY_ID && kalshiPrivateKey),
+  updatedAt: 0,
+  error: null,
+  cash: null,
+  positions: null,
+  positionsValue: null,
+  totalValue: null,
+};
+
+function kalshiSignHeaders(method, signPath) {
+  const ts = String(Date.now());
+  const sig = crypto.sign("sha256", Buffer.from(ts + method + signPath), {
+    key: kalshiPrivateKey,
+    padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+    saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST,
+  });
+  return {
+    "KALSHI-ACCESS-KEY": KALSHI_KEY_ID,
+    "KALSHI-ACCESS-SIGNATURE": sig.toString("base64"),
+    "KALSHI-ACCESS-TIMESTAMP": ts,
+  };
+}
+
+async function kalshiAuthGET(pathname) {
+  const signPath = "/trade-api/v2" + pathname.split("?")[0];
+  const res = await fetch(KALSHI_API + pathname, {
+    headers: { Accept: "application/json", ...kalshiSignHeaders("GET", signPath) },
+  });
+  if (!res.ok) throw new Error(`kalshi auth ${pathname.split("?")[0]} → ${res.status}`);
+  return res.json();
+}
+
+function dollars(obj, dollarsKey, centsKey) {
+  const d = parseFloat(obj?.[dollarsKey]);
+  if (Number.isFinite(d)) return d;
+  const c = obj?.[centsKey];
+  return typeof c === "number" ? c / 100 : null;
+}
+
+async function pollPortfolio() {
+  if (!portfolioState.enabled) return;
+  try {
+    const [bal, pos] = await Promise.all([
+      kalshiAuthGET("/portfolio/balance"),
+      kalshiAuthGET("/portfolio/positions?limit=200"),
+    ]);
+    const cash = dollars(bal, "balance_dollars", "balance");
+    const open = (pos.market_positions || []).filter((p) => p.position !== 0);
+
+    const rows = [];
+    let posValue = 0;
+    for (const p of open.slice(0, 20)) {
+      let m = null;
+      try { m = (await kalshiGET(`/markets/${p.ticker}`)).market; } catch {}
+      const side = p.position > 0 ? "yes" : "no";
+      const count = Math.abs(p.position);
+      const per = m ? dollars(m, side === "yes" ? "yes_bid_dollars" : "no_bid_dollars", side === "yes" ? "yes_bid" : "no_bid") : null;
+      const value = per != null ? count * per : null;
+      if (value != null) posValue += value;
+      rows.push({
+        ticker: p.ticker,
+        subtitle: m ? (m.yes_sub_title || m.subtitle || p.ticker) : p.ticker,
+        closeTime: m ? Date.parse(m.close_time) || null : null,
+        side,
+        count,
+        perContract: per,
+        value: value != null ? Math.round(value * 100) / 100 : null,
+      });
+    }
+
+    portfolioState = {
+      enabled: true,
+      updatedAt: Date.now(),
+      error: null,
+      cash,
+      positions: rows,
+      positionsValue: Math.round(posValue * 100) / 100,
+      totalValue: cash != null ? Math.round((cash + posValue) * 100) / 100 : null,
+    };
+    broadcast({ type: "portfolio", ...portfolioState });
+  } catch (e) {
+    console.error("Kalshi portfolio poll:", e.message);
+    portfolioState = { ...portfolioState, error: e.message, updatedAt: Date.now() };
+  }
+}
+if (portfolioState.enabled) {
+  setInterval(pollPortfolio, PORTFOLIO_POLL_MS);
+  pollPortfolio();
+}
+
 // ---------- history bucketing for chart ranges ----------
 
 function bucketize(data, bucketCount) {
@@ -602,6 +716,11 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(kalshiState));
     return;
   }
+  if (url.pathname === "/api/portfolio") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(portfolioState));
+    return;
+  }
   if (url.pathname === "/api/trades") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(recentTrades));
@@ -618,7 +737,7 @@ server.on("upgrade", (req, socket, head) => {
   if (pathname !== "/stream") { socket.destroy(); return; }
   wss.handleUpgrade(req, socket, head, (ws) => {
     clients.add(ws);
-    ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: computeForecast() }));
+    ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: computeForecast(), portfolio: portfolioState }));
     ws.on("close", () => clients.delete(ws));
     ws.on("error", () => clients.delete(ws));
   });
@@ -806,6 +925,21 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 .kalshi-detail b { color: var(--text1); }
 .kalshi-off { font-size: 11.5px; color: var(--text3); font-style: italic; margin-top: 2px; }
 
+/* ── my kalshi portfolio ── */
+.portfolio-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
+.port-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-variant-numeric: tabular-nums; }
+.port-row:last-of-type { border-bottom: none; }
+.port-side { font-size: 10px; font-weight: 800; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 5px; flex-shrink: 0; }
+.port-side.yes { background: var(--green-dim); color: var(--green); }
+.port-side.no { background: var(--red-dim); color: var(--red); }
+.port-desc { flex: 1; font-size: 12.5px; color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.port-desc span { color: var(--text3); font-size: 11px; }
+.port-val { font-size: 14px; font-weight: 800; color: var(--text1); text-align: right; }
+.port-val span { display: block; font-size: 10px; font-weight: 600; color: var(--text3); }
+.port-foot { display: flex; justify-content: space-between; padding-top: 8px; font-size: 11.5px; color: var(--text2); }
+.port-foot b { color: var(--text1); font-variant-numeric: tabular-nums; }
+.port-empty { font-size: 11.5px; color: var(--text3); font-style: italic; }
+
 /* ── live trades ── */
 .trades-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
 .trades-hdr { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: 1.5px; color: var(--text3); font-weight: 800; text-transform: uppercase; margin-bottom: 8px; }
@@ -893,6 +1027,8 @@ canvas#chart { width: 100%; height: 230px; display: block; }
   </div>
 
   <div class="kalshi-card" id="kalshiCard"></div>
+
+  <div class="portfolio-card" id="portfolioCard" style="display:none"></div>
 
   <div class="trades-card">
     <div class="trades-hdr"><span class="live-chip"></span>Live Trade Feed</div>
@@ -1407,6 +1543,38 @@ canvas#chart { width: 100%; height: 230px; display: block; }
       "</div>" + detail;
   }
 
+  // ---------- my kalshi portfolio ----------
+
+  function renderPortfolio(p) {
+    var card = document.getElementById("portfolioCard");
+    if (!p || !p.enabled || p.error || p.positions == null) {
+      card.style.display = "none";
+      return;
+    }
+    var html = '<div class="kalshi-hdr"><span class="kalshi-title">My Kalshi</span></div>';
+    if (!p.positions.length) {
+      html += '<div class="port-empty">No open contracts</div>';
+    } else {
+      html += p.positions.map(function (r) {
+        var settle = r.closeTime
+          ? ' <span>\\u00b7 settles ' + new Date(r.closeTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + "</span>"
+          : "";
+        var per = r.perContract != null ? Math.round(r.perContract * 100) + "\\u00a2 now" : "no quote";
+        var val = r.value != null ? "$" + r.value.toFixed(2) : "\\u2013";
+        return '<div class="port-row">' +
+          '<span class="port-side ' + r.side + '">' + r.side.toUpperCase() + " \\u00d7" + r.count + "</span>" +
+          '<span class="port-desc">' + r.subtitle + settle + "</span>" +
+          '<span class="port-val">' + val + "<span>" + per + "</span></span>" +
+          "</div>";
+      }).join("");
+    }
+    var cashStr = p.cash != null ? "$" + p.cash.toFixed(2) : "\\u2013";
+    var totalStr = p.totalValue != null ? "$" + p.totalValue.toFixed(2) : "\\u2013";
+    html += '<div class="port-foot"><span>Cash <b>' + cashStr + "</b></span><span>Total <b>" + totalStr + "</b></span></div>";
+    card.innerHTML = html;
+    card.style.display = "";
+  }
+
   // ---------- live trade ticker ----------
 
   var tradesList = document.getElementById("tradesList");
@@ -1481,6 +1649,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
         applySnapshot(msg.snapshot);
         (msg.trades || []).forEach(pushTradeRow);
         renderTrend(msg.trend);
+        renderPortfolio(msg.portfolio);
         fetchHistory();
         armAutoRefresh();
         return;
@@ -1496,6 +1665,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
         return;
       }
       if (msg.type === "trend") { renderTrend(msg); return; }
+      if (msg.type === "portfolio") { renderPortfolio(msg); return; }
     };
 
     ws.onclose = function () {
