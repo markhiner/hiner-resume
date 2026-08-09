@@ -1035,6 +1035,23 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
+  // "Nice" round tick values (1/2/5 x a power of 10) for an axis range —
+  // classic Heckbert-style algorithm, so labels read like 65,200 or 64,250
+  // instead of whatever a price happened to land on at a fixed pixel row.
+  function niceTicks(min, max, targetCount) {
+    var range = max - min;
+    if (!isFinite(range) || range <= 0) return [Math.round(min)];
+    var rawStep = range / targetCount;
+    var mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    var norm = rawStep / mag;
+    var niceNorm = norm < 1.414 ? 1 : norm < 3.162 ? 2 : norm < 7.071 ? 5 : 10;
+    var step = niceNorm * mag;
+    var start = Math.ceil(min / step) * step;
+    var ticks = [];
+    for (var v = start; v <= max + step * 1e-6; v += step) ticks.push(Math.round(v));
+    return ticks;
+  }
+
   function drawChart() {
     var data = state.history;
     var rect = canvas.getBoundingClientRect();
@@ -1071,17 +1088,18 @@ canvas#chart { width: 100%; height: 230px; display: block; }
       ctx.fillRect(x(i) - barW / 2, h - bh, barW, bh);
     }
 
-    // gridlines + left-side price scale
+    // gridlines + left-side price scale — rounded to nice values, not raw fractions
     ctx.strokeStyle = "rgba(255,255,255,0.06)";
     ctx.lineWidth = 1;
     ctx.font = "9px -apple-system, sans-serif";
     ctx.fillStyle = "rgba(255,255,255,0.4)";
     ctx.textBaseline = "middle";
-    for (var g = 0; g <= 3; g++) {
-      var gy = (chartH / 3) * g;
+    var priceTicks = niceTicks(minP, maxP, 4);
+    for (var t = 0; t < priceTicks.length; t++) {
+      var gy = y(priceTicks[t]);
+      if (gy < 0 || gy > chartH) continue;
       ctx.beginPath(); ctx.moveTo(leftPad, gy); ctx.lineTo(w, gy); ctx.stroke();
-      var gVal = maxP - (gy / chartH) * (maxP - minP);
-      ctx.fillText(Math.round(gVal).toLocaleString(), 2, Math.min(Math.max(gy, 7), chartH - 4));
+      ctx.fillText(priceTicks[t].toLocaleString(), 2, Math.min(Math.max(gy, 7), chartH - 4));
     }
 
     // filled area under avg line
