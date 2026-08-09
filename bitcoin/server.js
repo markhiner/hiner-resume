@@ -531,6 +531,7 @@ const htmlPage = `<!DOCTYPE html>
   --red-dim: rgba(239,68,68,0.14);
   --yellow: #f5c518;
   --yellow-dim: rgba(245,197,24,0.14);
+  --orange: #f97316;
 }
 
 html, body {
@@ -548,17 +549,16 @@ body {
 #app {
   max-width: 480px;
   margin: 0 auto;
-  padding: 14px 14px 28px;
+  padding: 10px 10px 22px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
-/* ── header ── */
-.hdr { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 0; }
-.hdr-title { font-size: 15px; font-weight: 800; letter-spacing: 2px; color: var(--text1); }
-.hdr-title span { color: var(--text3); font-weight: 600; }
-.status { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text3); }
+/* ── brand row ── */
+.brand-row { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 2px; }
+.brand-text { font-size: 10.5px; letter-spacing: 2px; color: var(--text3); font-weight: 800; text-transform: uppercase; }
+.brand-sep { color: var(--text3); font-size: 11px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
 .status-dot.live { background: var(--green); box-shadow: 0 0 0 0 rgba(34,197,94,0.5); animation: pulse 2s infinite; }
 .status-dot.degraded { background: var(--yellow); }
@@ -570,28 +570,31 @@ body {
 }
 
 /* ── big price ── */
-.price-card { text-align: center; padding: 6px 0 2px; }
-.price-label { font-size: 11px; letter-spacing: 2px; color: var(--text3); font-weight: 700; text-transform: uppercase; }
-.price-big { font-size: 52px; font-weight: 800; letter-spacing: -1px; line-height: 1.05; margin-top: 4px; color: var(--text1); font-variant-numeric: tabular-nums; }
-.price-delta { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 4px 10px; border-radius: 20px; font-size: 13px; font-weight: 700; }
+.price-big { font-size: clamp(46px, 15.5vw, 64px); font-weight: 800; letter-spacing: -1.5px; line-height: 1; text-align: center; color: var(--text1); font-variant-numeric: tabular-nums; }
+
+/* ── hero row: delta + countdown ── */
+.hero-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 0; }
+.price-delta { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 13px; font-weight: 700; }
 .price-delta.up   { background: var(--green-dim); color: var(--green); }
 .price-delta.down { background: var(--red-dim); color: var(--red); }
 .price-delta.flat { background: rgba(255,255,255,0.06); color: var(--text2); }
+.countdown { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; transition: color 0.6s linear; }
+.countdown.flashing { animation: countdownFlash 1s step-start infinite; }
+@keyframes countdownFlash { 50% { opacity: 0.15; } }
 
 /* ── range buttons ── */
-.range-row { display: flex; gap: 8px; }
-.range-btn {
-  flex: 1;
+.range-row-sm { display: flex; gap: 6px; justify-content: center; }
+.range-btn-sm {
   background: var(--panel2);
   border: 1px solid var(--border);
   color: var(--text2);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  padding: 10px 0;
-  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 4px 15px;
+  border-radius: 20px;
+  min-width: 32px;
 }
-.range-btn.active { background: var(--text1); color: #000; border-color: var(--text1); }
+.range-btn-sm.active { background: var(--text1); color: #000; border-color: var(--text1); }
 
 /* ── chart ── */
 .chart-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 10px 8px; }
@@ -602,41 +605,39 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 .chart-axis { display: flex; justify-content: space-between; padding: 4px 4px 0; font-size: 10px; color: var(--text3); }
 
 /* ── exchange rows ── */
-.rows-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-.ex-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); }
-.ex-row:last-child { border-bottom: none; }
-.ex-name { font-size: 14px; font-weight: 700; color: var(--text1); display: flex; align-items: center; gap: 7px; }
-.ex-name .tag { font-size: 9px; font-weight: 800; letter-spacing: 1px; color: var(--text3); background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 5px; }
-.ex-price-wrap { display: flex; align-items: center; gap: 8px; }
-.ex-price { font-size: 17px; font-weight: 800; padding: 3px 9px; border-radius: 7px; font-variant-numeric: tabular-nums; transition: background 0.25s, color 0.25s; }
+.rows-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; display: flex; overflow: hidden; }
+.ex-row { flex: 1; display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; }
+.ex-row + .ex-row { border-left: 1px solid var(--border); }
+.ex-name { font-size: 10.5px; font-weight: 800; color: var(--text3); letter-spacing: 0.5px; text-transform: uppercase; }
+.ex-price-wrap { display: flex; align-items: baseline; gap: 7px; }
+.ex-price { font-size: 15px; font-weight: 800; padding: 2px 7px; border-radius: 6px; font-variant-numeric: tabular-nums; transition: background 0.25s, color 0.25s; }
 .ex-price.up   { background: var(--green-dim); color: var(--green); }
 .ex-price.down { background: var(--red-dim); color: var(--red); }
 .ex-price.flat { background: rgba(255,255,255,0.05); color: var(--text1); }
-.ex-price.off  { background: transparent; color: var(--text3); font-weight: 600; }
-.ex-pct { font-size: 11px; font-weight: 700; min-width: 52px; text-align: right; }
+.ex-price.off  { background: transparent; color: var(--text3); font-weight: 600; font-size: 12px; }
+.ex-pct { font-size: 11px; font-weight: 700; }
 .ex-pct.up { color: var(--green); }
 .ex-pct.down { color: var(--red); }
 .ex-pct.flat { color: var(--text3); }
 
-/* ── trend card ── */
-.trend-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
-.trend-hdr { font-size: 11px; letter-spacing: 1.5px; color: var(--text3); font-weight: 800; text-transform: uppercase; margin-bottom: 10px; }
-.trend-headline { font-size: 15px; font-weight: 700; line-height: 1.4; color: var(--text1); }
+/* ── outlook (chance) card ── */
+.outlook-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
+.trend-headline { font-size: 14px; font-weight: 700; line-height: 1.35; color: var(--text1); }
 .trend-headline b.up { color: var(--green); }
 .trend-headline b.down { color: var(--red); }
-.gauge { position: relative; height: 8px; border-radius: 4px; margin: 12px 0 6px; background: linear-gradient(90deg, var(--red) 0%, var(--yellow) 50%, var(--green) 100%); }
-.gauge-pointer { position: absolute; top: -4px; width: 3px; height: 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 4px rgba(0,0,0,0.6); transform: translateX(-50%); }
+.gauge { position: relative; height: 8px; border-radius: 4px; margin: 10px 0 6px; background: linear-gradient(90deg, var(--red) 0%, var(--yellow) 50%, var(--green) 100%); }
+.gauge-pointer { position: absolute; top: -4px; width: 3px; height: 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 4px rgba(0,0,0,0.6); transform: translateX(-50%); animation: gaugePulse 1.4s ease-in-out infinite; }
+@keyframes gaugePulse { 0%, 100% { opacity: 1; transform: translateX(-50%) scaleY(1); } 50% { opacity: 0.5; transform: translateX(-50%) scaleY(1.3); } }
 .gauge-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text3); }
-.stat-chips { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.stat-chips { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .chip { font-size: 11px; font-weight: 700; padding: 5px 10px; border-radius: 20px; background: rgba(255,255,255,0.05); color: var(--text2); }
 .chip.green { color: var(--green); background: var(--green-dim); }
 .chip.red { color: var(--red); background: var(--red-dim); }
 .chip.yellow { color: var(--yellow); background: var(--yellow-dim); }
-.trend-disclaimer { font-size: 10px; color: var(--text3); font-style: italic; margin-top: 10px; line-height: 1.4; }
-.trend-warmup { font-size: 13px; color: var(--text2); padding: 6px 0; }
+.trend-warmup { font-size: 13px; color: var(--text2); padding: 4px 0; }
 
 /* ── kalshi vs model ── */
-.kalshi-block { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.kalshi-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
 .kalshi-hdr { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
 .kalshi-title { font-size: 11px; letter-spacing: 1.5px; color: var(--text3); font-weight: 800; text-transform: uppercase; }
 .kalshi-close { font-size: 10px; color: var(--text3); }
@@ -675,35 +676,38 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 .dot-item .d.on { background: var(--green); }
 .dot-item .d.off { background: var(--red); }
 
-@media (max-width: 360px) {
-  .price-big { font-size: 44px; }
-}
 </style>
 </head>
 <body>
 <div id="app">
 
-  <div class="hdr">
-    <div class="hdr-title">BTC<span>/</span>USD <span>· LIVE</span></div>
-    <div class="status"><span class="status-dot" id="statusDot"></span><span id="statusText">connecting…</span></div>
+  <div class="brand-row">
+    <span class="brand-text">Hiner BTC Benchmark</span>
+    <span class="brand-sep">|</span>
+    <span class="status-dot" id="statusDot"></span>
   </div>
 
-  <div class="price-card">
-    <div class="price-label">Blended Average</div>
-    <div class="price-big" id="bigPrice">—</div>
+  <div class="price-big" id="bigPrice">—</div>
+
+  <div class="hero-row">
     <div class="price-delta flat" id="priceDelta">— %</div>
+    <div class="countdown" id="countdown">60:00</div>
   </div>
 
-  <div class="range-row">
-    <button class="range-btn active" data-range="1h">1 HOUR</button>
-    <button class="range-btn" data-range="3h">3 HOURS</button>
-    <button class="range-btn" data-range="24h">24 HOURS</button>
+  <div class="outlook-card">
+    <div id="outlookBody"><div class="trend-warmup">Gathering data for a projection…</div></div>
+  </div>
+
+  <div class="range-row-sm">
+    <button class="range-btn-sm active" data-range="1h">1</button>
+    <button class="range-btn-sm" data-range="3h">3</button>
+    <button class="range-btn-sm" data-range="24h">24</button>
   </div>
 
   <div class="chart-card">
     <div class="chart-hdr">
-      <span>Range High <b class="hi" id="rangeHigh">—</b></span>
-      <span>Range Low <b class="lo" id="rangeLow">—</b></span>
+      <span>High <b class="hi" id="rangeHigh">—</b></span>
+      <span>Low <b class="lo" id="rangeLow">—</b></span>
     </div>
     <canvas id="chart"></canvas>
     <div class="chart-axis"><span id="axisStart">—</span><span id="axisEnd">now</span></div>
@@ -711,32 +715,22 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 
   <div class="rows-card" id="rowsCard">
     <div class="ex-row">
-      <div class="ex-name">Coinbase <span class="tag" id="cbTag">BTC/USD</span></div>
+      <div class="ex-name">Coinbase</div>
       <div class="ex-price-wrap">
-        <span class="ex-pct flat" id="cbPct">—</span>
         <span class="ex-price flat" id="cbPrice">—</span>
+        <span class="ex-pct flat" id="cbPct">—</span>
       </div>
     </div>
     <div class="ex-row">
-      <div class="ex-name">Bitstamp <span class="tag" id="bsTag">BTC/USD</span></div>
+      <div class="ex-name">Bitstamp</div>
       <div class="ex-price-wrap">
-        <span class="ex-pct flat" id="bsPct">—</span>
         <span class="ex-price flat" id="bsPrice">—</span>
-      </div>
-    </div>
-    <div class="ex-row">
-      <div class="ex-name">Average</div>
-      <div class="ex-price-wrap">
-        <span class="ex-pct flat" id="avgPct">—</span>
-        <span class="ex-price flat" id="avgPrice">—</span>
+        <span class="ex-pct flat" id="bsPct">—</span>
       </div>
     </div>
   </div>
 
-  <div class="trend-card">
-    <div class="trend-hdr">Next Hour Outlook</div>
-    <div id="trendBody"><div class="trend-warmup">Gathering data for a projection…</div></div>
-  </div>
+  <div class="kalshi-card" id="kalshiCard"></div>
 
   <div class="trades-card">
     <div class="trades-hdr"><span class="live-chip"></span>Live Trade Feed</div>
@@ -761,7 +755,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     range: "1h",
     history: [],
     live: { coinbase: null, bitstamp: null },
-    prevRow: { coinbase: null, bitstamp: null, average: null },
+    prevRow: { coinbase: null, bitstamp: null },
     rangeStartAvg: null,
     connCoinbase: false,
     connBitstamp: false,
@@ -824,7 +818,6 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 
   function refreshHeaderAndRows() {
     var avg = recomputeAverage();
-    var prevAvg = state.prevRow.average;
 
     if (avg != null) {
       document.getElementById("bigPrice").textContent = fmtUSD(avg);
@@ -840,22 +833,19 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 
     updateRow("cb", state.live.coinbase, state.prevRow.coinbase, state.connCoinbase);
     updateRow("bs", state.live.bitstamp, state.prevRow.bitstamp, state.connBitstamp);
-    updateRow("avg", avg, prevAvg, true);
 
     state.prevRow.coinbase = state.live.coinbase;
     state.prevRow.bitstamp = state.live.bitstamp;
-    state.prevRow.average = avg;
   }
 
   function updateStatus() {
     var dot = document.getElementById("statusDot");
-    var text = document.getElementById("statusText");
     var cb = state.connCoinbase, bs = state.connBitstamp;
     document.getElementById("footCbDot").className = "d " + (cb ? "on" : "off");
     document.getElementById("footBsDot").className = "d " + (bs ? "on" : "off");
-    if (cb && bs) { dot.className = "status-dot live"; text.textContent = "live"; }
-    else if (cb || bs) { dot.className = "status-dot degraded"; text.textContent = "degraded feed"; }
-    else { dot.className = "status-dot down"; text.textContent = "reconnecting…"; }
+    if (cb && bs) { dot.className = "status-dot live"; }
+    else if (cb || bs) { dot.className = "status-dot degraded"; }
+    else { dot.className = "status-dot down"; }
   }
 
   function tickLastUpdated() {
@@ -864,6 +854,33 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     document.getElementById("lastUpdated").textContent = secs <= 1 ? "updated just now" : "updated " + secs + "s ago";
   }
   setInterval(tickLastUpdated, 1000);
+
+  // ---------- countdown to top of hour ----------
+
+  function countdownColor(remainingSec) {
+    var WHITE = [255, 255, 255], YELLOW = [245, 197, 24], ORANGE = [249, 115, 22], RED = [239, 68, 68];
+    function lerp(a, b, t) { return [0, 1, 2].map(function (i) { return Math.round(a[i] + (b[i] - a[i]) * t); }); }
+    function rgb(c) { return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")"; }
+    if (remainingSec >= 2400) return rgb(WHITE);
+    if (remainingSec >= 1800) return rgb(lerp(WHITE, YELLOW, (2400 - remainingSec) / 600));
+    if (remainingSec >= 900) return rgb(lerp(YELLOW, ORANGE, (1800 - remainingSec) / 900));
+    if (remainingSec >= 300) return rgb(lerp(ORANGE, RED, (900 - remainingSec) / 600));
+    return rgb(RED);
+  }
+
+  function updateCountdown() {
+    var now = new Date();
+    var secsPastHour = now.getMinutes() * 60 + now.getSeconds();
+    var remaining = 3600 - secsPastHour;
+    if (remaining <= 0) remaining += 3600;
+    var m = Math.floor(remaining / 60), s = remaining % 60;
+    var el = document.getElementById("countdown");
+    el.textContent = m + ":" + String(s).padStart(2, "0");
+    el.style.color = countdownColor(remaining);
+    el.classList.toggle("flashing", remaining < 300);
+  }
+  setInterval(updateCountdown, 1000);
+  updateCountdown();
 
   // ---------- chart ----------
 
@@ -901,23 +918,30 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     var volH = h * 0.18;
     var chartH = h - volH - 4;
     var n = data.length;
-    var x = function (i) { return n <= 1 ? 0 : (i / (n - 1)) * w; };
+    var leftPad = 44;
+    var plotW = Math.max(w - leftPad, 10);
+    var x = function (i) { return leftPad + (n <= 1 ? 0 : (i / (n - 1)) * plotW); };
     var y = function (v) { return chartH - ((v - minP) / (maxP - minP)) * chartH; };
 
     // volume bars
     ctx.fillStyle = "rgba(255,255,255,0.10)";
-    var barW = Math.max(w / n - 1, 1);
+    var barW = Math.max(plotW / n - 1, 1);
     for (var i = 0; i < n; i++) {
       var bh = (vols[i] / maxV) * volH;
       ctx.fillRect(x(i) - barW / 2, h - bh, barW, bh);
     }
 
-    // gridlines
+    // gridlines + left-side price scale
     ctx.strokeStyle = "rgba(255,255,255,0.06)";
     ctx.lineWidth = 1;
+    ctx.font = "9px -apple-system, sans-serif";
+    ctx.fillStyle = "rgba(255,255,255,0.4)";
+    ctx.textBaseline = "middle";
     for (var g = 0; g <= 3; g++) {
       var gy = (chartH / 3) * g;
-      ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(leftPad, gy); ctx.lineTo(w, gy); ctx.stroke();
+      var gVal = maxP - (gy / chartH) * (maxP - minP);
+      ctx.fillText(Math.round(gVal).toLocaleString(), 2, Math.min(Math.max(gy, 7), chartH - 4));
     }
 
     // filled area under avg line
@@ -982,9 +1006,9 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     if (state.range !== "1h") autoRefreshTimer = setInterval(fetchHistory, 30000);
   }
 
-  document.querySelectorAll(".range-btn").forEach(function (btn) {
+  document.querySelectorAll(".range-btn-sm").forEach(function (btn) {
     btn.addEventListener("click", function () {
-      document.querySelectorAll(".range-btn").forEach(function (b) { b.classList.remove("active"); });
+      document.querySelectorAll(".range-btn-sm").forEach(function (b) { b.classList.remove("active"); });
       btn.classList.add("active");
       state.range = btn.getAttribute("data-range");
       fetchHistory();
@@ -1015,10 +1039,11 @@ canvas#chart { width: 100%; height: 230px; display: block; }
   function normalCDF(z) { return 0.5 * (1 + erf(z / Math.SQRT2)); }
 
   function renderTrend(trend) {
-    var body = document.getElementById("trendBody");
+    var body = document.getElementById("outlookBody");
     if (!trend || trend.insufficient) {
       var have = trend ? trend.sampleSeconds || 0 : 0;
       body.innerHTML = '<div class="trend-warmup">Gathering data for a projection\\u2026 (' + have + 's of the first 60s collected)</div>';
+      renderKalshi(trend && trend.kalshi, null);
       return;
     }
 
@@ -1065,23 +1090,25 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     if (earlyRead) chips += '<span class="chip yellow">Early read \\u2014 low confidence</span>';
     chips += "</div>";
 
-    var kalshiHtml = renderKalshi(trend.kalshi, probPct);
-
-    body.innerHTML =
-      headline + gauge + chips + kalshiHtml +
-      '<div class="trend-disclaimer">Statistical momentum &amp; volatility projection from the last ~20 minutes. Kalshi figures are live market prices, delayed up to ~20s. For fun \\u2014 not financial advice.</div>';
+    body.innerHTML = headline + gauge + chips;
+    renderKalshi(trend.kalshi, probPct);
   }
 
   function renderKalshi(k, modelPct) {
+    var card = document.getElementById("kalshiCard");
     if (!k || !k.available || k.impliedProbAbove == null) {
-      return '<div class="kalshi-block">' +
+      card.innerHTML =
         '<div class="kalshi-hdr"><span class="kalshi-title">Kalshi Market Check</span></div>' +
-        '<div class="kalshi-off">Kalshi hourly BTC market unavailable right now.</div></div>';
+        '<div class="kalshi-off">Kalshi hourly BTC market unavailable right now.</div>';
+      return;
     }
     var marketPct = Math.round(k.impliedProbAbove * 100);
-    var edge = modelPct - marketPct;
-    var edgeCls = edge > 2 ? "up" : edge < -2 ? "down" : "flat";
-    var edgeStr = (edge > 0 ? "+" : "") + edge;
+    var edgeStr = "\\u2013", edgeCls = "flat";
+    if (modelPct != null) {
+      var edge = modelPct - marketPct;
+      edgeCls = edge > 2 ? "up" : edge < -2 ? "down" : "flat";
+      edgeStr = (edge > 0 ? "+" : "") + edge;
+    }
     var closeStr = k.closeTime
       ? new Date(k.closeTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
       : "";
@@ -1095,14 +1122,14 @@ canvas#chart { width: 100%; height: 230px; display: block; }
         (ns.vol ? " \\u00b7 " + Math.round(ns.vol).toLocaleString() + " vol" : "") + "</div>";
     }
 
-    return '<div class="kalshi-block">' +
+    card.innerHTML =
       '<div class="kalshi-hdr"><span class="kalshi-title">Kalshi Market Check</span>' +
       (closeStr ? '<span class="kalshi-close">settles ' + closeStr + "</span>" : "") + "</div>" +
       '<div class="kalshi-compare">' +
-        '<div class="kalshi-cell"><div class="lbl">Model</div><div class="val">' + modelPct + "%</div></div>" +
+        '<div class="kalshi-cell"><div class="lbl">Model</div><div class="val">' + (modelPct != null ? modelPct + "%" : "\\u2013") + "</div></div>" +
         '<div class="kalshi-cell"><div class="lbl">Kalshi</div><div class="val">' + marketPct + "%</div></div>" +
         '<div class="kalshi-cell edge"><div class="lbl">Edge</div><div class="val ' + edgeCls + '">' + edgeStr + "</div></div>" +
-      "</div>" + detail + "</div>";
+      "</div>" + detail;
   }
 
   // ---------- live trade ticker ----------
