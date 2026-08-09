@@ -207,24 +207,62 @@ setInterval(() => {
 }, STALE_MS);
 
 // ---------- trend / momentum analytics ----------
-// Fun, best-effort statistical estimate — not financial advice. Modeled as
-// a random walk: projected drift (linear regression on recent price) plus
-// noise scaled by sqrt(time), turned into a probability via the normal CDF.
-// Client applies its own local wall-clock "minutes to the top of the hour"
-// so the projection always matches the viewer's timezone, not the server's.
+// Statistical estimate — not financial advice. The probability is computed
+// HERE on the server (single source of truth; clients just display it):
+//   drift      exponentially-weighted regression over the last 20 min, so
+//              an old spike stops driving "current" momentum once price
+//              goes flat (recent minutes dominate, tau = 5 min)
+//   momentum   drift is NOT extrapolated linearly to settlement — minute-
+//              scale momentum decays fast, so its contribution saturates
+//              at ~MOMENTUM_TAU_MIN minutes' worth (OU-style persistence)
+//   exhaustion an extreme RSI damps drift in its own direction (a move
+//              that already looks overbought gets less extrapolation)
+//   volatility blend of three horizons (EW per-second, 1-min bars over the
+//              last hour, 5-min bars over 3h) with an absolute floor, so
+//              neither microstructure noise nor a quiet stretch dominates
+//   drift SE   the regression slope's own standard error inflates the
+//              projection variance — a noisy trend fit means less certainty
+//   fat tails  Student-t (nu=4) CDF instead of Gaussian, softening the
+//              extremes BTC actually violates
+//   anchor     settlement time comes from the live Kalshi market's close
+//              (top of the hour), not the viewer's wall clock
+//   smoothing  output is EWMA-smoothed across updates unless the target
+//              strike changes, so the card doesn't twitch
 
-function linearRegression(points) {
-  const n = points.length;
-  if (n < 2) return null;
-  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-  for (const p of points) { sumX += p.x; sumY += p.y; sumXY += p.x * p.y; sumXX += p.x * p.x; }
-  const denom = n * sumXX - sumX * sumX;
-  if (denom === 0) return null;
-  const slope = (n * sumXY - sumX * sumY) / denom;
-  const intercept = (sumY - slope * sumX) / n;
-  let ssRes = 0;
-  for (const p of points) { const pred = slope * p.x + intercept; ssRes += (p.y - pred) ** 2; }
-  return { slope, intercept, residualStd: Math.sqrt(ssRes / n) };
+const DRIFT_TAU_SEC = 300;      // e-folding age for regression weights
+const MOMENTUM_TAU_MIN = 6;     // how long current momentum is trusted to persist
+const VOL_FLOOR_FRAC = 0.00008; // per-minute vol floor as a fraction of price (~0.8bp)
+
+function weightedRegression(points, tauSec, tNow) {
+  // points: { t (ms), y }, weights decay exponentially with age
+  if (points.length < 2) return null;
+  const t0 = points[0].t;
+  let sw = 0, swx = 0, swy = 0, swxx = 0, swxy = 0;
+  for (const p of points) {
+    const w = Math.exp(-(tNow - p.t) / 1000 / tauSec);
+    const x = (p.t - t0) / 60000;
+    sw += w; swx += w * x; swy += w * p.y; swxx += w * x * x; swxy += w * x * p.y;
+  }
+  const denom = sw * swxx - swx * swx;
+  if (denom === 0 || sw === 0) return null;
+  const slope = (sw * swxy - swx * swy) / denom;
+  const intercept = (swy - slope * swx) / sw;
+  let ssr = 0;
+  for (const p of points) {
+    const w = Math.exp(-(tNow - p.t) / 1000 / tauSec);
+    const x = (p.t - t0) / 60000;
+    ssr += w * (p.y - (slope * x + intercept)) ** 2;
+  }
+  const residVar = ssr / sw;
+  const sxx = swxx - (swx * swx) / sw;
+  const slopeSE = sxx > 0 ? Math.sqrt(residVar / sxx) : 0;
+  return { slope, intercept, residualStd: Math.sqrt(residVar), slopeSE };
+}
+
+// Student-t CDF, nu=4 (closed form; fatter tails than Gaussian)
+function tCDF4(x) {
+  const q = 1 + (x * x) / 4;
+  return 0.5 + (3 / 8) * (x / Math.sqrt(q)) * (1 - (x * x) / (12 * q));
 }
 
 function computeRSI(closes, period) {
@@ -254,6 +292,17 @@ function computeStreak(closes) {
   return { count, direction: dir || "flat" };
 }
 
+function barCloseVol(closes, barMinutes) {
+  // stdev of close-to-close moves, normalized to a per-minute figure
+  if (closes.length < 5) return null;
+  const rets = [];
+  for (let i = 1; i < closes.length; i++) rets.push(closes[i] - closes[i - 1]);
+  const m = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const v = rets.reduce((a, b) => a + (b - m) ** 2, 0) / rets.length;
+  const s = Math.sqrt(v) / Math.sqrt(barMinutes);
+  return isFinite(s) && s > 0 ? s : null;
+}
+
 function computeTrend() {
   const now = Date.now();
   const lookbackMs = 20 * 60 * 1000;
@@ -262,39 +311,116 @@ function computeTrend() {
     return { insufficient: true, sampleSeconds: relevant.length, warmupSeconds: 60 };
   }
 
-  const t0 = relevant[0].t;
-  const points = relevant.map((p) => ({ x: (p.t - t0) / 60000, y: p.avg }));
-  const reg = linearRegression(points);
+  const reg = weightedRegression(relevant.map((p) => ({ t: p.t, y: p.avg })), DRIFT_TAU_SEC, now);
   if (!reg) return { insufficient: true, sampleSeconds: relevant.length };
 
-  // Realized volatility from every second-over-second move in the window,
-  // scaled to a per-minute figure (variance scales with time for a random
-  // walk, so stdev scales with sqrt(time)). Deliberately NOT sampled once a
-  // minute — a snapshot every 60s can miss a spike-and-reversion that
-  // happens entirely between two snapshots, understating how choppy the
-  // price actually was and making the projection overconfident.
-  const secReturns = [];
-  for (let i = 1; i < relevant.length; i++) secReturns.push(relevant[i].avg - relevant[i - 1].avg);
-  let volPerMin = reg.residualStd || 1;
-  if (secReturns.length >= 30) {
-    const meanR = secReturns.reduce((a, b) => a + b, 0) / secReturns.length;
-    const varR = secReturns.reduce((a, b) => a + (b - meanR) ** 2, 0) / secReturns.length;
-    volPerMin = Math.sqrt(varR) * Math.sqrt(60) || volPerMin;
-  }
+  const price = relevant[relevant.length - 1].avg;
 
+  // Volatility component 1: exponentially-weighted per-second realized vol,
+  // scaled to per-minute (recent choppiness counts most, but nothing that
+  // happened inside the window is invisible the way once-a-minute sampling was)
+  let sw = 0, swr2 = 0;
+  for (let i = 1; i < relevant.length; i++) {
+    const r = relevant[i].avg - relevant[i - 1].avg;
+    const w = Math.exp(-(now - relevant[i].t) / 1000 / DRIFT_TAU_SEC);
+    sw += w; swr2 += w * r * r;
+  }
+  const vSec = sw > 0 ? Math.sqrt(swr2 / sw) * Math.sqrt(60) : null;
+
+  // Component 2: 1-minute bar closes over the last hour
   const allCloses = minuteBars.map((b) => b.close).concat(currentBar ? [currentBar.close] : []);
+  const vMin = barCloseVol(allCloses.slice(-60), 1);
+
+  // Component 3: 5-minute closes over the last 3 hours (regime context)
+  const fiveMinCloses = [];
+  const recent3h = minuteBars.slice(-36 * 5);
+  for (let i = 4; i < recent3h.length; i += 5) fiveMinCloses.push(recent3h[i].close);
+  const v5Min = barCloseVol(fiveMinCloses, 5);
+
+  // Blend whatever components exist (weights renormalized), then floor
+  const comps = [[vSec, 0.5], [vMin, 0.3], [v5Min, 0.2]].filter((c) => c[0] != null);
+  let volPerMin = reg.residualStd || 1;
+  if (comps.length) {
+    const wSum = comps.reduce((a, c) => a + c[1], 0);
+    volPerMin = Math.sqrt(comps.reduce((a, c) => a + (c[1] / wSum) * c[0] * c[0], 0));
+  }
+  volPerMin = Math.max(volPerMin, VOL_FLOOR_FRAC * price);
+
   const rsi = computeRSI(allCloses, 14);
   const streak = computeStreak(allCloses.slice(-30));
 
   return {
     insufficient: false,
     driftPerMin: reg.slope,
+    driftSE: reg.slopeSE,
     volPerMin,
     sampleMinutes: Math.round((relevant.length / 60) * 10) / 10,
-    currentPrice: relevant[relevant.length - 1].avg,
+    currentPrice: price,
     rsi: rsi == null ? null : Math.round(rsi * 10) / 10,
     streakCount: streak.count,
     streakDirection: streak.direction,
+  };
+}
+
+// ---------- forecast: probability of settling above the benchmark ----------
+
+let forecastSmooth = { prob: null, threshold: null };
+
+function computeForecast() {
+  const trend = computeTrend();
+  if (trend.insufficient) return { ...trend, kalshi: kalshiState };
+
+  const price = trend.currentPrice;
+  const k = kalshiState;
+  const hasK = !!(k && k.available && k.nearestStrike);
+  const threshold = hasK ? k.nearestStrike.strike : price;
+
+  // settle at the Kalshi market close when known; else next top of the UTC hour
+  const now = Date.now();
+  let settleTs = hasK && k.closeTime ? k.closeTime : null;
+  if (!settleTs || settleTs <= now) {
+    const d = new Date(now);
+    d.setUTCMinutes(60, 0, 0);
+    settleTs = d.getTime();
+  }
+  const T = Math.min(Math.max((settleTs - now) / 60000, 0.25), 90);
+
+  // momentum persists ~MOMENTUM_TAU_MIN minutes, not the whole horizon
+  const persist = MOMENTUM_TAU_MIN * (1 - Math.exp(-T / MOMENTUM_TAU_MIN));
+
+  // exhaustion: extreme RSI damps drift in its own direction
+  let drift = trend.driftPerMin;
+  if (trend.rsi != null) {
+    if (trend.rsi > 70 && drift > 0) drift *= Math.max(0.3, 1 - (trend.rsi - 70) / 40);
+    else if (trend.rsi < 30 && drift < 0) drift *= Math.max(0.3, 1 - (30 - trend.rsi) / 40);
+  }
+
+  const expectedMove = drift * persist;
+  const gap = threshold - price;
+  // diffusion variance plus the drift estimate's own uncertainty
+  const varMove = trend.volPerMin ** 2 * T + ((trend.driftSE || 0) * persist) ** 2;
+  const z = varMove > 0 ? (expectedMove - gap) / Math.sqrt(varMove) : (expectedMove >= gap ? 5 : -5);
+
+  let p = tCDF4(z);
+  p = Math.min(Math.max(p, 0.03), 0.97);
+  if (forecastSmooth.prob != null && forecastSmooth.threshold === threshold) {
+    p = 0.6 * p + 0.4 * forecastSmooth.prob;
+  }
+  forecastSmooth = { prob: p, threshold };
+
+  return {
+    ...trend,
+    kalshi: k,
+    model: {
+      probAbove: Math.round(p * 1000) / 1000,
+      threshold,
+      benchmark: hasK,
+      minutesRemaining: Math.round(T * 10) / 10,
+      settleTs,
+      z: Math.round(z * 100) / 100,
+      expectedMove: Math.round(expectedMove * 100) / 100,
+      gap: Math.round(gap * 100) / 100,
+    },
   };
 }
 
@@ -447,7 +573,7 @@ function broadcast(msg) {
   const data = JSON.stringify(msg);
   for (const c of clients) if (c.readyState === WebSocket.OPEN) c.send(data);
 }
-setInterval(() => broadcast({ type: "trend", ...computeTrend(), kalshi: kalshiState }), 10000);
+setInterval(() => broadcast({ type: "trend", ...computeForecast() }), 10000);
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -468,7 +594,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/api/trend") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ...computeTrend(), kalshi: kalshiState }));
+    res.end(JSON.stringify(computeForecast()));
     return;
   }
   if (url.pathname === "/api/kalshi") {
@@ -492,7 +618,7 @@ server.on("upgrade", (req, socket, head) => {
   if (pathname !== "/stream") { socket.destroy(); return; }
   wss.handleUpgrade(req, socket, head, (ws) => {
     clients.add(ws);
-    ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: { ...computeTrend(), kalshi: kalshiState } }));
+    ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: computeForecast() }));
     ws.on("close", () => clients.delete(ws));
     ws.on("error", () => clients.delete(ws));
   });
@@ -1192,63 +1318,34 @@ canvas#chart { width: 100%; height: 230px; display: block; }
   }
 
   // ---------- trend widget ----------
-
-  function erf(x) {
-    var sign = x < 0 ? -1 : 1;
-    x = Math.abs(x);
-    var a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
-    var t = 1 / (1 + p * x);
-    var y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
-    return sign * y;
-  }
-  function normalCDF(z) { return 0.5 * (1 + erf(z / Math.SQRT2)); }
+  // The probability itself is computed server-side (trend.model) — one
+  // source of truth shared with /api/trend and the Python lab. This just
+  // renders it.
 
   function renderTrend(trend) {
     var body = document.getElementById("outlookBody");
-    if (!trend || trend.insufficient) {
+    if (!trend || trend.insufficient || !trend.model) {
       var have = trend ? trend.sampleSeconds || 0 : 0;
       body.innerHTML = '<div class="trend-warmup">Gathering data for a projection\\u2026 (' + have + 's of the first 60s collected)</div>';
       renderKalshi(trend && trend.kalshi, null);
       return;
     }
 
-    var now = new Date();
-    var minutesRemaining = 60 - now.getMinutes() - now.getSeconds() / 60;
-    if (minutesRemaining <= 0) minutesRemaining = 60;
-
-    // Target the fixed Kalshi strike (the "benchmark level") instead of the
-    // live price — the live price moves every tick, which made this card
-    // restate a new question every time it redrew. A strike only changes
-    // when price drifts into a different bracket or the hourly market rolls,
-    // so the question being asked stays put.
-    var kalshiForModel = trend.kalshi;
-    var benchmark = (kalshiForModel && kalshiForModel.available && kalshiForModel.nearestStrike)
-      ? kalshiForModel.nearestStrike.strike
-      : null;
-    var threshold = benchmark != null ? benchmark : trend.currentPrice;
-
-    var expectedMove = trend.driftPerMin * minutesRemaining;
-    var edgeToThreshold = threshold - trend.currentPrice;
-    var std = trend.volPerMin * Math.sqrt(Math.max(minutesRemaining, 0.01));
-    var z = std > 0 ? (expectedMove - edgeToThreshold) / std : (expectedMove >= edgeToThreshold ? 5 : -5);
-    var probUp = normalCDF(z);
-    // clamp: a thin sample can saturate the CDF, and 100% is never honest
-    probUp = Math.min(Math.max(probUp, 0.03), 0.97);
-    var probPct = Math.round(probUp * 100); // always "P(above)" — matches the gauge and the Kalshi card
-    var direction = probUp >= 0.5 ? "up" : "down";
+    var m = trend.model;
+    var probPct = Math.round(m.probAbove * 100); // always "P(above)" — matches the gauge and the Kalshi card
+    var direction = probPct >= 50 ? "up" : "down";
     var headlinePct = direction === "up" ? probPct : 100 - probPct; // P(the stated direction)
     var earlyRead = trend.sampleMinutes < 10;
 
-    var targetHour = new Date(now.getTime() + minutesRemaining * 60000);
-    var targetLabel = targetHour.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    var targetLabel = new Date(m.settleTs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-    var edge = Math.abs(probUp - 0.5);
+    var edge = Math.abs(m.probAbove - 0.5);
     var confidence = edge > 0.25 ? "Strong" : edge > 0.1 ? "Leaning" : "Toss-up";
 
     var headline =
       '<div class="trend-headline">' +
       headlinePct + "% chance BTC is <b class=\\"" + direction + "\\">" + (direction === "up" ? "above" : "below") + "</b> " +
-      "$" + Math.round(threshold).toLocaleString("en-US") +
+      "$" + Math.round(m.threshold).toLocaleString("en-US") +
       " by <b>" + targetLabel + "</b></div>";
 
     var pointerPct = Math.min(Math.max(probPct, 2), 98);
@@ -1259,15 +1356,14 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     var chips = '<div class="stat-chips">';
     if (trend.rsi != null) {
       var rsiCls = trend.rsi > 70 ? "red" : trend.rsi < 30 ? "green" : "yellow";
-      var rsiLabel = trend.rsi > 70 ? "Overbought" : trend.rsi < 30 ? "Oversold" : "Neutral";
-      chips += '<span class="chip ' + rsiCls + '">RSI ' + trend.rsi + " \\u00b7 " + rsiLabel + "</span>";
+      chips += '<span class="chip ' + rsiCls + '">RSI ' + Math.round(trend.rsi) + "</span>";
     }
     if (trend.streakCount > 1 && trend.streakDirection !== "flat") {
       var streakCls = trend.streakDirection === "up" ? "green" : "red";
-      chips += '<span class="chip ' + streakCls + '">' + trend.streakCount + " " + trend.streakDirection + "-minutes in a row</span>";
+      chips += '<span class="chip ' + streakCls + '">' + (trend.streakDirection === "up" ? "Up " : "Down ") + trend.streakCount + " min</span>";
     }
-    chips += '<span class="chip">' + trend.sampleMinutes + "m sample</span>";
-    if (earlyRead) chips += '<span class="chip yellow">Early read \\u2014 low confidence</span>';
+    chips += '<span class="chip">' + Math.round(trend.sampleMinutes) + "m data</span>";
+    if (earlyRead) chips += '<span class="chip yellow">Warming up</span>';
     chips += "</div>";
 
     body.innerHTML = headline + gauge + chips;
