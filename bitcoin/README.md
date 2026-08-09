@@ -101,15 +101,35 @@ or just bookmark `btc.hiner.nyc` straight to the iPhone home screen — the
 page is already tagged `apple-mobile-web-app-capable` for a clean
 full-screen launch.
 
+- Checks the model against reality: the server polls Kalshi's hourly
+  "Bitcoin above/below" market (`KXBTCD`, public API, no key needed) and
+  interpolates the strike ladder at the current blended price. The outlook
+  card shows the model's probability, the market's implied probability,
+  and the gap between them ("edge"). The model's displayed probability is
+  clamped to 3–97% and flagged "Early read" until it has a 10-minute
+  sample.
+
 ## API
 
 - `GET /api/latest` — current snapshot (both exchange prices, blended
   average, bid/ask, 24h high/low, connection status).
 - `GET /api/history?range=1h|3h|24h` — chart data for that window, already
   bucketed to ~300 points with per-bucket high/low/avg/volume.
-- `GET /api/trend` — regression drift, volatility, RSI, streak.
+- `GET /api/trend` — regression drift, volatility, RSI, streak, plus the
+  current Kalshi state.
+- `GET /api/kalshi` — the live hourly market: implied probability at the
+  current price, nearest strike's quotes/volume, settle time.
 - `WS /stream` — live push: `snapshot` (1/sec), `trade` (per trade, either
-  exchange), `trend` (every 10s), plus a `bootstrap` message on connect.
+  exchange), `trend` (every 10s, includes Kalshi), plus a `bootstrap`
+  message on connect.
+
+## Python lab
+
+`lab/` holds the research/execution side — a lumibot strategy that trades
+the trend signal (backtest + Alpaca paper), OpenBB helpers for historical
+data, and a Kalshi edge monitor that paper-trades model-vs-market
+disagreements and scores the model's calibration after each hour settles.
+See `lab/README.md`.
 
 ## Notes
 

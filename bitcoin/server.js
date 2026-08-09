@@ -294,6 +294,104 @@ function computeTrend() {
   };
 }
 
+// ---------- Kalshi hourly market (public data, no auth) ----------
+// KXBTCD is Kalshi's "Bitcoin price above/below at {hour} ET" series — it
+// settles at the top of the hour, the exact question the Next Hour Outlook
+// answers. Each strike market's price IS the market's probability that
+// BTC ≥ strike at close, so interpolating the ladder at our blended price
+// gives a market-implied probability directly comparable to the model's.
+
+const KALSHI_API = "https://api.elections.kalshi.com/trade-api/v2";
+const KALSHI_SERIES = "KXBTCD";
+const KALSHI_POLL_MS = 20_000;
+
+let kalshiState = { available: false, error: null, updatedAt: 0 };
+const kalshiCloseCache = new Map(); // event_ticker -> close_time ms
+
+async function kalshiGET(pathname) {
+  const res = await fetch(KALSHI_API + pathname, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`kalshi ${pathname} → ${res.status}`);
+  return res.json();
+}
+
+function ladderMid(m) {
+  const bid = parseFloat(m.yes_bid_dollars), ask = parseFloat(m.yes_ask_dollars);
+  if (!Number.isFinite(bid) || !Number.isFinite(ask) || ask <= 0) return null;
+  if (ask - bid > 0.2) return null; // spread too wide to mean anything
+  return (bid + ask) / 2;
+}
+
+async function pollKalshi() {
+  try {
+    const price = currentAverage();
+    const { events = [] } = await kalshiGET(`/events?series_ticker=${KALSHI_SERIES}&status=open&limit=10`);
+    if (!events.length) throw new Error("no open events");
+
+    const now = Date.now();
+    for (const e of events) {
+      if (!kalshiCloseCache.has(e.event_ticker)) {
+        const { markets = [] } = await kalshiGET(`/markets?event_ticker=${e.event_ticker}&limit=1`);
+        if (markets.length) kalshiCloseCache.set(e.event_ticker, Date.parse(markets[0].close_time));
+      }
+    }
+    const candidates = events
+      .map((e) => ({ ticker: e.event_ticker, close: kalshiCloseCache.get(e.event_ticker) }))
+      .filter((e) => e.close && e.close > now)
+      .sort((a, b) => a.close - b.close);
+    if (!candidates.length) throw new Error("no upcoming close");
+    const ev = candidates[0];
+
+    const { markets = [] } = await kalshiGET(`/markets?event_ticker=${ev.ticker}&status=open&limit=200`);
+    const ladder = markets
+      .filter((m) => m.strike_type === "greater" && m.floor_strike != null)
+      .map((m) => ({
+        strike: m.floor_strike,
+        mid: ladderMid(m),
+        bid: parseFloat(m.yes_bid_dollars),
+        ask: parseFloat(m.yes_ask_dollars),
+        vol: parseFloat(m.volume_fp) || 0,
+        subtitle: m.yes_sub_title || m.subtitle,
+        ticker: m.ticker,
+      }))
+      .sort((a, b) => a.strike - b.strike);
+
+    let implied = null, below = null, above = null;
+    if (price != null) {
+      const quoted = ladder.filter((r) => r.mid != null);
+      for (const r of quoted) {
+        if (r.strike <= price) below = r;
+        else { above = r; break; }
+      }
+      if (below && above) {
+        const frac = (price - below.strike) / (above.strike - below.strike);
+        implied = below.mid + (above.mid - below.mid) * frac;
+      } else if (below) implied = below.mid;
+      else if (above) implied = above.mid;
+    }
+
+    const nearest = below && above
+      ? (price - below.strike <= above.strike - price ? below : above)
+      : below || above || null;
+
+    kalshiState = {
+      available: implied != null,
+      error: null,
+      updatedAt: now,
+      eventTicker: ev.ticker,
+      closeTime: ev.close,
+      impliedProbAbove: implied != null ? Math.round(implied * 1000) / 1000 : null,
+      refPrice: price,
+      nearestStrike: nearest
+        ? { strike: nearest.strike, subtitle: nearest.subtitle, bid: nearest.bid, ask: nearest.ask, vol: nearest.vol, ticker: nearest.ticker }
+        : null,
+    };
+  } catch (e) {
+    kalshiState = { ...kalshiState, available: false, error: e.message, updatedAt: Date.now() };
+  }
+}
+setInterval(pollKalshi, KALSHI_POLL_MS);
+pollKalshi();
+
 // ---------- history bucketing for chart ranges ----------
 
 function bucketize(data, bucketCount) {
@@ -345,7 +443,7 @@ function broadcast(msg) {
   const data = JSON.stringify(msg);
   for (const c of clients) if (c.readyState === WebSocket.OPEN) c.send(data);
 }
-setInterval(() => broadcast({ type: "trend", ...computeTrend() }), 10000);
+setInterval(() => broadcast({ type: "trend", ...computeTrend(), kalshi: kalshiState }), 10000);
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -366,7 +464,12 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/api/trend") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(computeTrend()));
+    res.end(JSON.stringify({ ...computeTrend(), kalshi: kalshiState }));
+    return;
+  }
+  if (url.pathname === "/api/kalshi") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(kalshiState));
     return;
   }
   if (url.pathname === "/api/trades") {
@@ -385,7 +488,7 @@ server.on("upgrade", (req, socket, head) => {
   if (pathname !== "/stream") { socket.destroy(); return; }
   wss.handleUpgrade(req, socket, head, (ws) => {
     clients.add(ws);
-    ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: computeTrend() }));
+    ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: { ...computeTrend(), kalshi: kalshiState } }));
     ws.on("close", () => clients.delete(ws));
     ws.on("error", () => clients.delete(ws));
   });
@@ -531,6 +634,22 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 .chip.yellow { color: var(--yellow); background: var(--yellow-dim); }
 .trend-disclaimer { font-size: 10px; color: var(--text3); font-style: italic; margin-top: 10px; line-height: 1.4; }
 .trend-warmup { font-size: 13px; color: var(--text2); padding: 6px 0; }
+
+/* ── kalshi vs model ── */
+.kalshi-block { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
+.kalshi-hdr { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.kalshi-title { font-size: 11px; letter-spacing: 1.5px; color: var(--text3); font-weight: 800; text-transform: uppercase; }
+.kalshi-close { font-size: 10px; color: var(--text3); }
+.kalshi-compare { display: flex; align-items: stretch; gap: 8px; }
+.kalshi-cell { flex: 1; background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; text-align: center; }
+.kalshi-cell .lbl { font-size: 9.5px; letter-spacing: 1px; color: var(--text3); font-weight: 700; text-transform: uppercase; }
+.kalshi-cell .val { font-size: 20px; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; color: var(--text1); }
+.kalshi-cell.edge .val.up { color: var(--green); }
+.kalshi-cell.edge .val.down { color: var(--red); }
+.kalshi-cell.edge .val.flat { color: var(--yellow); }
+.kalshi-detail { font-size: 11px; color: var(--text2); margin-top: 8px; text-align: center; }
+.kalshi-detail b { color: var(--text1); }
+.kalshi-off { font-size: 11.5px; color: var(--text3); font-style: italic; margin-top: 2px; }
 
 /* ── live trades ── */
 .trades-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
@@ -910,8 +1029,11 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     var std = trend.volPerMin * Math.sqrt(Math.max(minutesRemaining, 0.01));
     var z = std > 0 ? drift / std : 0;
     var probUp = normalCDF(z);
+    // clamp: a thin sample can saturate the CDF, and 100% is never honest
+    probUp = Math.min(Math.max(probUp, 0.03), 0.97);
     var probPct = Math.round(probUp * 100);
     var direction = probUp >= 0.5 ? "up" : "down";
+    var earlyRead = trend.sampleMinutes < 10;
 
     var targetHour = new Date(now.getTime() + minutesRemaining * 60000);
     var targetLabel = targetHour.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -940,11 +1062,47 @@ canvas#chart { width: 100%; height: 230px; display: block; }
       chips += '<span class="chip ' + streakCls + '">' + trend.streakCount + " " + trend.streakDirection + "-minutes in a row</span>";
     }
     chips += '<span class="chip">' + trend.sampleMinutes + "m sample</span>";
+    if (earlyRead) chips += '<span class="chip yellow">Early read \\u2014 low confidence</span>';
     chips += "</div>";
 
+    var kalshiHtml = renderKalshi(trend.kalshi, probPct);
+
     body.innerHTML =
-      headline + gauge + chips +
-      '<div class="trend-disclaimer">Statistical momentum &amp; volatility projection from the last ~20 minutes. For fun \\u2014 not financial advice.</div>';
+      headline + gauge + chips + kalshiHtml +
+      '<div class="trend-disclaimer">Statistical momentum &amp; volatility projection from the last ~20 minutes. Kalshi figures are live market prices, delayed up to ~20s. For fun \\u2014 not financial advice.</div>';
+  }
+
+  function renderKalshi(k, modelPct) {
+    if (!k || !k.available || k.impliedProbAbove == null) {
+      return '<div class="kalshi-block">' +
+        '<div class="kalshi-hdr"><span class="kalshi-title">Kalshi Market Check</span></div>' +
+        '<div class="kalshi-off">Kalshi hourly BTC market unavailable right now.</div></div>';
+    }
+    var marketPct = Math.round(k.impliedProbAbove * 100);
+    var edge = modelPct - marketPct;
+    var edgeCls = edge > 2 ? "up" : edge < -2 ? "down" : "flat";
+    var edgeStr = (edge > 0 ? "+" : "") + edge;
+    var closeStr = k.closeTime
+      ? new Date(k.closeTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : "";
+
+    var detail = "";
+    if (k.nearestStrike) {
+      var ns = k.nearestStrike;
+      var quote = (isFinite(ns.bid) ? Math.round(ns.bid * 100) : "\\u2013") + "\\u00a2/" +
+                  (isFinite(ns.ask) ? Math.round(ns.ask * 100) : "\\u2013") + "\\u00a2";
+      detail = '<div class="kalshi-detail">Nearest bracket: <b>' + ns.subtitle + "</b> \\u00b7 " + quote +
+        (ns.vol ? " \\u00b7 " + Math.round(ns.vol).toLocaleString() + " vol" : "") + "</div>";
+    }
+
+    return '<div class="kalshi-block">' +
+      '<div class="kalshi-hdr"><span class="kalshi-title">Kalshi Market Check</span>' +
+      (closeStr ? '<span class="kalshi-close">settles ' + closeStr + "</span>" : "") + "</div>" +
+      '<div class="kalshi-compare">' +
+        '<div class="kalshi-cell"><div class="lbl">Model</div><div class="val">' + modelPct + "%</div></div>" +
+        '<div class="kalshi-cell"><div class="lbl">Kalshi</div><div class="val">' + marketPct + "%</div></div>" +
+        '<div class="kalshi-cell edge"><div class="lbl">Edge</div><div class="val ' + edgeCls + '">' + edgeStr + "</div></div>" +
+      "</div>" + detail + "</div>";
   }
 
   // ---------- live trade ticker ----------
