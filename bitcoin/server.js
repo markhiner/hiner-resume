@@ -267,15 +267,19 @@ function computeTrend() {
   const reg = linearRegression(points);
   if (!reg) return { insufficient: true, sampleSeconds: relevant.length };
 
-  // per-minute volatility from minute-over-minute price deltas in-window
-  const minuteCloses = relevant.filter((_, i) => i % 60 === 0).map((p) => p.avg);
+  // Realized volatility from every second-over-second move in the window,
+  // scaled to a per-minute figure (variance scales with time for a random
+  // walk, so stdev scales with sqrt(time)). Deliberately NOT sampled once a
+  // minute — a snapshot every 60s can miss a spike-and-reversion that
+  // happens entirely between two snapshots, understating how choppy the
+  // price actually was and making the projection overconfident.
+  const secReturns = [];
+  for (let i = 1; i < relevant.length; i++) secReturns.push(relevant[i].avg - relevant[i - 1].avg);
   let volPerMin = reg.residualStd || 1;
-  if (minuteCloses.length >= 3) {
-    const rets = [];
-    for (let i = 1; i < minuteCloses.length; i++) rets.push(minuteCloses[i] - minuteCloses[i - 1]);
-    const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
-    const variance = rets.reduce((a, b) => a + (b - mean) ** 2, 0) / rets.length;
-    volPerMin = Math.sqrt(variance) || volPerMin;
+  if (secReturns.length >= 30) {
+    const meanR = secReturns.reduce((a, b) => a + b, 0) / secReturns.length;
+    const varR = secReturns.reduce((a, b) => a + (b - meanR) ** 2, 0) / secReturns.length;
+    volPerMin = Math.sqrt(varR) * Math.sqrt(60) || volPerMin;
   }
 
   const allCloses = minuteBars.map((b) => b.close).concat(currentBar ? [currentBar.close] : []);
