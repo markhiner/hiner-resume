@@ -1035,20 +1035,25 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  // "Nice" round tick values (1/2/5 x a power of 10) for an axis range —
-  // classic Heckbert-style algorithm, so labels read like 65,200 or 64,250
-  // instead of whatever a price happened to land on at a fixed pixel row.
-  function niceTicks(min, max, targetCount) {
+  // Y-axis gridlines only ever land on $50 or $100 increments — never a
+  // fraction of the visible range, never any other denomination. Thin them
+  // out (keeping the same $50/$100 grid, just skipping some) rather than
+  // switching denomination when a wide range would otherwise pack in dozens.
+  function niceTicks(min, max) {
     var range = max - min;
     if (!isFinite(range) || range <= 0) return [Math.round(min)];
-    var rawStep = range / targetCount;
-    var mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
-    var norm = rawStep / mag;
-    var niceNorm = norm < 1.414 ? 1 : norm < 3.162 ? 2 : norm < 7.071 ? 5 : 10;
-    var step = niceNorm * mag;
+    var step = range / 50 > 6 ? 100 : 50;
     var start = Math.ceil(min / step) * step;
     var ticks = [];
     for (var v = start; v <= max + step * 1e-6; v += step) ticks.push(Math.round(v));
+    if (!ticks.length) ticks.push(Math.round((min + max) / 2 / step) * step);
+    var maxLabels = 6;
+    if (ticks.length > maxLabels) {
+      var stride = Math.ceil(ticks.length / maxLabels);
+      var thinned = [];
+      for (var i = 0; i < ticks.length; i += stride) thinned.push(ticks[i]);
+      ticks = thinned;
+    }
     return ticks;
   }
 
@@ -1094,10 +1099,9 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     ctx.font = "9px -apple-system, sans-serif";
     ctx.fillStyle = "rgba(255,255,255,0.4)";
     ctx.textBaseline = "middle";
-    var priceTicks = niceTicks(minP, maxP, 4);
+    var priceTicks = niceTicks(minP, maxP);
     for (var t = 0; t < priceTicks.length; t++) {
-      var gy = y(priceTicks[t]);
-      if (gy < 0 || gy > chartH) continue;
+      var gy = Math.max(0, Math.min(chartH, y(priceTicks[t])));
       ctx.beginPath(); ctx.moveTo(leftPad, gy); ctx.lineTo(w, gy); ctx.stroke();
       ctx.fillText(priceTicks[t].toLocaleString(), 2, Math.min(Math.max(gy, 7), chartH - 4));
     }
