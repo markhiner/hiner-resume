@@ -4,3 +4,5 @@
 *.idlk
 video/
 saved-index.html
+bitcoin/node_modules/
+bitcoin/history.json

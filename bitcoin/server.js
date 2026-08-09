@@ -1,0 +1,1068 @@
+// Bitcoin live price ticker — Coinbase + Bitstamp, blended in real time.
+// Streams both exchanges over WebSocket, keeps a rolling 24h history in
+// memory (persisted to disk so a restart doesn't lose the chart), and
+// serves a self-contained mobile UI + JSON API + live WebSocket feed.
+//
+// Run with Node 18+. Requires the `ws` package: npm install, then
+// node server.js (see README.md for Cloudflare Tunnel + launchd setup).
+
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
+const WebSocket = require("ws");
+
+const PORT = process.env.PORT || 3001;
+const DATA_FILE = path.join(__dirname, "history.json");
+const COINBASE_WS = "wss://ws-feed.exchange.coinbase.com";
+const BITSTAMP_WS = "wss://ws.bitstamp.net";
+
+const MAX_SECOND_TICKS = 3600; // 1 hour @ 1/sec — full resolution window
+const MAX_MINUTE_BARS = 1440; // 24 hours @ 1/min — long-range window
+const MAX_TRADES = 40; // rapid-fire trade ticker buffer
+const SAVE_INTERVAL_MS = 60_000;
+const STALE_MS = 20_000; // force-reconnect a feed that's gone quiet
+
+// ---------- state ----------
+
+const ex = {
+  coinbase: { price: null, prevPrice: null, bid: null, ask: null, high24: null, low24: null, ts: null, connected: false },
+  bitstamp: { price: null, prevPrice: null, ts: null, connected: false },
+};
+
+let secondTicks = []; // { t, coinbase, bitstamp, avg, vol }
+let minuteBars = []; // { t, open, high, low, close, avg, vol }
+let currentBar = null;
+let recentTrades = []; // { t, ex, price, size, side, dir }
+let volSinceLastTick = 0;
+
+function currentAverage() {
+  const c = ex.coinbase.price, b = ex.bitstamp.price;
+  if (c != null && b != null) return (c + b) / 2;
+  if (c != null) return c;
+  if (b != null) return b;
+  return null;
+}
+
+// ---------- persistence ----------
+
+function loadHistory() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+    if (Array.isArray(parsed.minuteBars)) minuteBars = parsed.minuteBars.slice(-MAX_MINUTE_BARS);
+    if (Array.isArray(parsed.secondTicks)) secondTicks = parsed.secondTicks.slice(-MAX_SECOND_TICKS);
+    console.log(`Loaded ${minuteBars.length} minute bars, ${secondTicks.length} second ticks from disk`);
+  } catch {
+    console.log("No prior history on disk, starting fresh");
+  }
+}
+
+function saveHistory() {
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ minuteBars, secondTicks }));
+  } catch (e) {
+    console.error("Failed to save history:", e.message);
+  }
+}
+
+// ---------- ingest ----------
+
+function recordTrade(exchange, price, size, side) {
+  const prev = ex[exchange].prevPrice;
+  const dir = prev == null ? "flat" : price > prev ? "up" : price < prev ? "down" : "flat";
+  volSinceLastTick += size || 0;
+  const trade = { t: Date.now(), ex: exchange, price, size, side, dir };
+  recentTrades.push(trade);
+  if (recentTrades.length > MAX_TRADES) recentTrades.shift();
+  broadcast({ type: "trade", ...trade });
+}
+
+function ingestTick() {
+  const avg = currentAverage();
+  if (avg == null) { volSinceLastTick = 0; return; }
+
+  const t = Date.now();
+  const vol = volSinceLastTick;
+  volSinceLastTick = 0;
+
+  secondTicks.push({ t, coinbase: ex.coinbase.price, bitstamp: ex.bitstamp.price, avg, vol });
+  if (secondTicks.length > MAX_SECOND_TICKS) secondTicks.shift();
+
+  const minuteEpoch = Math.floor(t / 60000) * 60000;
+  if (!currentBar || currentBar.t !== minuteEpoch) {
+    if (currentBar) {
+      minuteBars.push(currentBar);
+      if (minuteBars.length > MAX_MINUTE_BARS) minuteBars.shift();
+    }
+    currentBar = { t: minuteEpoch, open: avg, high: avg, low: avg, close: avg, avg, vol };
+  } else {
+    currentBar.high = Math.max(currentBar.high, avg);
+    currentBar.low = Math.min(currentBar.low, avg);
+    currentBar.close = avg;
+    currentBar.avg = avg;
+    currentBar.vol += vol;
+  }
+
+  broadcast({ type: "snapshot", ...snapshot() });
+}
+setInterval(ingestTick, 1000);
+
+function snapshot() {
+  const avg = currentAverage();
+  const prevAvg = secondTicks.length > 1 ? secondTicks[secondTicks.length - 2].avg : avg;
+  return {
+    ts: Date.now(),
+    coinbase: ex.coinbase.price,
+    coinbaseConnected: ex.coinbase.connected,
+    bid: ex.coinbase.bid,
+    ask: ex.coinbase.ask,
+    high24: ex.coinbase.high24,
+    low24: ex.coinbase.low24,
+    bitstamp: ex.bitstamp.price,
+    bitstampConnected: ex.bitstamp.connected,
+    average: avg,
+    averagePrev: prevAvg,
+  };
+}
+
+// ---------- exchange connectors ----------
+
+let cbSocket = null, cbReconnectDelay = 1000;
+function connectCoinbase() {
+  cbSocket = new WebSocket(COINBASE_WS);
+  cbSocket.on("open", () => {
+    cbReconnectDelay = 1000;
+    ex.coinbase.connected = true;
+    cbSocket.send(JSON.stringify({ type: "subscribe", product_ids: ["BTC-USD"], channels: ["ticker"] }));
+    console.log("Coinbase connected");
+  });
+  cbSocket.on("message", (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
+    if (msg.type !== "ticker" || msg.product_id !== "BTC-USD") return;
+    const price = parseFloat(msg.price);
+    if (!Number.isFinite(price)) return;
+    ex.coinbase.prevPrice = ex.coinbase.price;
+    ex.coinbase.price = price;
+    if (msg.best_bid) ex.coinbase.bid = parseFloat(msg.best_bid);
+    if (msg.best_ask) ex.coinbase.ask = parseFloat(msg.best_ask);
+    if (msg.high_24h) ex.coinbase.high24 = parseFloat(msg.high_24h);
+    if (msg.low_24h) ex.coinbase.low24 = parseFloat(msg.low_24h);
+    ex.coinbase.ts = Date.now();
+    recordTrade("coinbase", price, parseFloat(msg.last_size) || 0, msg.side || "");
+  });
+  cbSocket.on("close", scheduleCoinbaseReconnect);
+  cbSocket.on("error", (err) => { console.error("Coinbase WS error:", err.message); try { cbSocket.terminate(); } catch {} });
+}
+function scheduleCoinbaseReconnect() {
+  ex.coinbase.connected = false;
+  console.log(`Coinbase disconnected, reconnecting in ${cbReconnectDelay}ms`);
+  setTimeout(connectCoinbase, cbReconnectDelay);
+  cbReconnectDelay = Math.min(cbReconnectDelay * 2, 30000);
+}
+
+let bsSocket = null, bsReconnectDelay = 1000;
+function connectBitstamp() {
+  bsSocket = new WebSocket(BITSTAMP_WS);
+  bsSocket.on("open", () => {
+    bsReconnectDelay = 1000;
+    ex.bitstamp.connected = true;
+    bsSocket.send(JSON.stringify({ event: "bts:subscribe", data: { channel: "live_trades_btcusd" } }));
+    console.log("Bitstamp connected");
+  });
+  bsSocket.on("message", (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
+    if (msg.event !== "trade") return;
+    let data = msg.data;
+    if (typeof data === "string") { try { data = JSON.parse(data); } catch { return; } }
+    if (!data) return;
+    const price = parseFloat(data.price);
+    if (!Number.isFinite(price)) return;
+    ex.bitstamp.prevPrice = ex.bitstamp.price;
+    ex.bitstamp.price = price;
+    ex.bitstamp.ts = Date.now();
+    recordTrade("bitstamp", price, parseFloat(data.amount) || 0, data.type === 0 ? "buy" : "sell");
+  });
+  bsSocket.on("close", scheduleBitstampReconnect);
+  bsSocket.on("error", (err) => { console.error("Bitstamp WS error:", err.message); try { bsSocket.terminate(); } catch {} });
+}
+function scheduleBitstampReconnect() {
+  ex.bitstamp.connected = false;
+  console.log(`Bitstamp disconnected, reconnecting in ${bsReconnectDelay}ms`);
+  setTimeout(connectBitstamp, bsReconnectDelay);
+  bsReconnectDelay = Math.min(bsReconnectDelay * 2, 30000);
+}
+
+// watchdog: some dead sockets never fire "close" — force-kill if stale
+setInterval(() => {
+  const now = Date.now();
+  if (ex.coinbase.connected && ex.coinbase.ts && now - ex.coinbase.ts > STALE_MS) {
+    console.log("Coinbase feed stale, forcing reconnect");
+    try { cbSocket.terminate(); } catch {}
+  }
+  if (ex.bitstamp.connected && ex.bitstamp.ts && now - ex.bitstamp.ts > STALE_MS) {
+    console.log("Bitstamp feed stale, forcing reconnect");
+    try { bsSocket.terminate(); } catch {}
+  }
+}, STALE_MS);
+
+// ---------- trend / momentum analytics ----------
+// Fun, best-effort statistical estimate — not financial advice. Modeled as
+// a random walk: projected drift (linear regression on recent price) plus
+// noise scaled by sqrt(time), turned into a probability via the normal CDF.
+// Client applies its own local wall-clock "minutes to the top of the hour"
+// so the projection always matches the viewer's timezone, not the server's.
+
+function linearRegression(points) {
+  const n = points.length;
+  if (n < 2) return null;
+  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+  for (const p of points) { sumX += p.x; sumY += p.y; sumXY += p.x * p.y; sumXX += p.x * p.x; }
+  const denom = n * sumXX - sumX * sumX;
+  if (denom === 0) return null;
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  let ssRes = 0;
+  for (const p of points) { const pred = slope * p.x + intercept; ssRes += (p.y - pred) ** 2; }
+  return { slope, intercept, residualStd: Math.sqrt(ssRes / n) };
+}
+
+function computeRSI(closes, period) {
+  if (closes.length < period + 1) return null;
+  const recent = closes.slice(-(period + 1));
+  let gainSum = 0, lossSum = 0;
+  for (let i = 1; i < recent.length; i++) {
+    const diff = recent[i] - recent[i - 1];
+    if (diff > 0) gainSum += diff; else lossSum += -diff;
+  }
+  const avgGain = gainSum / period, avgLoss = lossSum / period;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - 100 / (1 + rs);
+}
+
+function computeStreak(closes) {
+  if (closes.length < 2) return { count: 0, direction: "flat" };
+  let dir = null, count = 0;
+  for (let i = closes.length - 1; i > 0; i--) {
+    const d = closes[i] > closes[i - 1] ? "up" : closes[i] < closes[i - 1] ? "down" : "flat";
+    if (d === "flat") break;
+    if (dir === null) dir = d;
+    if (d !== dir) break;
+    count++;
+  }
+  return { count, direction: dir || "flat" };
+}
+
+function computeTrend() {
+  const now = Date.now();
+  const lookbackMs = 20 * 60 * 1000;
+  const relevant = secondTicks.filter((p) => now - p.t <= lookbackMs);
+  if (relevant.length < 60) {
+    return { insufficient: true, sampleSeconds: relevant.length, warmupSeconds: 60 };
+  }
+
+  const t0 = relevant[0].t;
+  const points = relevant.map((p) => ({ x: (p.t - t0) / 60000, y: p.avg }));
+  const reg = linearRegression(points);
+  if (!reg) return { insufficient: true, sampleSeconds: relevant.length };
+
+  // per-minute volatility from minute-over-minute price deltas in-window
+  const minuteCloses = relevant.filter((_, i) => i % 60 === 0).map((p) => p.avg);
+  let volPerMin = reg.residualStd || 1;
+  if (minuteCloses.length >= 3) {
+    const rets = [];
+    for (let i = 1; i < minuteCloses.length; i++) rets.push(minuteCloses[i] - minuteCloses[i - 1]);
+    const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+    const variance = rets.reduce((a, b) => a + (b - mean) ** 2, 0) / rets.length;
+    volPerMin = Math.sqrt(variance) || volPerMin;
+  }
+
+  const allCloses = minuteBars.map((b) => b.close).concat(currentBar ? [currentBar.close] : []);
+  const rsi = computeRSI(allCloses, 14);
+  const streak = computeStreak(allCloses.slice(-30));
+
+  return {
+    insufficient: false,
+    driftPerMin: reg.slope,
+    volPerMin,
+    sampleMinutes: Math.round((relevant.length / 60) * 10) / 10,
+    currentPrice: relevant[relevant.length - 1].avg,
+    rsi: rsi == null ? null : Math.round(rsi * 10) / 10,
+    streakCount: streak.count,
+    streakDirection: streak.direction,
+  };
+}
+
+// ---------- history bucketing for chart ranges ----------
+
+function bucketize(data, bucketCount) {
+  const clean = data.filter(Boolean);
+  if (!clean.length) return [];
+  if (clean.length <= bucketCount) {
+    return clean.map((p) => ({ t: p.t, avg: p.avg, high: p.high ?? p.avg, low: p.low ?? p.avg, vol: p.vol || 0 }));
+  }
+  const bucketSize = clean.length / bucketCount;
+  const out = [];
+  for (let i = 0; i < bucketCount; i++) {
+    const start = Math.floor(i * bucketSize);
+    const end = Math.max(Math.floor((i + 1) * bucketSize), start + 1);
+    const slice = clean.slice(start, end);
+    if (!slice.length) continue;
+    let high = -Infinity, low = Infinity, sum = 0, vol = 0;
+    for (const p of slice) {
+      const h = p.high ?? p.avg, l = p.low ?? p.avg;
+      if (h > high) high = h;
+      if (l < low) low = l;
+      sum += p.avg;
+      vol += p.vol || 0;
+    }
+    out.push({ t: slice[slice.length - 1].t, avg: sum / slice.length, high, low, vol });
+  }
+  return out;
+}
+
+function getHistory(range) {
+  const now = Date.now();
+  if (range === "1h") {
+    const cutoff = now - 60 * 60 * 1000;
+    return bucketize(secondTicks.filter((p) => p.t >= cutoff), 300);
+  }
+  if (range === "3h") {
+    const cutoff = now - 3 * 60 * 60 * 1000;
+    const bars = minuteBars.concat(currentBar ? [currentBar] : []).filter((b) => b.t >= cutoff);
+    return bucketize(bars, 300);
+  }
+  const cutoff = now - 24 * 60 * 60 * 1000;
+  const bars = minuteBars.concat(currentBar ? [currentBar] : []).filter((b) => b.t >= cutoff);
+  return bucketize(bars, 360);
+}
+
+// ---------- HTTP + WebSocket server ----------
+
+const clients = new Set();
+function broadcast(msg) {
+  const data = JSON.stringify(msg);
+  for (const c of clients) if (c.readyState === WebSocket.OPEN) c.send(data);
+}
+setInterval(() => broadcast({ type: "trend", ...computeTrend() }), 10000);
+
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
+  if (url.pathname === "/favicon.ico") { res.writeHead(204); res.end(); return; }
+
+  if (url.pathname === "/api/latest") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(snapshot()));
+    return;
+  }
+  if (url.pathname === "/api/history") {
+    const range = url.searchParams.get("range") || "1h";
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(getHistory(range)));
+    return;
+  }
+  if (url.pathname === "/api/trend") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(computeTrend()));
+    return;
+  }
+  if (url.pathname === "/api/trades") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(recentTrades));
+    return;
+  }
+
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(htmlPage);
+});
+
+const wss = new WebSocket.Server({ noServer: true });
+server.on("upgrade", (req, socket, head) => {
+  const { pathname } = new URL(req.url, `http://${req.headers.host}`);
+  if (pathname !== "/stream") { socket.destroy(); return; }
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    clients.add(ws);
+    ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: computeTrend() }));
+    ws.on("close", () => clients.delete(ws));
+    ws.on("error", () => clients.delete(ws));
+  });
+});
+
+setInterval(saveHistory, SAVE_INTERVAL_MS);
+function shutdown() {
+  console.log("Saving history before exit…");
+  saveHistory();
+  process.exit(0);
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
+// ---------- frontend ----------
+
+const htmlPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<title>BTC/USD — Live</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #000000;
+  --panel: #0b0b0d;
+  --panel2: #131317;
+  --border: #232329;
+  --text1: #ffffff;
+  --text2: #9a9aa2;
+  --text3: #5c5c66;
+  --green: #22c55e;
+  --green-dim: rgba(34,197,94,0.14);
+  --red: #ef4444;
+  --red-dim: rgba(239,68,68,0.14);
+  --yellow: #f5c518;
+  --yellow-dim: rgba(245,197,24,0.14);
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text1);
+  height: 100%;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  min-height: 100%;
+}
+
+#app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 14px 14px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── header ── */
+.hdr { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 0; }
+.hdr-title { font-size: 15px; font-weight: 800; letter-spacing: 2px; color: var(--text1); }
+.hdr-title span { color: var(--text3); font-weight: 600; }
+.status { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text3); }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
+.status-dot.live { background: var(--green); box-shadow: 0 0 0 0 rgba(34,197,94,0.5); animation: pulse 2s infinite; }
+.status-dot.degraded { background: var(--yellow); }
+.status-dot.down { background: var(--red); }
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.45); }
+  70%  { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+
+/* ── big price ── */
+.price-card { text-align: center; padding: 6px 0 2px; }
+.price-label { font-size: 11px; letter-spacing: 2px; color: var(--text3); font-weight: 700; text-transform: uppercase; }
+.price-big { font-size: 52px; font-weight: 800; letter-spacing: -1px; line-height: 1.05; margin-top: 4px; color: var(--text1); font-variant-numeric: tabular-nums; }
+.price-delta { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 4px 10px; border-radius: 20px; font-size: 13px; font-weight: 700; }
+.price-delta.up   { background: var(--green-dim); color: var(--green); }
+.price-delta.down { background: var(--red-dim); color: var(--red); }
+.price-delta.flat { background: rgba(255,255,255,0.06); color: var(--text2); }
+
+/* ── range buttons ── */
+.range-row { display: flex; gap: 8px; }
+.range-btn {
+  flex: 1;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 10px 0;
+  border-radius: 10px;
+}
+.range-btn.active { background: var(--text1); color: #000; border-color: var(--text1); }
+
+/* ── chart ── */
+.chart-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 10px 8px; }
+.chart-hdr { display: flex; justify-content: space-between; align-items: baseline; padding: 0 4px 6px; font-size: 11px; color: var(--text3); }
+.chart-hdr .hi { color: var(--green); font-weight: 700; }
+.chart-hdr .lo { color: var(--red); font-weight: 700; }
+canvas#chart { width: 100%; height: 230px; display: block; }
+.chart-axis { display: flex; justify-content: space-between; padding: 4px 4px 0; font-size: 10px; color: var(--text3); }
+
+/* ── exchange rows ── */
+.rows-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.ex-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.ex-row:last-child { border-bottom: none; }
+.ex-name { font-size: 14px; font-weight: 700; color: var(--text1); display: flex; align-items: center; gap: 7px; }
+.ex-name .tag { font-size: 9px; font-weight: 800; letter-spacing: 1px; color: var(--text3); background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 5px; }
+.ex-price-wrap { display: flex; align-items: center; gap: 8px; }
+.ex-price { font-size: 17px; font-weight: 800; padding: 3px 9px; border-radius: 7px; font-variant-numeric: tabular-nums; transition: background 0.25s, color 0.25s; }
+.ex-price.up   { background: var(--green-dim); color: var(--green); }
+.ex-price.down { background: var(--red-dim); color: var(--red); }
+.ex-price.flat { background: rgba(255,255,255,0.05); color: var(--text1); }
+.ex-price.off  { background: transparent; color: var(--text3); font-weight: 600; }
+.ex-pct { font-size: 11px; font-weight: 700; min-width: 52px; text-align: right; }
+.ex-pct.up { color: var(--green); }
+.ex-pct.down { color: var(--red); }
+.ex-pct.flat { color: var(--text3); }
+
+/* ── trend card ── */
+.trend-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+.trend-hdr { font-size: 11px; letter-spacing: 1.5px; color: var(--text3); font-weight: 800; text-transform: uppercase; margin-bottom: 10px; }
+.trend-headline { font-size: 15px; font-weight: 700; line-height: 1.4; color: var(--text1); }
+.trend-headline b.up { color: var(--green); }
+.trend-headline b.down { color: var(--red); }
+.gauge { position: relative; height: 8px; border-radius: 4px; margin: 12px 0 6px; background: linear-gradient(90deg, var(--red) 0%, var(--yellow) 50%, var(--green) 100%); }
+.gauge-pointer { position: absolute; top: -4px; width: 3px; height: 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 4px rgba(0,0,0,0.6); transform: translateX(-50%); }
+.gauge-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text3); }
+.stat-chips { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.chip { font-size: 11px; font-weight: 700; padding: 5px 10px; border-radius: 20px; background: rgba(255,255,255,0.05); color: var(--text2); }
+.chip.green { color: var(--green); background: var(--green-dim); }
+.chip.red { color: var(--red); background: var(--red-dim); }
+.chip.yellow { color: var(--yellow); background: var(--yellow-dim); }
+.trend-disclaimer { font-size: 10px; color: var(--text3); font-style: italic; margin-top: 10px; line-height: 1.4; }
+.trend-warmup { font-size: 13px; color: var(--text2); padding: 6px 0; }
+
+/* ── live trades ── */
+.trades-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
+.trades-hdr { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: 1.5px; color: var(--text3); font-weight: 800; text-transform: uppercase; margin-bottom: 8px; }
+.trades-hdr .live-chip { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 1.4s infinite; }
+.trades-list { display: flex; flex-direction: column-reverse; height: 168px; overflow: hidden; font-variant-numeric: tabular-nums; }
+.trade-row { display: flex; align-items: center; gap: 8px; padding: 3.5px 2px; font-size: 12.5px; border-bottom: 1px solid rgba(255,255,255,0.03); animation: slideIn 0.25s ease-out; }
+@keyframes slideIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+.trade-time { color: var(--text3); width: 60px; flex-shrink: 0; }
+.trade-ex { width: 62px; flex-shrink: 0; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; color: var(--text2); text-transform: uppercase; }
+.trade-size { color: var(--text2); flex: 1; text-align: left; font-size: 11.5px; }
+.trade-price { font-weight: 700; }
+.trade-price.up { color: var(--green); }
+.trade-price.down { color: var(--red); }
+.trade-price.flat { color: var(--text1); }
+
+/* ── footer ── */
+.footer { display: flex; justify-content: space-between; align-items: center; padding: 4px 4px 0; font-size: 10.5px; color: var(--text3); }
+.footer a { color: var(--text3); text-decoration: none; }
+.dot-list { display: flex; gap: 10px; }
+.dot-item { display: flex; align-items: center; gap: 4px; }
+.dot-item .d { width: 6px; height: 6px; border-radius: 50%; }
+.dot-item .d.on { background: var(--green); }
+.dot-item .d.off { background: var(--red); }
+
+@media (max-width: 360px) {
+  .price-big { font-size: 44px; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="hdr">
+    <div class="hdr-title">BTC<span>/</span>USD <span>· LIVE</span></div>
+    <div class="status"><span class="status-dot" id="statusDot"></span><span id="statusText">connecting…</span></div>
+  </div>
+
+  <div class="price-card">
+    <div class="price-label">Blended Average</div>
+    <div class="price-big" id="bigPrice">—</div>
+    <div class="price-delta flat" id="priceDelta">— %</div>
+  </div>
+
+  <div class="range-row">
+    <button class="range-btn active" data-range="1h">1 HOUR</button>
+    <button class="range-btn" data-range="3h">3 HOURS</button>
+    <button class="range-btn" data-range="24h">24 HOURS</button>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-hdr">
+      <span>Range High <b class="hi" id="rangeHigh">—</b></span>
+      <span>Range Low <b class="lo" id="rangeLow">—</b></span>
+    </div>
+    <canvas id="chart"></canvas>
+    <div class="chart-axis"><span id="axisStart">—</span><span id="axisEnd">now</span></div>
+  </div>
+
+  <div class="rows-card" id="rowsCard">
+    <div class="ex-row">
+      <div class="ex-name">Coinbase <span class="tag" id="cbTag">BTC/USD</span></div>
+      <div class="ex-price-wrap">
+        <span class="ex-pct flat" id="cbPct">—</span>
+        <span class="ex-price flat" id="cbPrice">—</span>
+      </div>
+    </div>
+    <div class="ex-row">
+      <div class="ex-name">Bitstamp <span class="tag" id="bsTag">BTC/USD</span></div>
+      <div class="ex-price-wrap">
+        <span class="ex-pct flat" id="bsPct">—</span>
+        <span class="ex-price flat" id="bsPrice">—</span>
+      </div>
+    </div>
+    <div class="ex-row">
+      <div class="ex-name">Average</div>
+      <div class="ex-price-wrap">
+        <span class="ex-pct flat" id="avgPct">—</span>
+        <span class="ex-price flat" id="avgPrice">—</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="trend-card">
+    <div class="trend-hdr">Next Hour Outlook</div>
+    <div id="trendBody"><div class="trend-warmup">Gathering data for a projection…</div></div>
+  </div>
+
+  <div class="trades-card">
+    <div class="trades-hdr"><span class="live-chip"></span>Live Trade Feed</div>
+    <div class="trades-list" id="tradesList"></div>
+  </div>
+
+  <div class="footer">
+    <div class="dot-list">
+      <span class="dot-item"><span class="d off" id="footCbDot"></span>Coinbase</span>
+      <span class="dot-item"><span class="d off" id="footBsDot"></span>Bitstamp</span>
+    </div>
+    <span id="lastUpdated">—</span>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var state = {
+    range: "1h",
+    history: [],
+    live: { coinbase: null, bitstamp: null },
+    prevRow: { coinbase: null, bitstamp: null, average: null },
+    rangeStartAvg: null,
+    connCoinbase: false,
+    connBitstamp: false,
+    high24: null,
+    low24: null,
+    lastMsgAt: 0,
+  };
+
+  var fmtUSD = function (n) {
+    if (n == null || !isFinite(n)) return "—";
+    return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+  var fmtUSDShort = function (n) {
+    if (n == null || !isFinite(n)) return "—";
+    return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+  var fmtPct = function (n) {
+    if (n == null || !isFinite(n)) return "—";
+    var sign = n > 0 ? "+" : "";
+    return sign + n.toFixed(2) + "%";
+  };
+  var dirClass = function (cur, prev) {
+    if (cur == null || prev == null) return "flat";
+    if (cur > prev) return "up";
+    if (cur < prev) return "down";
+    return "flat";
+  };
+
+  // ---------- header price + rows ----------
+
+  function recomputeAverage() {
+    var c = state.live.coinbase, b = state.live.bitstamp;
+    if (c != null && b != null) return (c + b) / 2;
+    if (c != null) return c;
+    if (b != null) return b;
+    return null;
+  }
+
+  function updateRow(id, price, prevPrice, connected) {
+    var priceEl = document.getElementById(id + "Price");
+    var pctEl = document.getElementById(id + "Pct");
+    if (!connected && price == null) {
+      priceEl.textContent = "reconnecting…";
+      priceEl.className = "ex-price off";
+      pctEl.textContent = "—";
+      pctEl.className = "ex-pct flat";
+      return;
+    }
+    var cls = dirClass(price, prevPrice);
+    priceEl.textContent = fmtUSDShort(price);
+    priceEl.className = "ex-price " + cls;
+
+    var base = state.rangeStartAvg;
+    if (base && price != null) {
+      var pct = ((price - base) / base) * 100;
+      pctEl.textContent = fmtPct(pct);
+      pctEl.className = "ex-pct " + (pct > 0 ? "up" : pct < 0 ? "down" : "flat");
+    }
+  }
+
+  function refreshHeaderAndRows() {
+    var avg = recomputeAverage();
+    var prevAvg = state.prevRow.average;
+
+    if (avg != null) {
+      document.getElementById("bigPrice").textContent = fmtUSD(avg);
+    }
+    if (state.rangeStartAvg && avg != null) {
+      var pct = ((avg - state.rangeStartAvg) / state.rangeStartAvg) * 100;
+      var deltaEl = document.getElementById("priceDelta");
+      var cls = pct > 0 ? "up" : pct < 0 ? "down" : "flat";
+      var arrow = pct > 0 ? "\\u25B2" : pct < 0 ? "\\u25BC" : "\\u2013";
+      deltaEl.className = "price-delta " + cls;
+      deltaEl.textContent = arrow + " " + fmtPct(pct) + " (" + state.range.toUpperCase() + ")";
+    }
+
+    updateRow("cb", state.live.coinbase, state.prevRow.coinbase, state.connCoinbase);
+    updateRow("bs", state.live.bitstamp, state.prevRow.bitstamp, state.connBitstamp);
+    updateRow("avg", avg, prevAvg, true);
+
+    state.prevRow.coinbase = state.live.coinbase;
+    state.prevRow.bitstamp = state.live.bitstamp;
+    state.prevRow.average = avg;
+  }
+
+  function updateStatus() {
+    var dot = document.getElementById("statusDot");
+    var text = document.getElementById("statusText");
+    var cb = state.connCoinbase, bs = state.connBitstamp;
+    document.getElementById("footCbDot").className = "d " + (cb ? "on" : "off");
+    document.getElementById("footBsDot").className = "d " + (bs ? "on" : "off");
+    if (cb && bs) { dot.className = "status-dot live"; text.textContent = "live"; }
+    else if (cb || bs) { dot.className = "status-dot degraded"; text.textContent = "degraded feed"; }
+    else { dot.className = "status-dot down"; text.textContent = "reconnecting…"; }
+  }
+
+  function tickLastUpdated() {
+    if (!state.lastMsgAt) return;
+    var secs = Math.round((Date.now() - state.lastMsgAt) / 1000);
+    document.getElementById("lastUpdated").textContent = secs <= 1 ? "updated just now" : "updated " + secs + "s ago";
+  }
+  setInterval(tickLastUpdated, 1000);
+
+  // ---------- chart ----------
+
+  var canvas = document.getElementById("chart");
+  var ctx = canvas.getContext("2d");
+
+  function resizeCanvas() {
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function drawChart() {
+    var data = state.history;
+    var rect = canvas.getBoundingClientRect();
+    var w = rect.width, h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+    if (!data.length) return;
+
+    var highs = data.map(function (p) { return p.high; });
+    var lows = data.map(function (p) { return p.low; });
+    var vols = data.map(function (p) { return p.vol || 0; });
+    var maxV = Math.max.apply(null, vols) || 1;
+    var maxP = Math.max.apply(null, highs);
+    var minP = Math.min.apply(null, lows);
+    if (maxP === minP) { maxP += 1; minP -= 1; }
+    var pad = (maxP - minP) * 0.08;
+    maxP += pad; minP -= pad;
+
+    document.getElementById("rangeHigh").textContent = fmtUSDShort(Math.max.apply(null, highs));
+    document.getElementById("rangeLow").textContent = fmtUSDShort(Math.min.apply(null, lows));
+
+    var volH = h * 0.18;
+    var chartH = h - volH - 4;
+    var n = data.length;
+    var x = function (i) { return n <= 1 ? 0 : (i / (n - 1)) * w; };
+    var y = function (v) { return chartH - ((v - minP) / (maxP - minP)) * chartH; };
+
+    // volume bars
+    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    var barW = Math.max(w / n - 1, 1);
+    for (var i = 0; i < n; i++) {
+      var bh = (vols[i] / maxV) * volH;
+      ctx.fillRect(x(i) - barW / 2, h - bh, barW, bh);
+    }
+
+    // gridlines
+    ctx.strokeStyle = "rgba(255,255,255,0.06)";
+    ctx.lineWidth = 1;
+    for (var g = 0; g <= 3; g++) {
+      var gy = (chartH / 3) * g;
+      ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke();
+    }
+
+    // filled area under avg line
+    var grad = ctx.createLinearGradient(0, 0, 0, chartH);
+    grad.addColorStop(0, "rgba(245,197,24,0.22)");
+    grad.addColorStop(1, "rgba(245,197,24,0.0)");
+    ctx.beginPath();
+    ctx.moveTo(x(0), y(data[0].avg));
+    for (var j = 1; j < n; j++) ctx.lineTo(x(j), y(data[j].avg));
+    ctx.lineTo(x(n - 1), chartH);
+    ctx.lineTo(x(0), chartH);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // avg line
+    ctx.beginPath();
+    ctx.moveTo(x(0), y(data[0].avg));
+    for (var k = 1; k < n; k++) ctx.lineTo(x(k), y(data[k].avg));
+    ctx.strokeStyle = "#f5c518";
+    ctx.lineWidth = 1.75;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+
+    // last point marker
+    var lastX = x(n - 1), lastY = y(data[n - 1].avg);
+    ctx.beginPath();
+    ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = "#fff";
+    ctx.fill();
+
+    var axisFmt = function (t) {
+      var d = new Date(t);
+      return state.range === "24h"
+        ? d.toLocaleTimeString([], { hour: "numeric" })
+        : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    };
+    document.getElementById("axisStart").textContent = axisFmt(data[0].t);
+    document.getElementById("axisEnd").textContent = axisFmt(data[n - 1].t);
+  }
+
+  window.addEventListener("resize", function () { resizeCanvas(); drawChart(); });
+
+  function setHistory(data) {
+    state.history = data;
+    if (data.length) state.rangeStartAvg = data[0].avg;
+    resizeCanvas();
+    drawChart();
+    refreshHeaderAndRows();
+  }
+
+  function fetchHistory() {
+    fetch("/api/history?range=" + state.range)
+      .then(function (r) { return r.json(); })
+      .then(setHistory)
+      .catch(function () {});
+  }
+
+  var autoRefreshTimer = null;
+  function armAutoRefresh() {
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    if (state.range !== "1h") autoRefreshTimer = setInterval(fetchHistory, 30000);
+  }
+
+  document.querySelectorAll(".range-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(".range-btn").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      state.range = btn.getAttribute("data-range");
+      fetchHistory();
+      armAutoRefresh();
+    });
+  });
+
+  function appendLivePoint(avg, vol) {
+    if (state.range !== "1h") return;
+    var now = Date.now();
+    state.history.push({ t: now, avg: avg, high: avg, low: avg, vol: vol || 0 });
+    var cutoff = now - 60 * 60 * 1000;
+    while (state.history.length && state.history[0].t < cutoff) state.history.shift();
+    if (state.history.length && state.rangeStartAvg == null) state.rangeStartAvg = state.history[0].avg;
+    drawChart();
+  }
+
+  // ---------- trend widget ----------
+
+  function erf(x) {
+    var sign = x < 0 ? -1 : 1;
+    x = Math.abs(x);
+    var a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+    var t = 1 / (1 + p * x);
+    var y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+    return sign * y;
+  }
+  function normalCDF(z) { return 0.5 * (1 + erf(z / Math.SQRT2)); }
+
+  function renderTrend(trend) {
+    var body = document.getElementById("trendBody");
+    if (!trend || trend.insufficient) {
+      var have = trend ? trend.sampleSeconds || 0 : 0;
+      body.innerHTML = '<div class="trend-warmup">Gathering data for a projection\\u2026 (' + have + 's of the first 60s collected)</div>';
+      return;
+    }
+
+    var now = new Date();
+    var minutesRemaining = 60 - now.getMinutes() - now.getSeconds() / 60;
+    if (minutesRemaining <= 0) minutesRemaining = 60;
+    var drift = trend.driftPerMin * minutesRemaining;
+    var std = trend.volPerMin * Math.sqrt(Math.max(minutesRemaining, 0.01));
+    var z = std > 0 ? drift / std : 0;
+    var probUp = normalCDF(z);
+    var probPct = Math.round(probUp * 100);
+    var direction = probUp >= 0.5 ? "up" : "down";
+
+    var targetHour = new Date(now.getTime() + minutesRemaining * 60000);
+    var targetLabel = targetHour.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+    var edge = Math.abs(probUp - 0.5);
+    var confidence = edge > 0.25 ? "Strong" : edge > 0.1 ? "Leaning" : "Toss-up";
+
+    var headline =
+      '<div class="trend-headline">' +
+      probPct + "% chance BTC is <b class=\\"" + direction + "\\">" + (direction === "up" ? "above" : "below") + "</b> " +
+      fmtUSD(trend.currentPrice) + " by <b>" + targetLabel + "</b></div>";
+
+    var pointerPct = Math.min(Math.max(probPct, 2), 98);
+    var gauge =
+      '<div class="gauge"><div class="gauge-pointer" style="left:' + pointerPct + '%"></div></div>' +
+      '<div class="gauge-labels"><span>Below</span><span>' + confidence + "</span><span>Above</span></div>";
+
+    var chips = '<div class="stat-chips">';
+    if (trend.rsi != null) {
+      var rsiCls = trend.rsi > 70 ? "red" : trend.rsi < 30 ? "green" : "yellow";
+      var rsiLabel = trend.rsi > 70 ? "Overbought" : trend.rsi < 30 ? "Oversold" : "Neutral";
+      chips += '<span class="chip ' + rsiCls + '">RSI ' + trend.rsi + " \\u00b7 " + rsiLabel + "</span>";
+    }
+    if (trend.streakCount > 1 && trend.streakDirection !== "flat") {
+      var streakCls = trend.streakDirection === "up" ? "green" : "red";
+      chips += '<span class="chip ' + streakCls + '">' + trend.streakCount + " " + trend.streakDirection + "-minutes in a row</span>";
+    }
+    chips += '<span class="chip">' + trend.sampleMinutes + "m sample</span>";
+    chips += "</div>";
+
+    body.innerHTML =
+      headline + gauge + chips +
+      '<div class="trend-disclaimer">Statistical momentum &amp; volatility projection from the last ~20 minutes. For fun \\u2014 not financial advice.</div>';
+  }
+
+  // ---------- live trade ticker ----------
+
+  var tradesList = document.getElementById("tradesList");
+  var MAX_VISIBLE_TRADES = 30;
+
+  function pushTradeRow(trade) {
+    var row = document.createElement("div");
+    row.className = "trade-row";
+    var d = new Date(trade.t);
+    var time = d.toLocaleTimeString([], { hour12: false });
+    row.innerHTML =
+      '<span class="trade-time">' + time + "</span>" +
+      '<span class="trade-ex">' + trade.ex + "</span>" +
+      '<span class="trade-size">' + (trade.size || 0).toFixed(5) + " BTC</span>" +
+      '<span class="trade-price ' + trade.dir + '">' + fmtUSDShort(trade.price) + "</span>";
+    tradesList.appendChild(row);
+    while (tradesList.children.length > MAX_VISIBLE_TRADES) tradesList.removeChild(tradesList.firstChild);
+  }
+
+  // ---------- websocket + fallback polling ----------
+
+  var ws = null, wsReconnectDelay = 1000, pollTimer = null;
+
+  function startPollingFallback() {
+    if (pollTimer) return;
+    pollTimer = setInterval(function () {
+      fetch("/api/latest").then(function (r) { return r.json(); }).then(function (snap) {
+        state.live.coinbase = snap.coinbase;
+        state.live.bitstamp = snap.bitstamp;
+        state.connCoinbase = snap.coinbaseConnected;
+        state.connBitstamp = snap.bitstampConnected;
+        state.high24 = snap.high24;
+        state.low24 = snap.low24;
+        state.lastMsgAt = Date.now();
+        refreshHeaderAndRows();
+        updateStatus();
+      }).catch(function () {});
+    }, 3000);
+  }
+  function stopPollingFallback() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function applySnapshot(snap) {
+    state.live.coinbase = snap.coinbase;
+    state.live.bitstamp = snap.bitstamp;
+    state.connCoinbase = snap.coinbaseConnected;
+    state.connBitstamp = snap.bitstampConnected;
+    state.high24 = snap.high24;
+    state.low24 = snap.low24;
+    state.lastMsgAt = Date.now();
+    refreshHeaderAndRows();
+    updateStatus();
+  }
+
+  function connectWS() {
+    var proto = location.protocol === "https:" ? "wss://" : "ws://";
+    ws = new WebSocket(proto + location.host + "/stream");
+
+    ws.onopen = function () {
+      wsReconnectDelay = 1000;
+      stopPollingFallback();
+    };
+
+    ws.onmessage = function (evt) {
+      var msg;
+      try { msg = JSON.parse(evt.data); } catch (e) { return; }
+
+      if (msg.type === "bootstrap") {
+        applySnapshot(msg.snapshot);
+        (msg.trades || []).forEach(pushTradeRow);
+        renderTrend(msg.trend);
+        fetchHistory();
+        armAutoRefresh();
+        return;
+      }
+      if (msg.type === "snapshot") { applySnapshot(msg); return; }
+      if (msg.type === "trade") {
+        var exKey = msg.ex === "coinbase" ? "coinbase" : "bitstamp";
+        state.live[exKey] = msg.price;
+        state.lastMsgAt = Date.now();
+        refreshHeaderAndRows();
+        appendLivePoint(recomputeAverage(), msg.size);
+        pushTradeRow(msg);
+        return;
+      }
+      if (msg.type === "trend") { renderTrend(msg); return; }
+    };
+
+    ws.onclose = function () {
+      startPollingFallback();
+      setTimeout(connectWS, wsReconnectDelay);
+      wsReconnectDelay = Math.min(wsReconnectDelay * 2, 15000);
+    };
+    ws.onerror = function () { try { ws.close(); } catch (e) {} };
+  }
+
+  function pollTrend() {
+    fetch("/api/trend").then(function (r) { return r.json(); }).then(renderTrend).catch(function () {});
+  }
+  setInterval(pollTrend, 15000);
+
+  connectWS();
+  fetchHistory();
+  armAutoRefresh();
+  pollTrend();
+})();
+</script>
+</body>
+</html>`;
+
+// ---------- boot ----------
+
+loadHistory();
+connectCoinbase();
+connectBitstamp();
+server.listen(PORT, () => {
+  console.log(`\nBitcoin ticker running at http://localhost:${PORT}\n`);
+});
