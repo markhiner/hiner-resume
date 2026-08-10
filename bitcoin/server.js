@@ -1102,7 +1102,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .port-side.yes { background: var(--green-dim); color: var(--green); }
 .port-side.no { background: var(--red-dim); color: var(--red); }
 .port-desc { flex: 1; font-size: 12.5px; color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.port-desc span { color: var(--text3); font-size: 11px; }
 .port-val { font-size: 14px; font-weight: 800; color: var(--text1); text-align: right; }
 .port-val span { display: block; font-size: 10px; font-weight: 600; color: var(--text3); }
 .port-pnl { font-size: 12.5px; font-weight: 800; text-align: right; min-width: 62px; }
@@ -1110,10 +1109,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .port-pnl.down { color: var(--red); }
 .port-pnl.flat { color: var(--text3); }
 .port-pnl span { display: block; font-size: 10px; font-weight: 600; opacity: 0.75; }
-.port-foot .pnl.up { color: var(--green); }
-.port-foot .pnl.down { color: var(--red); }
-.port-foot { display: flex; justify-content: space-between; padding-top: 8px; font-size: 11.5px; color: var(--text2); }
-.port-foot b { color: var(--text1); font-variant-numeric: tabular-nums; }
 .port-empty { font-size: 11.5px; color: var(--text3); font-style: italic; }
 
 /* ── live trades ── */
@@ -1785,9 +1780,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       html += '<div class="port-empty">No open contracts</div>';
     } else {
       html += p.positions.map(function (r) {
-        var settle = r.closeTime
-          ? ' <span>\\u00b7 settles ' + new Date(r.closeTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + "</span>"
-          : "";
         var per = r.perContract != null ? Math.round(r.perContract * 100) + "\\u00a2" : "no quote";
         if (r.avgCost != null && r.perContract != null) per += " \\u00b7 paid " + Math.round(r.avgCost * 100) + "\\u00a2";
         var val = r.value != null ? "$" + r.value.toFixed(2) : "\\u2013";
@@ -1803,22 +1795,12 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         }
         return '<div class="port-row">' +
           '<span class="port-side ' + r.side + '">' + r.side.toUpperCase() + qty + "</span>" +
-          '<span class="port-desc">' + r.subtitle + settle + "</span>" +
+          '<span class="port-desc">' + r.subtitle + "</span>" +
           '<span class="port-val">' + val + "<span>" + per + "</span></span>" +
           pnlHtml +
           "</div>";
       }).join("");
     }
-    var cashStr = p.cash != null ? "$" + p.cash.toFixed(2) : "\\u2013";
-    var totalStr = p.totalValue != null ? "$" + p.totalValue.toFixed(2) : "\\u2013";
-    var pnlFoot = "";
-    if (p.unrealizedPnl != null && isFinite(p.unrealizedPnl)) {
-      var fc = p.unrealizedPnl > 0.004 ? "up" : p.unrealizedPnl < -0.004 ? "down" : "";
-      var fs = p.unrealizedPnl > 0 ? "+" : p.unrealizedPnl < 0 ? "\\u2212" : "";
-      pnlFoot = '<span>Unrealized <b class="pnl ' + fc + '">' + fs + "$" + Math.abs(p.unrealizedPnl).toFixed(2) + "</b></span>";
-    }
-    html += '<div class="port-foot"><span>Cash <b>' + cashStr + "</b></span>" + pnlFoot +
-      "<span>Total <b>" + totalStr + "</b></span></div>";
     card.innerHTML = html;
     card.style.display = "";
   }
