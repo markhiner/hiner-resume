@@ -1208,8 +1208,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .port-pnl.flat { color: var(--text3); }
 .port-sell {
   flex-shrink: 0; margin-left: 6px; padding: 4px 10px; border-radius: 6px;
-  border: 1px solid rgba(239,68,68,0.5); background: rgba(239,68,68,0.12);
-  color: var(--red); font-size: 10.5px; font-weight: 800; letter-spacing: 0.5px;
+  border: 1px solid rgba(245,197,24,0.5); background: rgba(245,197,24,0.12);
+  color: var(--yellow); font-size: 10.5px; font-weight: 800; letter-spacing: 0.5px;
 }
 .port-sell.confirm { background: var(--red); border-color: var(--red); color: #fff; }
 .port-sell:disabled { opacity: 0.45; }
@@ -1916,6 +1916,18 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       var el = document.getElementById("sellMsg");
       el.textContent = sellMsg.text;
       el.className = "port-sell-msg " + sellMsg.cls;
+    }
+    // This card is rebuilt every second by the live quote feed, which would
+    // otherwise wipe an armed button back to its resting state after ~1s.
+    // Re-apply the armed look so it stays lit for the full confirm window.
+    if (armed.ticker) {
+      var armedBtn = card.querySelector('.port-sell[data-ticker="' + armed.ticker + '"]');
+      if (armedBtn) {
+        armedBtn.classList.add("confirm");
+        armedBtn.textContent = "CONFIRM?";
+      } else {
+        disarm(); // the position is gone (sold or settled)
+      }
     }
   }
 
