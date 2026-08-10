@@ -175,10 +175,17 @@ How it is protected:
   it is compared in constant time.
 - **Two taps.** The first tap arms the button ("CONFIRM?"), the second
   sends the order. Arming expires by itself after 5 seconds.
-- **Limit, not market.** The order is a limit sell priced at the current
-  bid on the side you hold. That crosses the spread and fills right away,
-  but unlike a market order it can never fill at an arbitrarily bad price
-  if the book is thin.
+- **Limit, not market.** The order is priced to cross the spread so it
+  fills right away, but unlike a market order it can never fill at an
+  arbitrarily bad price if the book is thin. It is `immediate_or_cancel`,
+  so nothing is left resting, and `reduce_only`, so it can only ever
+  shrink a position and never open a new one.
+
+Uses Kalshi's V2 order API (`external-api.kalshi.com`,
+`POST /portfolio/events/orders`). The older `/portfolio/orders` endpoint
+now returns `410 deprecated_v1_order_endpoint`. In V2 everything is
+quoted on the YES leg — `ask` sells YES, `bid` buys YES — so closing a
+NO position is placed as a YES buy.
 
 A PIN is a speed bump, not real authentication — anyone who reaches the
 URL can still see the button and guess at it. **If you enable selling,

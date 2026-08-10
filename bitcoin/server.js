@@ -658,9 +658,21 @@ async function kalshiAuthGET(pathname) {
   return res.json();
 }
 
-async function kalshiAuthPOST(pathname, body) {
+// Kalshi errors come back as {error:{code,message,details}} — flatten that
+// to something readable instead of "[object Object]".
+function kalshiErrText(json, text) {
+  const e = json && json.error;
+  if (e && typeof e === "object") {
+    return [e.code, e.message].filter(Boolean).join(": ") || JSON.stringify(e);
+  }
+  if (typeof e === "string") return e;
+  if (json && json.message) return json.message;
+  return (text || "").slice(0, 300);
+}
+
+async function kalshiAuthPOST(base, pathname, body) {
   const signPath = "/trade-api/v2" + pathname.split("?")[0];
-  const res = await fetch(KALSHI_API + pathname, {
+  const res = await fetch(base + pathname, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -673,17 +685,29 @@ async function kalshiAuthPOST(pathname, body) {
   let json = null;
   try { json = JSON.parse(text); } catch {}
   if (!res.ok) {
-    const detail = (json && (json.message || json.error)) || text.slice(0, 200);
-    throw new Error(`kalshi ${res.status}: ${detail}`);
+    console.error("Kalshi order response:", res.status, text.slice(0, 500));
+    throw new Error(`kalshi ${res.status}: ${kalshiErrText(json, text)}`);
   }
   return json;
 }
 
-// Sell an entire open position at the going price. Implemented as a limit
-// order priced at the current bid on the side held, which crosses the
-// spread and fills immediately against resting size — unlike a bare market
-// order, this can never fill at an arbitrarily bad price if the book is
-// thin. Returns the order Kalshi acknowledged.
+// Close an entire open position at the going price.
+//
+// Uses Kalshi's V2 order API. The old /portfolio/orders endpoint now
+// returns 410 deprecated_v1_order_endpoint. V2 differs in three ways that
+// matter here:
+//   * different host (external-api.kalshi.com) and path
+//   * everything is expressed on the YES leg: side "ask" = sell YES,
+//     side "bid" = buy YES. Holding NO is short YES, so closing a NO
+//     position means BUYING yes.
+//   * count and price are fixed-point strings, price in DOLLARS not cents
+//
+// Priced to cross the spread so it fills right away — hit the yes bid when
+// selling yes, lift the yes ask when buying back yes — with
+// immediate_or_cancel so nothing is left resting, and reduce_only so a
+// mistake here can only ever shrink a position, never open a new one.
+const KALSHI_TRADE_API = "https://external-api.kalshi.com/trade-api/v2";
+
 async function sellPosition(ticker) {
   const row = (portfolioState.positions || []).find((r) => r.ticker === ticker);
   if (!row) throw new Error("no such open position");
@@ -693,25 +717,36 @@ async function sellPosition(ticker) {
   if (!market) throw new Error("market not found");
   if (market.status && market.status !== "active") throw new Error(`market is ${market.status}`);
 
-  const bid = money(market, row.side === "yes" ? "yes_bid" : "no_bid");
-  if (bid == null || bid <= 0) throw new Error("no bid to sell into");
-  const priceCents = Math.max(1, Math.min(99, Math.round(bid * 100)));
+  const holdingYes = row.side === "yes";
+  const orderSide = holdingYes ? "ask" : "bid";
+  // price is always quoted on the yes leg
+  const price = money(market, holdingYes ? "yes_bid" : "yes_ask");
+  if (price == null || price <= 0 || price >= 1) throw new Error("no usable quote to trade against");
 
   const order = {
     ticker,
-    action: "sell",
+    side: orderSide,
+    count: String(row.count),
+    price: price.toFixed(2),
+    time_in_force: "immediate_or_cancel",
+    self_trade_prevention_type: "taker_at_cross",
+    reduce_only: true,
+    client_order_id: crypto.randomUUID(),
+  };
+  console.log(`SELL ${row.side.toUpperCase()} x${row.count} ${ticker} -> ${orderSide} @ $${order.price}`);
+  const resp = await kalshiAuthPOST(KALSHI_TRADE_API, "/portfolio/events/orders", order);
+  const filled = resp && (resp.fill_count != null ? resp.fill_count : null);
+  console.log("  order ack:", JSON.stringify(resp));
+  await pollPortfolio(); // refresh immediately so the card reflects the sale
+  return {
+    ok: true,
+    ticker,
     side: row.side,
     count: row.count,
-    type: "limit",
-    // must be a UUID — a free-form string here is rejected by Kalshi's
-    // schema validation ("The string did not match the expected pattern")
-    client_order_id: crypto.randomUUID(),
-    [row.side === "yes" ? "yes_price" : "no_price"]: priceCents,
+    priceCents: Math.round(price * 100),
+    filled,
+    order: resp,
   };
-  console.log(`SELL ${row.side.toUpperCase()} x${row.count} ${ticker} @ ${priceCents}c`);
-  const resp = await kalshiAuthPOST("/portfolio/orders", order);
-  await pollPortfolio(); // refresh immediately so the card reflects the sale
-  return { ok: true, ticker, side: row.side, count: row.count, priceCents, order: resp && resp.order };
 }
 
 function dollars(obj, dollarsKey, centsKey) {
@@ -2026,7 +2061,13 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       .then(function (res) {
         if (res.ok) {
           localStorage.setItem("sellPin", pin);
-          setSellMsg("Sold " + res.j.count + " @ " + res.j.priceCents + "\\u00a2", "ok");
+          // immediate-or-cancel can fill partially; say what actually filled
+          var f = res.j.filled;
+          if (f != null && Number(f) < Number(res.j.count)) {
+            setSellMsg("Filled " + f + " of " + res.j.count + " @ " + res.j.priceCents + "\\u00a2", "ok");
+          } else {
+            setSellMsg("Sold " + res.j.count + " @ " + res.j.priceCents + "\\u00a2", "ok");
+          }
         } else {
           // a rejected PIN is cleared so the next page load asks again
           if (res.j && /PIN/i.test(res.j.error || "")) {
