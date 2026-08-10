@@ -707,46 +707,59 @@ async function kalshiAuthPOST(base, pathname, body) {
 // immediate_or_cancel so nothing is left resting, and reduce_only so a
 // mistake here can only ever shrink a position, never open a new one.
 const KALSHI_TRADE_API = "https://external-api.kalshi.com/trade-api/v2";
+const BUY_COUNT = Number(process.env.BUY_COUNT || 10);
 
-async function sellPosition(ticker) {
+// action "sell" closes the whole position; "buy" adds BUY_COUNT more of
+// the side already held. Everything is quoted on the YES leg, and each
+// order is priced to cross so it fills immediately:
+//
+//   hold YES, sell -> ask @ yes_bid      hold YES, buy -> bid @ yes_ask
+//   hold NO,  sell -> bid @ yes_ask      hold NO,  buy -> ask @ yes_bid
+//
+// (buying NO *is* selling YES, so the NO rows are the mirror image; the
+// prices reconcile exactly against the no leg, e.g. 1 - yes_bid = no_ask)
+async function tradePosition(ticker, action) {
   const row = (portfolioState.positions || []).find((r) => r.ticker === ticker);
   if (!row) throw new Error("no such open position");
-  if (!Number.isFinite(row.count) || row.count <= 0) throw new Error("position quantity unknown");
+  if (action === "sell" && (!Number.isFinite(row.count) || row.count <= 0)) {
+    throw new Error("position quantity unknown");
+  }
 
   const { market } = await kalshiGET(`/markets/${encodeURIComponent(ticker)}`);
   if (!market) throw new Error("market not found");
   if (market.status && market.status !== "active") throw new Error(`market is ${market.status}`);
 
   const holdingYes = row.side === "yes";
-  const orderSide = holdingYes ? "ask" : "bid";
-  // price is always quoted on the yes leg
-  const price = money(market, holdingYes ? "yes_bid" : "yes_ask");
+  const selling = action === "sell";
+  const orderSide = selling ? (holdingYes ? "ask" : "bid") : (holdingYes ? "bid" : "ask");
+  const priceKey = selling ? (holdingYes ? "yes_bid" : "yes_ask") : (holdingYes ? "yes_ask" : "yes_bid");
+  const price = money(market, priceKey);
   if (price == null || price <= 0 || price >= 1) throw new Error("no usable quote to trade against");
 
+  const count = selling ? row.count : BUY_COUNT;
   const order = {
     ticker,
     side: orderSide,
-    count: String(row.count),
+    count: String(count),
     price: price.toFixed(2),
     time_in_force: "immediate_or_cancel",
     self_trade_prevention_type: "taker_at_cross",
-    reduce_only: true,
     client_order_id: crypto.randomUUID(),
   };
-  console.log(`SELL ${row.side.toUpperCase()} x${row.count} ${ticker} -> ${orderSide} @ $${order.price}`);
+  // reduce_only guarantees a sell can never accidentally open a position.
+  // A buy is meant to increase one, so it cannot use that guard — its
+  // protection is the fixed lot size: BUY_COUNT contracts cap out at $1
+  // each, so the most a single tap can ever commit is BUY_COUNT dollars.
+  if (selling) order.reduce_only = true;
+
+  console.log(
+    `${action.toUpperCase()} ${row.side.toUpperCase()} x${count} ${ticker} -> ${orderSide} @ $${order.price}`
+  );
   const resp = await kalshiAuthPOST(KALSHI_TRADE_API, "/portfolio/events/orders", order);
   const filled = resp && (resp.fill_count != null ? resp.fill_count : null);
   console.log("  order ack:", JSON.stringify(resp));
-  await pollPortfolio(); // refresh immediately so the card reflects the sale
-  return {
-    ok: true,
-    ticker,
-    side: row.side,
-    count: row.count,
-    priceCents: Math.round(price * 100),
-    filled,
-    order: resp,
-  };
+  await pollPortfolio(); // refresh immediately so the card reflects the trade
+  return { ok: true, action, ticker, side: row.side, count, priceCents: Math.round(price * 100), filled, order: resp };
 }
 
 function dollars(obj, dollarsKey, centsKey) {
@@ -961,7 +974,8 @@ const server = http.createServer((req, res) => {
 
   // Places a real order against a real account. Requires the server-side
   // PIN on every call; no PIN configured means the route does not exist.
-  if (url.pathname === "/api/sell" && req.method === "POST") {
+  if ((url.pathname === "/api/sell" || url.pathname === "/api/buy") && req.method === "POST") {
+    const action = url.pathname === "/api/buy" ? "buy" : "sell";
     let body = "";
     req.on("data", (c) => {
       body += c;
@@ -972,7 +986,7 @@ const server = http.createServer((req, res) => {
         res.writeHead(code, { "Content-Type": "application/json" });
         res.end(JSON.stringify(obj));
       };
-      if (!portfolioState.sellEnabled) return send(403, { error: "selling is not enabled on this server" });
+      if (!portfolioState.sellEnabled) return send(403, { error: "trading is not enabled on this server" });
       let payload;
       try { payload = JSON.parse(body || "{}"); } catch { return send(400, { error: "bad request" }); }
 
@@ -981,15 +995,15 @@ const server = http.createServer((req, res) => {
       const want = Buffer.from(SELL_PIN);
       const pinOk = given.length === want.length && crypto.timingSafeEqual(given, want);
       if (!pinOk) {
-        console.warn("Rejected /api/sell: bad PIN");
+        console.warn(`Rejected /api/${action}: bad PIN`);
         return send(401, { error: "incorrect PIN" });
       }
       if (!payload.ticker) return send(400, { error: "ticker required" });
 
       try {
-        send(200, await sellPosition(String(payload.ticker)));
+        send(200, await tradePosition(String(payload.ticker), action));
       } catch (e) {
-        console.error("SELL failed:", e.message);
+        console.error(`${action.toUpperCase()} failed:`, e.message);
         send(502, { error: e.message });
       }
     });
@@ -1262,13 +1276,15 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .port-pnl.up { color: var(--green); }
 .port-pnl.down { color: var(--red); }
 .port-pnl.flat { color: var(--text3); }
-.port-sell {
-  flex-shrink: 0; margin-left: 6px; padding: 4px 10px; border-radius: 6px;
-  border: 1px solid rgba(245,197,24,0.5); background: rgba(245,197,24,0.12);
-  color: var(--yellow); font-size: 10.5px; font-weight: 800; letter-spacing: 0.5px;
+.port-sell, .port-buy {
+  flex-shrink: 0; margin-left: 5px; padding: 4px 8px; border-radius: 6px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.3px;
 }
+.port-sell { border: 1px solid rgba(245,197,24,0.5); background: rgba(245,197,24,0.12); color: var(--yellow); }
 .port-sell.confirm { background: var(--red); border-color: var(--red); color: #fff; }
-.port-sell:disabled { opacity: 0.45; }
+.port-buy { border: 1px solid rgba(34,197,94,0.5); background: rgba(34,197,94,0.12); color: var(--green); }
+.port-buy.confirm { background: var(--green); border-color: var(--green); color: #fff; }
+.port-sell:disabled, .port-buy:disabled { opacity: 0.45; }
 .port-sell-msg { font-size: 11px; margin-top: 6px; text-align: right; }
 .port-sell-msg.ok { color: var(--green); }
 .port-sell-msg.err { color: var(--red); }
@@ -1955,7 +1971,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
           pnlHtml = '<span class="port-pnl ' + pc + '">' + sign + "$" + Math.abs(r.pnl).toFixed(2) + "</span>";
         }
         var sellBtn = p.sellEnabled
-          ? '<button class="port-sell" data-ticker="' + r.ticker + '">SELL</button>'
+          ? '<button class="port-buy" data-ticker="' + r.ticker + '">+10</button>' +
+            '<button class="port-sell" data-ticker="' + r.ticker + '">SELL</button>'
           : "";
         // compact strike ("$65,000+") when we know it, full label otherwise
         var desc = r.subtitle;
@@ -1983,7 +2000,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     // otherwise wipe an armed button back to its resting state after ~1s.
     // Re-apply the armed look so it stays lit for the full confirm window.
     if (armed.ticker) {
-      var armedBtn = card.querySelector('.port-sell[data-ticker="' + armed.ticker + '"]');
+      var cls = armed.action === "buy" ? ".port-buy" : ".port-sell";
+      var armedBtn = card.querySelector(cls + '[data-ticker="' + armed.ticker + '"]');
       if (armedBtn) {
         armedBtn.classList.add("confirm");
         armedBtn.textContent = "CONFIRM?";
@@ -2001,7 +2019,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   // point is to get out fast. The PIN is never in the page source.
 
   var sellMsg = { text: "", cls: "" };
-  var armed = { ticker: null, timer: null };
+  var armed = { ticker: null, action: null, timer: null };
   var pinAsked = false;
 
   function ensurePin() {
@@ -2019,21 +2037,28 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
   function disarm() {
     if (armed.timer) clearTimeout(armed.timer);
-    armed = { ticker: null, timer: null };
+    armed = { ticker: null, action: null, timer: null };
     document.querySelectorAll(".port-sell").forEach(function (b) {
       b.classList.remove("confirm");
       b.textContent = "SELL";
     });
+    document.querySelectorAll(".port-buy").forEach(function (b) {
+      b.classList.remove("confirm");
+      b.textContent = "+10";
+    });
   }
 
   document.getElementById("portfolioCard").addEventListener("click", function (ev) {
-    var btn = ev.target.closest(".port-sell");
+    var btn = ev.target.closest(".port-sell, .port-buy");
     if (!btn) return;
+    var action = btn.classList.contains("port-buy") ? "buy" : "sell";
     var ticker = btn.getAttribute("data-ticker");
 
-    if (armed.ticker !== ticker) {
+    // arming is per (position, action) — arming a buy must not fire a sell
+    if (armed.ticker !== ticker || armed.action !== action) {
       disarm();
       armed.ticker = ticker;
+      armed.action = action;
       btn.classList.add("confirm");
       btn.textContent = "CONFIRM?";
       armed.timer = setTimeout(function () { disarm(); }, 5000);
@@ -2049,10 +2074,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       pin = localStorage.getItem("sellPin");
       if (!pin) { setSellMsg("No PIN set", "err"); return; }
     }
-    setSellMsg("Selling\\u2026", "");
-    document.querySelectorAll(".port-sell").forEach(function (b) { b.disabled = true; });
+    setSellMsg(action === "buy" ? "Buying\\u2026" : "Selling\\u2026", "");
+    document.querySelectorAll(".port-sell, .port-buy").forEach(function (b) { b.disabled = true; });
 
-    fetch("/api/sell", {
+    fetch(action === "buy" ? "/api/buy" : "/api/sell", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ticker: ticker, pin: pin }),
@@ -2063,10 +2088,11 @@ canvas#chart { width: 100%; height: 158px; display: block; }
           localStorage.setItem("sellPin", pin);
           // immediate-or-cancel can fill partially; say what actually filled
           var f = res.j.filled;
+          var verb = res.j.action === "buy" ? "Bought" : "Sold";
           if (f != null && Number(f) < Number(res.j.count)) {
             setSellMsg("Filled " + f + " of " + res.j.count + " @ " + res.j.priceCents + "\\u00a2", "ok");
           } else {
-            setSellMsg("Sold " + res.j.count + " @ " + res.j.priceCents + "\\u00a2", "ok");
+            setSellMsg(verb + " " + res.j.count + " @ " + res.j.priceCents + "\\u00a2", "ok");
           }
         } else {
           // a rejected PIN is cleared so the next page load asks again
@@ -2079,7 +2105,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       })
       .catch(function (e) { setSellMsg("Sell failed: " + e.message, "err"); })
       .then(function () {
-        document.querySelectorAll(".port-sell").forEach(function (b) { b.disabled = false; });
+        document.querySelectorAll(".port-sell, .port-buy").forEach(function (b) { b.disabled = false; });
       });
   });
 

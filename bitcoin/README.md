@@ -157,9 +157,11 @@ card only on the LAN.
 
 ## Sell button (optional, off by default)
 
-Each open position can show a SELL button that liquidates the whole
-position at the current bid. This places **real orders against your real
-account**, so it is disabled unless you set a PIN:
+Each open position can show two buttons: **SELL**, which liquidates the
+whole position, and **+10**, which buys 10 more contracts of the side you
+already hold. Both trade at the current going price and place **real
+orders against your real account**, so they are disabled unless you set a
+PIN:
 
 ```bash
 export SELL_PIN="some-passphrase"
@@ -173,8 +175,15 @@ How it is protected:
   environment. The browser prompts for it, and only stores it locally
   after the server has accepted it once. Every order must carry it, and
   it is compared in constant time.
-- **Two taps.** The first tap arms the button ("CONFIRM?"), the second
-  sends the order. Arming expires by itself after 5 seconds.
+- **Two taps.** The first tap arms that button ("CONFIRM?"), the second
+  sends the order. Arming expires by itself after 5 seconds, and is
+  tracked per button, so arming +10 and then tapping SELL only arms the
+  sell rather than firing anything.
+- **Buys are capped by lot size.** A sell can use `reduce_only`, which
+  makes it impossible to open a position by mistake. A buy is meant to
+  increase one, so it cannot -- its protection is the fixed lot: since a
+  contract can never cost more than $1, one tap commits at most $10
+  (override with `BUY_COUNT`).
 - **Limit, not market.** The order is priced to cross the spread so it
   fills right away, but unlike a market order it can never fill at an
   arbitrarily bad price if the book is thin. It is `immediate_or_cancel`,
