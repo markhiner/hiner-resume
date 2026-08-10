@@ -455,9 +455,17 @@ function computeForecast() {
 
 const KALSHI_API = "https://api.elections.kalshi.com/trade-api/v2";
 const KALSHI_SERIES = "KXBTCD";
-const KALSHI_POLL_MS = 20_000;
+// Structure (which hourly event is live, the full strike ladder, your
+// position list) changes slowly; quotes move constantly. Poll them at
+// different rates and batch every fast request into ONE call via the
+// markets?tickers= endpoint, so per-second refresh costs ~1 request/sec
+// rather than dozens.
+const KALSHI_STRUCTURE_MS = 20_000;
+const KALSHI_QUOTE_MS = 1_000;
 
 let kalshiState = { available: false, error: null, updatedAt: 0 };
+let kalshiLadder = []; // full strike ladder for the live event, quotes patched in place
+let kalshiEvent = null; // { ticker, close }
 const kalshiCloseCache = new Map(); // event_ticker -> close_time ms
 
 async function kalshiGET(pathname) {
@@ -473,9 +481,9 @@ function ladderMid(m) {
   return (bid + ask) / 2;
 }
 
-async function pollKalshi() {
+// Slow: find the live hourly event and pull its full strike ladder.
+async function pollKalshiStructure() {
   try {
-    const price = currentAverage();
     const { events = [] } = await kalshiGET(`/events?series_ticker=${KALSHI_SERIES}&status=open&limit=10`);
     if (!events.length) throw new Error("no open events");
 
@@ -491,10 +499,10 @@ async function pollKalshi() {
       .filter((e) => e.close && e.close > now)
       .sort((a, b) => a.close - b.close);
     if (!candidates.length) throw new Error("no upcoming close");
-    const ev = candidates[0];
+    kalshiEvent = candidates[0];
 
-    const { markets = [] } = await kalshiGET(`/markets?event_ticker=${ev.ticker}&status=open&limit=200`);
-    const ladder = markets
+    const { markets = [] } = await kalshiGET(`/markets?event_ticker=${kalshiEvent.ticker}&status=open&limit=200`);
+    kalshiLadder = markets
       .filter((m) => m.strike_type === "greater" && m.floor_strike != null)
       .map((m) => ({
         strike: m.floor_strike,
@@ -507,42 +515,83 @@ async function pollKalshi() {
       }))
       .sort((a, b) => a.strike - b.strike);
 
-    let implied = null, below = null, above = null;
-    if (price != null) {
-      const quoted = ladder.filter((r) => r.mid != null);
-      for (const r of quoted) {
-        if (r.strike <= price) below = r;
-        else { above = r; break; }
-      }
-      if (below && above) {
-        const frac = (price - below.strike) / (above.strike - below.strike);
-        implied = below.mid + (above.mid - below.mid) * frac;
-      } else if (below) implied = below.mid;
-      else if (above) implied = above.mid;
-    }
-
-    const nearest = below && above
-      ? (price - below.strike <= above.strike - price ? below : above)
-      : below || above || null;
-
-    kalshiState = {
-      available: implied != null,
-      error: null,
-      updatedAt: now,
-      eventTicker: ev.ticker,
-      closeTime: ev.close,
-      impliedProbAbove: implied != null ? Math.round(implied * 1000) / 1000 : null,
-      refPrice: price,
-      nearestStrike: nearest
-        ? { strike: nearest.strike, subtitle: nearest.subtitle, bid: nearest.bid, ask: nearest.ask, vol: nearest.vol, ticker: nearest.ticker }
-        : null,
-    };
+    recomputeKalshiState();
   } catch (e) {
     kalshiState = { ...kalshiState, available: false, error: e.message, updatedAt: Date.now() };
   }
 }
-setInterval(pollKalshi, KALSHI_POLL_MS);
-pollKalshi();
+
+// Derive the displayed state from whatever quotes the ladder currently holds.
+function recomputeKalshiState() {
+  const price = currentAverage();
+  let implied = null, below = null, above = null;
+  if (price != null) {
+    for (const r of kalshiLadder) {
+      if (r.mid == null) continue;
+      if (r.strike <= price) below = r;
+      else { above = r; break; }
+    }
+    if (below && above) {
+      const frac = (price - below.strike) / (above.strike - below.strike);
+      implied = below.mid + (above.mid - below.mid) * frac;
+    } else if (below) implied = below.mid;
+    else if (above) implied = above.mid;
+  }
+  const nearest = below && above
+    ? (price - below.strike <= above.strike - price ? below : above)
+    : below || above || null;
+
+  kalshiState = {
+    available: implied != null,
+    error: null,
+    updatedAt: Date.now(),
+    eventTicker: kalshiEvent ? kalshiEvent.ticker : null,
+    closeTime: kalshiEvent ? kalshiEvent.close : null,
+    impliedProbAbove: implied != null ? Math.round(implied * 1000) / 1000 : null,
+    refPrice: price,
+    nearestStrike: nearest
+      ? { strike: nearest.strike, subtitle: nearest.subtitle, bid: nearest.bid, ask: nearest.ask, vol: nearest.vol, ticker: nearest.ticker }
+      : null,
+  };
+  return { below, above };
+}
+
+// Fast: one batched request refreshing only the quotes that are on screen —
+// the two strikes bracketing the current price, plus every held position.
+async function refreshQuotes() {
+  try {
+    const { below, above } = recomputeKalshiState();
+    const wanted = new Set();
+    if (below) wanted.add(below.ticker);
+    if (above) wanted.add(above.ticker);
+    for (const r of portfolioState.positions || []) if (r.ticker) wanted.add(r.ticker);
+    if (!wanted.size) return;
+
+    const { markets = [] } = await kalshiGET(
+      `/markets?tickers=${encodeURIComponent([...wanted].join(","))}&limit=${wanted.size}`
+    );
+    if (!markets.length) return;
+
+    const byTicker = new Map(markets.map((m) => [m.ticker, m]));
+    for (const row of kalshiLadder) {
+      const m = byTicker.get(row.ticker);
+      if (!m) continue;
+      row.bid = parseFloat(m.yes_bid_dollars);
+      row.ask = parseFloat(m.yes_ask_dollars);
+      row.mid = ladderMid(m);
+      row.vol = parseFloat(m.volume_fp) || row.vol;
+    }
+    recomputeKalshiState();
+    repricePortfolio(byTicker);
+    broadcast({ type: "kalshi", kalshi: kalshiState, portfolio: portfolioState });
+  } catch (e) {
+    kalshiState = { ...kalshiState, error: e.message };
+  }
+}
+
+setInterval(pollKalshiStructure, KALSHI_STRUCTURE_MS);
+setInterval(refreshQuotes, KALSHI_QUOTE_MS);
+pollKalshiStructure();
 
 // ---------- Kalshi portfolio (optional — needs API credentials) ----------
 // Set KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY_PATH (same env vars the
@@ -554,7 +603,10 @@ pollKalshi();
 
 const KALSHI_KEY_ID = process.env.KALSHI_API_KEY_ID || null;
 const KALSHI_KEY_PATH = process.env.KALSHI_PRIVATE_KEY_PATH || null;
-const PORTFOLIO_POLL_MS = 30_000;
+// Position *structure* (which contracts you hold, cost basis, cash) only
+// changes when you trade or a market settles; the fast quote tick handles
+// marking those positions to market every second.
+const PORTFOLIO_POLL_MS = 15_000;
 
 let kalshiPrivateKey = null;
 if (KALSHI_KEY_ID && KALSHI_KEY_PATH) {
@@ -620,6 +672,51 @@ function firstNum(obj, ...keys) {
   return null;
 }
 
+// Money fields come as either "<base>_dollars" (a decimal string) or a bare
+// "<base>" in integer cents, depending on endpoint and API version.
+function money(obj, base) {
+  const d = parseFloat(obj?.[`${base}_dollars`]);
+  if (Number.isFinite(d)) return d;
+  const c = parseFloat(obj?.[base]);
+  if (Number.isFinite(c)) return c / 100;
+  return null;
+}
+
+// Mark every held position to the live bid on its own side and derive
+// unrealized P&L against its cost basis. Called on the fast quote tick, so
+// values and P&L move in step with the market rather than once a poll.
+function repricePortfolio(byTicker) {
+  const rows = portfolioState.positions;
+  if (!rows || !rows.length) return;
+  let posValue = 0, totalPnl = 0, anyPnl = false;
+  for (const r of rows) {
+    const m = byTicker && byTicker.get(r.ticker);
+    if (m) {
+      const per = money(m, r.side === "yes" ? "yes_bid" : "no_bid");
+      if (per != null) r.perContract = per;
+    }
+    if (r.perContract != null && Number.isFinite(r.count)) {
+      const v = r.count * r.perContract;
+      r.value = Math.round(v * 100) / 100;
+      posValue += v;
+      if (r.costBasis != null) {
+        r.pnl = Math.round((v - r.costBasis) * 100) / 100;
+        r.pnlPct = r.costBasis > 0 ? Math.round((r.pnl / r.costBasis) * 1000) / 10 : null;
+        totalPnl += v - r.costBasis;
+        anyPnl = true;
+      }
+    }
+  }
+  portfolioState = {
+    ...portfolioState,
+    positions: rows,
+    positionsValue: Math.round(posValue * 100) / 100,
+    totalValue: portfolioState.cash != null ? Math.round((portfolioState.cash + posValue) * 100) / 100 : null,
+    unrealizedPnl: anyPnl ? Math.round(totalPnl * 100) / 100 : null,
+    updatedAt: Date.now(),
+  };
+}
+
 async function pollPortfolio() {
   if (!portfolioState.enabled) return;
   try {
@@ -637,15 +734,22 @@ async function pollPortfolio() {
       .filter((r) => r.qty != null && r.qty !== 0);
 
     const rows = [];
-    let posValue = 0;
     for (const { p, qty } of open.slice(0, 20)) {
       let m = null;
       try { m = (await kalshiGET(`/markets/${p.ticker}`)).market; } catch {}
       const side = qty > 0 ? "yes" : "no";
       const count = Math.abs(qty);
-      const per = m ? dollars(m, side === "yes" ? "yes_bid_dollars" : "no_bid_dollars", side === "yes" ? "yes_bid" : "no_bid") : null;
-      const value = per != null ? count * per : null;
-      if (value != null) posValue += value;
+      const per = m ? money(m, side === "yes" ? "yes_bid" : "no_bid") : null;
+      // What the open position cost: market_exposure is the standard field;
+      // fall back to total_traded net of realized P&L. Left null when it
+      // can't be determined, so the UI shows no P&L rather than a wrong one.
+      let costBasis = money(p, "market_exposure");
+      if (costBasis == null) {
+        const traded = money(p, "total_traded");
+        const realized = money(p, "realized_pnl");
+        if (traded != null) costBasis = traded - (realized || 0);
+      }
+      if (costBasis != null) costBasis = Math.abs(costBasis);
       const label = m
         ? (m.title && m.yes_sub_title && !/^yes$/i.test(m.yes_sub_title)
             ? m.yes_sub_title
@@ -658,19 +762,16 @@ async function pollPortfolio() {
         side,
         count,
         perContract: per,
-        value: value != null ? Math.round(value * 100) / 100 : null,
+        value: per != null ? Math.round(count * per * 100) / 100 : null,
+        costBasis,
+        avgCost: costBasis != null && count > 0 ? Math.round((costBasis / count) * 100) / 100 : null,
+        pnl: null,
+        pnlPct: null,
       });
     }
 
-    portfolioState = {
-      enabled: true,
-      updatedAt: Date.now(),
-      error: null,
-      cash,
-      positions: rows,
-      positionsValue: Math.round(posValue * 100) / 100,
-      totalValue: cash != null ? Math.round((cash + posValue) * 100) / 100 : null,
-    };
+    portfolioState = { ...portfolioState, enabled: true, error: null, cash, positions: rows };
+    repricePortfolio(null); // derive values/P&L from the quotes just fetched
     broadcast({ type: "portfolio", ...portfolioState });
   } catch (e) {
     console.error("Kalshi portfolio poll:", e.message);
@@ -999,6 +1100,13 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 .port-desc span { color: var(--text3); font-size: 11px; }
 .port-val { font-size: 14px; font-weight: 800; color: var(--text1); text-align: right; }
 .port-val span { display: block; font-size: 10px; font-weight: 600; color: var(--text3); }
+.port-pnl { font-size: 12.5px; font-weight: 800; text-align: right; min-width: 62px; }
+.port-pnl.up { color: var(--green); }
+.port-pnl.down { color: var(--red); }
+.port-pnl.flat { color: var(--text3); }
+.port-pnl span { display: block; font-size: 10px; font-weight: 600; opacity: 0.75; }
+.port-foot .pnl.up { color: var(--green); }
+.port-foot .pnl.down { color: var(--red); }
 .port-foot { display: flex; justify-content: space-between; padding-top: 8px; font-size: 11.5px; color: var(--text2); }
 .port-foot b { color: var(--text1); font-variant-numeric: tabular-nums; }
 .port-empty { font-size: 11.5px; color: var(--text3); font-style: italic; }
@@ -1607,8 +1715,13 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     chips += "</div>";
 
     body.innerHTML = headline + gauge + chips;
+    lastModelPct = probPct;
     renderKalshi(trend.kalshi, probPct);
   }
+
+  // remembered so the 1/sec Kalshi refresh can redraw the comparison card
+  // without waiting for the next (10s) model broadcast
+  var lastModelPct = null;
 
   function renderKalshi(k, modelPct) {
     var card = document.getElementById("kalshiCard");
@@ -1663,20 +1776,37 @@ canvas#chart { width: 100%; height: 230px; display: block; }
         var settle = r.closeTime
           ? ' <span>\\u00b7 settles ' + new Date(r.closeTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + "</span>"
           : "";
-        var per = r.perContract != null ? Math.round(r.perContract * 100) + "\\u00a2 now" : "no quote";
+        var per = r.perContract != null ? Math.round(r.perContract * 100) + "\\u00a2" : "no quote";
+        if (r.avgCost != null && r.perContract != null) per += " \\u00b7 paid " + Math.round(r.avgCost * 100) + "\\u00a2";
         var val = r.value != null ? "$" + r.value.toFixed(2) : "\\u2013";
         // never print a raw null/NaN count into the badge
         var qty = (typeof r.count === "number" && isFinite(r.count)) ? " \\u00d7" + r.count : "";
+        var pnlHtml = "";
+        if (r.pnl != null && isFinite(r.pnl)) {
+          var pc = r.pnl > 0.004 ? "up" : r.pnl < -0.004 ? "down" : "flat";
+          var sign = r.pnl > 0 ? "+" : r.pnl < 0 ? "\\u2212" : "";
+          var pctStr = (r.pnlPct != null && isFinite(r.pnlPct))
+            ? "<span>" + (r.pnlPct > 0 ? "+" : "") + r.pnlPct.toFixed(1) + "%</span>" : "";
+          pnlHtml = '<span class="port-pnl ' + pc + '">' + sign + "$" + Math.abs(r.pnl).toFixed(2) + pctStr + "</span>";
+        }
         return '<div class="port-row">' +
           '<span class="port-side ' + r.side + '">' + r.side.toUpperCase() + qty + "</span>" +
           '<span class="port-desc">' + r.subtitle + settle + "</span>" +
           '<span class="port-val">' + val + "<span>" + per + "</span></span>" +
+          pnlHtml +
           "</div>";
       }).join("");
     }
     var cashStr = p.cash != null ? "$" + p.cash.toFixed(2) : "\\u2013";
     var totalStr = p.totalValue != null ? "$" + p.totalValue.toFixed(2) : "\\u2013";
-    html += '<div class="port-foot"><span>Cash <b>' + cashStr + "</b></span><span>Total <b>" + totalStr + "</b></span></div>";
+    var pnlFoot = "";
+    if (p.unrealizedPnl != null && isFinite(p.unrealizedPnl)) {
+      var fc = p.unrealizedPnl > 0.004 ? "up" : p.unrealizedPnl < -0.004 ? "down" : "";
+      var fs = p.unrealizedPnl > 0 ? "+" : p.unrealizedPnl < 0 ? "\\u2212" : "";
+      pnlFoot = '<span>Unrealized <b class="pnl ' + fc + '">' + fs + "$" + Math.abs(p.unrealizedPnl).toFixed(2) + "</b></span>";
+    }
+    html += '<div class="port-foot"><span>Cash <b>' + cashStr + "</b></span>" + pnlFoot +
+      "<span>Total <b>" + totalStr + "</b></span></div>";
     card.innerHTML = html;
     card.style.display = "";
   }
@@ -1772,6 +1902,13 @@ canvas#chart { width: 100%; height: 230px; display: block; }
       }
       if (msg.type === "trend") { renderTrend(msg); return; }
       if (msg.type === "portfolio") { renderPortfolio(msg); return; }
+      if (msg.type === "kalshi") {
+        // 1/sec market refresh: redraw the comparison card against the last
+        // known model probability, and reprice the portfolio
+        renderKalshi(msg.kalshi, lastModelPct);
+        renderPortfolio(msg.portfolio);
+        return;
+      }
     };
 
     ws.onclose = function () {
