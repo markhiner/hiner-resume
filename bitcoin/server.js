@@ -1108,7 +1108,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .port-pnl.up { color: var(--green); }
 .port-pnl.down { color: var(--red); }
 .port-pnl.flat { color: var(--text3); }
-.port-pnl span { display: block; font-size: 10px; font-weight: 600; opacity: 0.75; }
 .port-empty { font-size: 11.5px; color: var(--text3); font-style: italic; }
 
 /* ── live trades ── */
@@ -1789,9 +1788,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         if (r.pnl != null && isFinite(r.pnl)) {
           var pc = r.pnl > 0.004 ? "up" : r.pnl < -0.004 ? "down" : "flat";
           var sign = r.pnl > 0 ? "+" : r.pnl < 0 ? "\\u2212" : "";
-          var pctStr = (r.pnlPct != null && isFinite(r.pnlPct))
-            ? "<span>" + (r.pnlPct > 0 ? "+" : "") + r.pnlPct.toFixed(1) + "%</span>" : "";
-          pnlHtml = '<span class="port-pnl ' + pc + '">' + sign + "$" + Math.abs(r.pnl).toFixed(2) + pctStr + "</span>";
+          pnlHtml = '<span class="port-pnl ' + pc + '">' + sign + "$" + Math.abs(r.pnl).toFixed(2) + "</span>";
         }
         return '<div class="port-row">' +
           '<span class="port-side ' + r.side + '">' + r.side.toUpperCase() + qty + "</span>" +
