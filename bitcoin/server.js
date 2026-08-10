@@ -847,8 +847,13 @@ body {
 /* ── big price ── */
 .price-flash-wrap { width: 100vw; padding: 8px 0; margin: -8px calc(50% - 50vw) 0; background-color: transparent; }
 
-/* full-screen camera flash on a big move */
-.screen-flash { position: fixed; inset: 0; pointer-events: none; z-index: 9999; opacity: 0; }
+/* Full-screen camera flash on a big move.
+   At rest this element carries NO background color: iOS Safari tints its
+   status bar / toolbar by sampling the page, and a lingering colored
+   (even fully transparent) overlay leaves that chrome stuck green or red
+   long after the flash. The color is set only for the duration of the
+   animation and cleared on animationend. */
+.screen-flash { position: fixed; inset: 0; pointer-events: none; z-index: 9999; opacity: 0; background: none; }
 .screen-flash.go { animation: screenFlash 0.45s ease-out; }
 @keyframes screenFlash {
   0%   { opacity: 0; }
@@ -1096,6 +1101,22 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 
   var BIG_MOVE_THRESHOLD = 10; // dollars of blended-price change within one snapshot tick (~1s)
   var flashTimeout = null;
+  var screenFlashReset = null;
+  // iOS Safari tints its status bar / toolbar from the page's edge colors.
+  // A full-viewport colored overlay gets sampled, and the tint stays stuck
+  // after the flash unless the color is removed and Safari is nudged to
+  // re-evaluate (toggling theme-color forces that).
+  var themeMeta = document.querySelector('meta[name="theme-color"]');
+  function resetChromeTint() {
+    var screen = document.getElementById("screenFlash");
+    screen.classList.remove("go");
+    screen.style.background = "none";
+    if (themeMeta) {
+      themeMeta.setAttribute("content", "#000001");
+      requestAnimationFrame(function () { themeMeta.setAttribute("content", "#000000"); });
+    }
+  }
+
   function triggerBigMoveFlash(direction) {
     // full-screen camera flash at the moment of the move
     var screen = document.getElementById("screenFlash");
@@ -1103,6 +1124,11 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     screen.classList.remove("go");
     void screen.offsetWidth; // restart the animation even mid-run
     screen.classList.add("go");
+    // clear the color as soon as the flash is done; the timeout is a
+    // belt-and-braces path for when animationend never fires (e.g. the tab
+    // was backgrounded mid-animation)
+    clearTimeout(screenFlashReset);
+    screenFlashReset = setTimeout(resetChromeTint, 700);
 
     // then the held background bar behind the price, as before
     var wrap = document.getElementById("priceFlashWrap");
@@ -1115,6 +1141,14 @@ canvas#chart { width: 100%; height: 230px; display: block; }
       flashTimeout = null;
     }, 10000);
   }
+
+  document.getElementById("screenFlash").addEventListener("animationend", resetChromeTint);
+  // if the tab was backgrounded mid-flash the animation never finishes;
+  // clear any leftover color the moment it comes back
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) resetChromeTint();
+  });
+
   function checkBigMove(avg) {
     if (avg == null) return;
     if (state.lastSnapshotAvg != null) {
