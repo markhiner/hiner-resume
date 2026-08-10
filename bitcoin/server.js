@@ -350,9 +350,19 @@ function computeTrend() {
   const rsi = computeRSI(allCloses, 14);
   const streak = computeStreak(allCloses.slice(-30));
 
+  // Short-horizon drift (last 3 min, fast decay) — used to detect when the
+  // most recent action has turned AGAINST the medium trend, e.g. a rally
+  // that just got sold. The medium EW average can't flip sign for several
+  // minutes after a reversal; this can.
+  const shortTicks = relevant.filter((p) => now - p.t <= 3 * 60 * 1000);
+  const regShort = shortTicks.length >= 60
+    ? weightedRegression(shortTicks.map((p) => ({ t: p.t, y: p.avg })), 90, now)
+    : null;
+
   return {
     insufficient: false,
     driftPerMin: reg.slope,
+    driftShortPerMin: regShort ? regShort.slope : null,
     driftSE: reg.slopeSE,
     volPerMin,
     sampleMinutes: Math.round((relevant.length / 60) * 10) / 10,
@@ -389,8 +399,18 @@ function computeForecast() {
   // momentum persists ~MOMENTUM_TAU_MIN minutes, not the whole horizon
   const persist = MOMENTUM_TAU_MIN * (1 - Math.exp(-T / MOMENTUM_TAU_MIN));
 
-  // exhaustion: extreme RSI damps drift in its own direction
+  // momentum agreement: when the last ~3 minutes have turned against the
+  // medium trend (opposite signs), the trend is contested — don't
+  // extrapolate either side; collapse to a heavily-shrunk average so the
+  // gap and volatility dominate the forecast instead
   let drift = trend.driftPerMin;
+  let contested = false;
+  if (trend.driftShortPerMin != null && drift * trend.driftShortPerMin < 0) {
+    contested = true;
+    drift = 0.25 * (drift + trend.driftShortPerMin);
+  }
+
+  // exhaustion: extreme RSI damps drift in its own direction
   if (trend.rsi != null) {
     if (trend.rsi > 70 && drift > 0) drift *= Math.max(0.3, 1 - (trend.rsi - 70) / 40);
     else if (trend.rsi < 30 && drift < 0) drift *= Math.max(0.3, 1 - (30 - trend.rsi) / 40);
@@ -421,6 +441,7 @@ function computeForecast() {
       z: Math.round(z * 100) / 100,
       expectedMove: Math.round(expectedMove * 100) / 100,
       gap: Math.round(gap * 100) / 100,
+      contested,
     },
   };
 }
@@ -1498,6 +1519,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
       var streakCls = trend.streakDirection === "up" ? "green" : "red";
       chips += '<span class="chip ' + streakCls + '">' + (trend.streakDirection === "up" ? "Up " : "Down ") + trend.streakCount + " min</span>";
     }
+    if (m.contested) chips += '<span class="chip yellow">Mixed trend</span>';
     chips += '<span class="chip">' + Math.round(trend.sampleMinutes) + "m data</span>";
     if (earlyRead) chips += '<span class="chip yellow">Warming up</span>';
     chips += "</div>";
