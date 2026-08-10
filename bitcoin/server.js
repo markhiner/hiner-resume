@@ -846,6 +846,15 @@ body {
 
 /* ── big price ── */
 .price-flash-wrap { width: 100vw; padding: 8px 0; margin: -8px calc(50% - 50vw) 0; background-color: transparent; }
+
+/* full-screen camera flash on a big move */
+.screen-flash { position: fixed; inset: 0; pointer-events: none; z-index: 9999; opacity: 0; }
+.screen-flash.go { animation: screenFlash 0.45s ease-out; }
+@keyframes screenFlash {
+  0%   { opacity: 0; }
+  12%  { opacity: 0.85; }
+  100% { opacity: 0; }
+}
 .price-big { font-size: clamp(46px, 15.5vw, 64px); font-weight: 800; letter-spacing: -1.5px; line-height: 1; text-align: center; color: var(--text1); font-variant-numeric: tabular-nums; }
 
 /* ── hero row: delta + countdown ── */
@@ -988,6 +997,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 </style>
 </head>
 <body>
+<div class="screen-flash" id="screenFlash"></div>
 <div id="app">
 
   <div class="brand-row">
@@ -1087,6 +1097,14 @@ canvas#chart { width: 100%; height: 230px; display: block; }
   var BIG_MOVE_THRESHOLD = 10; // dollars of blended-price change within one snapshot tick (~1s)
   var flashTimeout = null;
   function triggerBigMoveFlash(direction) {
+    // full-screen camera flash at the moment of the move
+    var screen = document.getElementById("screenFlash");
+    screen.style.background = direction === "up" ? "#00c800" : "#ff0000";
+    screen.classList.remove("go");
+    void screen.offsetWidth; // restart the animation even mid-run
+    screen.classList.add("go");
+
+    // then the held background bar behind the price, as before
     var wrap = document.getElementById("priceFlashWrap");
     if (flashTimeout) clearTimeout(flashTimeout);
     wrap.style.transition = "background-color 0.15s ease-in";
