@@ -816,9 +816,28 @@ async function pollPortfolio() {
             ? m.yes_sub_title
             : (m.title || m.yes_sub_title || m.subtitle || p.ticker))
         : p.ticker;
+
+      // A compact strike for the row: "$65,000+" / "$65,000-" instead of
+      // "$65,000 or above", which overflows the row and gets ellipsised.
+      // Taken from the market's own numeric strike rather than parsed out
+      // of the label text. Range markets (both a floor and a cap) can't be
+      // expressed as one strike, so those keep the full label.
+      let strike = null, strikeDir = null;
+      if (m) {
+        const floorS = firstNum(m, "floor_strike");
+        const capS = firstNum(m, "cap_strike");
+        const st = String(m.strike_type || "");
+        if (/^greater/.test(st) && floorS != null) { strike = floorS; strikeDir = "above"; }
+        else if (/^less/.test(st) && capS != null) { strike = capS; strikeDir = "below"; }
+        else if (floorS != null && capS == null) { strike = floorS; strikeDir = "above"; }
+        else if (capS != null && floorS == null) { strike = capS; strikeDir = "below"; }
+      }
+
       rows.push({
         ticker: p.ticker,
         subtitle: label,
+        strike,
+        strikeDir,
         closeTime: m ? Date.parse(m.close_time) || null : null,
         side,
         count,
@@ -1901,9 +1920,15 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         var sellBtn = p.sellEnabled
           ? '<button class="port-sell" data-ticker="' + r.ticker + '">SELL</button>'
           : "";
+        // compact strike ("$65,000+") when we know it, full label otherwise
+        var desc = r.subtitle;
+        if (r.strike != null && isFinite(r.strike) && r.strikeDir) {
+          desc = "$" + Math.round(r.strike).toLocaleString("en-US") +
+            (r.strikeDir === "above" ? "+" : "\\u2212");
+        }
         return '<div class="port-row">' +
           '<span class="port-side ' + r.side + '">' + r.side.toUpperCase() + qty + "</span>" +
-          '<span class="port-desc">' + r.subtitle + "</span>" +
+          '<span class="port-desc">' + desc + "</span>" +
           '<span class="port-val">' + val + "<span>" + per + "</span></span>" +
           pnlHtml + sellBtn +
           "</div>";
