@@ -829,6 +829,9 @@ body {
 .brand-row { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 2px; }
 .brand-text { font-size: 10.5px; letter-spacing: 2px; color: var(--text3); font-weight: 800; text-transform: uppercase; }
 .brand-sep { color: var(--text3); font-size: 11px; }
+.status-word { font-size: 10.5px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: var(--red); margin-left: -2px; }
+.status-word.degraded { color: var(--yellow); }
+.status-word.down { color: var(--text3); }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
 .status-dot.live { background: var(--red); box-shadow: 0 0 0 0 rgba(239,68,68,0.5); animation: pulseRed 1.4s infinite; }
 .status-dot.degraded { background: var(--yellow); }
@@ -1009,6 +1012,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
     <span class="brand-text">Hiner BTC Benchmark</span>
     <span class="brand-sep">|</span>
     <span class="status-dot" id="statusDot"></span>
+    <span class="status-word" id="statusWord">LIVE</span>
   </div>
 
   <div class="price-flash-wrap" id="priceFlashWrap">
@@ -1234,12 +1238,13 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 
   function updateStatus() {
     var dot = document.getElementById("statusDot");
+    var word = document.getElementById("statusWord");
     var cb = state.connCoinbase, bs = state.connBitstamp;
     document.getElementById("footCbDot").className = "d " + (cb ? "on" : "off");
     document.getElementById("footBsDot").className = "d " + (bs ? "on" : "off");
-    if (cb && bs) { dot.className = "status-dot live"; }
-    else if (cb || bs) { dot.className = "status-dot degraded"; }
-    else { dot.className = "status-dot down"; }
+    if (cb && bs) { dot.className = "status-dot live"; word.className = "status-word"; word.textContent = "LIVE"; }
+    else if (cb || bs) { dot.className = "status-dot degraded"; word.className = "status-word degraded"; word.textContent = "PARTIAL"; }
+    else { dot.className = "status-dot down"; word.className = "status-word down"; word.textContent = "OFFLINE"; }
   }
 
   function tickLastUpdated() {
