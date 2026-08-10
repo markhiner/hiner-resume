@@ -606,6 +606,20 @@ function dollars(obj, dollarsKey, centsKey) {
   return typeof c === "number" ? c / 100 : null;
 }
 
+// This API version reports quantities under _fp-suffixed keys
+// (volume_fp, open_interest_fp, ...) and prices under _dollars, but the
+// exact key varies by endpoint and version. Take the first key that
+// actually parses to a finite number rather than betting on one name —
+// reading a key that doesn't exist yields undefined, and Math.abs(undefined)
+// is NaN, which JSON.stringify turns into null ("NO xnull" on the card).
+function firstNum(obj, ...keys) {
+  for (const k of keys) {
+    const v = parseFloat(obj?.[k]);
+    if (Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
 async function pollPortfolio() {
   if (!portfolioState.enabled) return;
   try {
@@ -614,21 +628,32 @@ async function pollPortfolio() {
       kalshiAuthGET("/portfolio/positions?limit=200"),
     ]);
     const cash = dollars(bal, "balance_dollars", "balance");
-    const open = (pos.market_positions || []).filter((p) => p.position !== 0);
+
+    // Only genuinely open positions: a settled or closed-out market still
+    // appears in this list with a zero quantity, and previously every one
+    // of them slipped through because the quantity parsed as undefined.
+    const open = (pos.market_positions || [])
+      .map((p) => ({ p, qty: firstNum(p, "position", "position_fp", "quantity", "quantity_fp") }))
+      .filter((r) => r.qty != null && r.qty !== 0);
 
     const rows = [];
     let posValue = 0;
-    for (const p of open.slice(0, 20)) {
+    for (const { p, qty } of open.slice(0, 20)) {
       let m = null;
       try { m = (await kalshiGET(`/markets/${p.ticker}`)).market; } catch {}
-      const side = p.position > 0 ? "yes" : "no";
-      const count = Math.abs(p.position);
+      const side = qty > 0 ? "yes" : "no";
+      const count = Math.abs(qty);
       const per = m ? dollars(m, side === "yes" ? "yes_bid_dollars" : "no_bid_dollars", side === "yes" ? "yes_bid" : "no_bid") : null;
       const value = per != null ? count * per : null;
       if (value != null) posValue += value;
+      const label = m
+        ? (m.title && m.yes_sub_title && !/^yes$/i.test(m.yes_sub_title)
+            ? m.yes_sub_title
+            : (m.title || m.yes_sub_title || m.subtitle || p.ticker))
+        : p.ticker;
       rows.push({
         ticker: p.ticker,
-        subtitle: m ? (m.yes_sub_title || m.subtitle || p.ticker) : p.ticker,
+        subtitle: label,
         closeTime: m ? Date.parse(m.close_time) || null : null,
         side,
         count,
@@ -1640,8 +1665,10 @@ canvas#chart { width: 100%; height: 230px; display: block; }
           : "";
         var per = r.perContract != null ? Math.round(r.perContract * 100) + "\\u00a2 now" : "no quote";
         var val = r.value != null ? "$" + r.value.toFixed(2) : "\\u2013";
+        // never print a raw null/NaN count into the badge
+        var qty = (typeof r.count === "number" && isFinite(r.count)) ? " \\u00d7" + r.count : "";
         return '<div class="port-row">' +
-          '<span class="port-side ' + r.side + '">' + r.side.toUpperCase() + " \\u00d7" + r.count + "</span>" +
+          '<span class="port-side ' + r.side + '">' + r.side.toUpperCase() + qty + "</span>" +
           '<span class="port-desc">' + r.subtitle + settle + "</span>" +
           '<span class="port-val">' + val + "<span>" + per + "</span></span>" +
           "</div>";
