@@ -703,7 +703,9 @@ async function sellPosition(ticker) {
     side: row.side,
     count: row.count,
     type: "limit",
-    client_order_id: "btc-ticker-" + Date.now(),
+    // must be a UUID — a free-form string here is rejected by Kalshi's
+    // schema validation ("The string did not match the expected pattern")
+    client_order_id: crypto.randomUUID(),
     [row.side === "yes" ? "yes_price" : "no_price"]: priceCents,
   };
   console.log(`SELL ${row.side.toUpperCase()} x${row.count} ${ticker} @ ${priceCents}c`);
@@ -1954,15 +1956,25 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         disarm(); // the position is gone (sold or settled)
       }
     }
+    if (p.sellEnabled) ensurePin();
   }
 
   // ---------- selling ----------
   // Two taps to fire: the first arms the button, the second sends the
-  // order. The PIN is never in the page — it is prompted for and kept in
-  // localStorage only after the server has accepted it once.
+  // order immediately. The PIN is asked for once when the page loads and
+  // kept in localStorage, so selling never blocks on a prompt — the whole
+  // point is to get out fast. The PIN is never in the page source.
 
   var sellMsg = { text: "", cls: "" };
   var armed = { ticker: null, timer: null };
+  var pinAsked = false;
+
+  function ensurePin() {
+    if (pinAsked || localStorage.getItem("sellPin")) return;
+    pinAsked = true;
+    var pin = window.prompt("Sell PIN (stored on this device)");
+    if (pin) localStorage.setItem("sellPin", pin);
+  }
 
   function setSellMsg(text, cls) {
     sellMsg = { text: text, cls: cls || "" };
@@ -1989,17 +2001,18 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       armed.ticker = ticker;
       btn.classList.add("confirm");
       btn.textContent = "CONFIRM?";
-      setSellMsg("Tap again to sell at the current bid", "");
-      armed.timer = setTimeout(function () { disarm(); setSellMsg("", ""); }, 5000);
+      armed.timer = setTimeout(function () { disarm(); }, 5000);
       return;
     }
 
-    // second tap — send it
+    // second tap — send it straight away, no prompt in the hot path
     disarm();
     var pin = localStorage.getItem("sellPin");
     if (!pin) {
-      pin = window.prompt("Sell PIN");
-      if (!pin) { setSellMsg("Cancelled", ""); return; }
+      pinAsked = false;
+      ensurePin();
+      pin = localStorage.getItem("sellPin");
+      if (!pin) { setSellMsg("No PIN set", "err"); return; }
     }
     setSellMsg("Selling\\u2026", "");
     document.querySelectorAll(".port-sell").forEach(function (b) { b.disabled = true; });
@@ -2015,7 +2028,11 @@ canvas#chart { width: 100%; height: 158px; display: block; }
           localStorage.setItem("sellPin", pin);
           setSellMsg("Sold " + res.j.count + " @ " + res.j.priceCents + "\\u00a2", "ok");
         } else {
-          if (res.j && /PIN/i.test(res.j.error || "")) localStorage.removeItem("sellPin");
+          // a rejected PIN is cleared so the next page load asks again
+          if (res.j && /PIN/i.test(res.j.error || "")) {
+            localStorage.removeItem("sellPin");
+            pinAsked = false;
+          }
           setSellMsg(res.j && res.j.error ? res.j.error : "Sell failed", "err");
         }
       })
