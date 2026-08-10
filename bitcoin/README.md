@@ -155,6 +155,39 @@ finds the URL sees your balance and positions. If that matters, put the
 hostname behind Cloudflare Access (free for personal use) or run the
 card only on the LAN.
 
+## Sell button (optional, off by default)
+
+Each open position can show a SELL button that liquidates the whole
+position at the current bid. This places **real orders against your real
+account**, so it is disabled unless you set a PIN:
+
+```bash
+export SELL_PIN="some-passphrase"
+```
+
+How it is protected:
+
+- **Off without the PIN.** No `SELL_PIN`, and `/api/sell` returns 403 and
+  no buttons render.
+- **The PIN is never in the page.** It lives only in the server's
+  environment. The browser prompts for it, and only stores it locally
+  after the server has accepted it once. Every order must carry it, and
+  it is compared in constant time.
+- **Two taps.** The first tap arms the button ("CONFIRM?"), the second
+  sends the order. Arming expires by itself after 5 seconds.
+- **Limit, not market.** The order is a limit sell priced at the current
+  bid on the side you hold. That crosses the spread and fills right away,
+  but unlike a market order it can never fill at an arbitrarily bad price
+  if the book is thin.
+
+A PIN is a speed bump, not real authentication — anyone who reaches the
+URL can still see the button and guess at it. **If you enable selling,
+put the hostname behind Cloudflare Access.** It is free for personal use
+and is the only thing here that actually keeps strangers out.
+
+The Python lab's `kalshi_edge.py --live` is a separate path with its own
+credentials and guardrails; the two do not share state.
+
 ## Python lab
 
 `lab/` holds the research/execution side — a lumibot strategy that trades

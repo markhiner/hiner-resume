@@ -603,6 +603,11 @@ pollKalshiStructure();
 
 const KALSHI_KEY_ID = process.env.KALSHI_API_KEY_ID || null;
 const KALSHI_KEY_PATH = process.env.KALSHI_PRIVATE_KEY_PATH || null;
+// Selling places REAL orders against a REAL account, and this page is
+// reachable by anyone who knows the hostname. It is therefore off unless
+// SELL_PIN is set, and every sell must carry that PIN — which lives only
+// in the server's environment, never in the page source.
+const SELL_PIN = process.env.SELL_PIN || null;
 // Position *structure* (which contracts you hold, cost basis, cash) only
 // changes when you trade or a market settles; the fast quote tick handles
 // marking those positions to market every second.
@@ -620,6 +625,7 @@ if (KALSHI_KEY_ID && KALSHI_KEY_PATH) {
 
 let portfolioState = {
   enabled: !!(KALSHI_KEY_ID && kalshiPrivateKey),
+  sellEnabled: !!(KALSHI_KEY_ID && kalshiPrivateKey && SELL_PIN),
   updatedAt: 0,
   error: null,
   cash: null,
@@ -627,6 +633,7 @@ let portfolioState = {
   positionsValue: null,
   totalValue: null,
 };
+if (portfolioState.sellEnabled) console.log("Kalshi selling: ENABLED (PIN required per order)");
 
 function kalshiSignHeaders(method, signPath) {
   const ts = String(Date.now());
@@ -649,6 +656,60 @@ async function kalshiAuthGET(pathname) {
   });
   if (!res.ok) throw new Error(`kalshi auth ${pathname.split("?")[0]} → ${res.status}`);
   return res.json();
+}
+
+async function kalshiAuthPOST(pathname, body) {
+  const signPath = "/trade-api/v2" + pathname.split("?")[0];
+  const res = await fetch(KALSHI_API + pathname, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...kalshiSignHeaders("POST", signPath),
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch {}
+  if (!res.ok) {
+    const detail = (json && (json.message || json.error)) || text.slice(0, 200);
+    throw new Error(`kalshi ${res.status}: ${detail}`);
+  }
+  return json;
+}
+
+// Sell an entire open position at the going price. Implemented as a limit
+// order priced at the current bid on the side held, which crosses the
+// spread and fills immediately against resting size — unlike a bare market
+// order, this can never fill at an arbitrarily bad price if the book is
+// thin. Returns the order Kalshi acknowledged.
+async function sellPosition(ticker) {
+  const row = (portfolioState.positions || []).find((r) => r.ticker === ticker);
+  if (!row) throw new Error("no such open position");
+  if (!Number.isFinite(row.count) || row.count <= 0) throw new Error("position quantity unknown");
+
+  const { market } = await kalshiGET(`/markets/${encodeURIComponent(ticker)}`);
+  if (!market) throw new Error("market not found");
+  if (market.status && market.status !== "active") throw new Error(`market is ${market.status}`);
+
+  const bid = money(market, row.side === "yes" ? "yes_bid" : "no_bid");
+  if (bid == null || bid <= 0) throw new Error("no bid to sell into");
+  const priceCents = Math.max(1, Math.min(99, Math.round(bid * 100)));
+
+  const order = {
+    ticker,
+    action: "sell",
+    side: row.side,
+    count: row.count,
+    type: "limit",
+    client_order_id: "btc-ticker-" + Date.now(),
+    [row.side === "yes" ? "yes_price" : "no_price"]: priceCents,
+  };
+  console.log(`SELL ${row.side.toUpperCase()} x${row.count} ${ticker} @ ${priceCents}c`);
+  const resp = await kalshiAuthPOST("/portfolio/orders", order);
+  await pollPortfolio(); // refresh immediately so the card reflects the sale
+  return { ok: true, ticker, side: row.side, count: row.count, priceCents, order: resp && resp.order };
 }
 
 function dollars(obj, dollarsKey, centsKey) {
@@ -841,6 +902,43 @@ const server = http.createServer((req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
   if (url.pathname === "/favicon.ico") { res.writeHead(204); res.end(); return; }
+
+  // Places a real order against a real account. Requires the server-side
+  // PIN on every call; no PIN configured means the route does not exist.
+  if (url.pathname === "/api/sell" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => {
+      body += c;
+      if (body.length > 4096) { req.destroy(); }
+    });
+    req.on("end", async () => {
+      const send = (code, obj) => {
+        res.writeHead(code, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(obj));
+      };
+      if (!portfolioState.sellEnabled) return send(403, { error: "selling is not enabled on this server" });
+      let payload;
+      try { payload = JSON.parse(body || "{}"); } catch { return send(400, { error: "bad request" }); }
+
+      // constant-time compare so a wrong PIN can't be found by timing
+      const given = Buffer.from(String(payload.pin || ""));
+      const want = Buffer.from(SELL_PIN);
+      const pinOk = given.length === want.length && crypto.timingSafeEqual(given, want);
+      if (!pinOk) {
+        console.warn("Rejected /api/sell: bad PIN");
+        return send(401, { error: "incorrect PIN" });
+      }
+      if (!payload.ticker) return send(400, { error: "ticker required" });
+
+      try {
+        send(200, await sellPosition(String(payload.ticker)));
+      } catch (e) {
+        console.error("SELL failed:", e.message);
+        send(502, { error: e.message });
+      }
+    });
+    return;
+  }
 
   if (url.pathname === "/api/latest") {
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -1108,6 +1206,16 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .port-pnl.up { color: var(--green); }
 .port-pnl.down { color: var(--red); }
 .port-pnl.flat { color: var(--text3); }
+.port-sell {
+  flex-shrink: 0; margin-left: 6px; padding: 4px 10px; border-radius: 6px;
+  border: 1px solid rgba(239,68,68,0.5); background: rgba(239,68,68,0.12);
+  color: var(--red); font-size: 10.5px; font-weight: 800; letter-spacing: 0.5px;
+}
+.port-sell.confirm { background: var(--red); border-color: var(--red); color: #fff; }
+.port-sell:disabled { opacity: 0.45; }
+.port-sell-msg { font-size: 11px; margin-top: 6px; text-align: right; }
+.port-sell-msg.ok { color: var(--green); }
+.port-sell-msg.err { color: var(--red); }
 .port-empty { font-size: 11.5px; color: var(--text3); font-style: italic; }
 
 /* ── live trades ── */
@@ -1790,17 +1898,95 @@ canvas#chart { width: 100%; height: 158px; display: block; }
           var sign = r.pnl > 0 ? "+" : r.pnl < 0 ? "\\u2212" : "";
           pnlHtml = '<span class="port-pnl ' + pc + '">' + sign + "$" + Math.abs(r.pnl).toFixed(2) + "</span>";
         }
+        var sellBtn = p.sellEnabled
+          ? '<button class="port-sell" data-ticker="' + r.ticker + '">SELL</button>'
+          : "";
         return '<div class="port-row">' +
           '<span class="port-side ' + r.side + '">' + r.side.toUpperCase() + qty + "</span>" +
           '<span class="port-desc">' + r.subtitle + "</span>" +
           '<span class="port-val">' + val + "<span>" + per + "</span></span>" +
-          pnlHtml +
+          pnlHtml + sellBtn +
           "</div>";
       }).join("");
     }
+    html += '<div class="port-sell-msg" id="sellMsg"></div>';
     card.innerHTML = html;
     card.style.display = "";
+    if (sellMsg.text) {
+      var el = document.getElementById("sellMsg");
+      el.textContent = sellMsg.text;
+      el.className = "port-sell-msg " + sellMsg.cls;
+    }
   }
+
+  // ---------- selling ----------
+  // Two taps to fire: the first arms the button, the second sends the
+  // order. The PIN is never in the page — it is prompted for and kept in
+  // localStorage only after the server has accepted it once.
+
+  var sellMsg = { text: "", cls: "" };
+  var armed = { ticker: null, timer: null };
+
+  function setSellMsg(text, cls) {
+    sellMsg = { text: text, cls: cls || "" };
+    var el = document.getElementById("sellMsg");
+    if (el) { el.textContent = text; el.className = "port-sell-msg " + sellMsg.cls; }
+  }
+
+  function disarm() {
+    if (armed.timer) clearTimeout(armed.timer);
+    armed = { ticker: null, timer: null };
+    document.querySelectorAll(".port-sell").forEach(function (b) {
+      b.classList.remove("confirm");
+      b.textContent = "SELL";
+    });
+  }
+
+  document.getElementById("portfolioCard").addEventListener("click", function (ev) {
+    var btn = ev.target.closest(".port-sell");
+    if (!btn) return;
+    var ticker = btn.getAttribute("data-ticker");
+
+    if (armed.ticker !== ticker) {
+      disarm();
+      armed.ticker = ticker;
+      btn.classList.add("confirm");
+      btn.textContent = "CONFIRM?";
+      setSellMsg("Tap again to sell at the current bid", "");
+      armed.timer = setTimeout(function () { disarm(); setSellMsg("", ""); }, 5000);
+      return;
+    }
+
+    // second tap — send it
+    disarm();
+    var pin = localStorage.getItem("sellPin");
+    if (!pin) {
+      pin = window.prompt("Sell PIN");
+      if (!pin) { setSellMsg("Cancelled", ""); return; }
+    }
+    setSellMsg("Selling\\u2026", "");
+    document.querySelectorAll(".port-sell").forEach(function (b) { b.disabled = true; });
+
+    fetch("/api/sell", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker: ticker, pin: pin }),
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (res.ok) {
+          localStorage.setItem("sellPin", pin);
+          setSellMsg("Sold " + res.j.count + " @ " + res.j.priceCents + "\\u00a2", "ok");
+        } else {
+          if (res.j && /PIN/i.test(res.j.error || "")) localStorage.removeItem("sellPin");
+          setSellMsg(res.j && res.j.error ? res.j.error : "Sell failed", "err");
+        }
+      })
+      .catch(function (e) { setSellMsg("Sell failed: " + e.message, "err"); })
+      .then(function () {
+        document.querySelectorAll(".port-sell").forEach(function (b) { b.disabled = false; });
+      });
+  });
 
   // ---------- live trade ticker ----------
 
