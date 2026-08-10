@@ -982,7 +982,12 @@ body {
    (even fully transparent) overlay leaves that chrome stuck green or red
    long after the flash. The color is set only for the duration of the
    animation and cleared on animationend. */
-.screen-flash { position: fixed; inset: 0; pointer-events: none; z-index: 9999; opacity: 0; background: none; }
+/* Deliberately inset from the top and bottom of the viewport: iOS Safari
+   tints its status bar / toolbar from the pixels the page paints at those
+   edges, sampling while the flash is live, so any color there sticks to
+   the chrome. Leaving 9% strips untouched keeps the sampled regions the
+   page's own black; the remaining 82% is still an unmissable flash. */
+.screen-flash { position: fixed; left: 0; right: 0; top: 9%; bottom: 9%; pointer-events: none; z-index: 9999; opacity: 0; background: none; }
 .screen-flash.go { animation: screenFlash 0.45s ease-out; }
 @keyframes screenFlash {
   0%   { opacity: 0; }
@@ -1255,7 +1260,14 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   }
 
   function triggerBigMoveFlash(direction) {
-    // full-screen camera flash at the moment of the move
+    // Full-screen camera flash at the moment of the move.
+    // iOS Safari tints its status bar / toolbar by sampling the pixels the
+    // page paints at the very top and bottom of the viewport, and it does
+    // that sampling WHILE the flash is on screen — so clearing the color
+    // afterwards came too late and the chrome stayed green. Paint the color
+    // as a gradient that stays fully transparent in the top and bottom
+    // strips: the middle ~86% still reads as a full-screen flash, but the
+    // edges Safari samples never stop being the page's black background.
     var screen = document.getElementById("screenFlash");
     screen.style.background = direction === "up" ? "#00c800" : "#ff0000";
     screen.classList.remove("go");
