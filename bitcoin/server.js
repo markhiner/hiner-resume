@@ -1276,8 +1276,9 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .port-pnl.up { color: var(--green); }
 .port-pnl.down { color: var(--red); }
 .port-pnl.flat { color: var(--text3); }
+.port-actions { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; margin-left: 7px; }
 .port-sell, .port-buy {
-  flex-shrink: 0; margin-left: 5px; padding: 4px 8px; border-radius: 6px;
+  padding: 3px 9px; border-radius: 6px; min-width: 54px; text-align: center;
   font-size: 10.5px; font-weight: 800; letter-spacing: 0.3px;
 }
 .port-sell { border: 1px solid rgba(245,197,24,0.5); background: rgba(245,197,24,0.12); color: var(--yellow); }
@@ -1971,8 +1972,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
           pnlHtml = '<span class="port-pnl ' + pc + '">' + sign + "$" + Math.abs(r.pnl).toFixed(2) + "</span>";
         }
         var sellBtn = p.sellEnabled
-          ? '<button class="port-buy" data-ticker="' + r.ticker + '">+10</button>' +
-            '<button class="port-sell" data-ticker="' + r.ticker + '">SELL</button>'
+          ? '<div class="port-actions">' +
+              '<button class="port-buy" data-ticker="' + r.ticker + '">+10</button>' +
+              '<button class="port-sell" data-ticker="' + r.ticker + '">SELL</button>' +
+            "</div>"
           : "";
         // compact strike ("$65,000+") when we know it, full label otherwise
         var desc = r.subtitle;
