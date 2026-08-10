@@ -945,10 +945,10 @@ body {
 #app {
   max-width: 480px;
   margin: 0 auto;
-  padding: 10px 10px 22px;
+  padding: 8px 10px 22px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 7px;
 }
 
 /* ── brand row ── */
@@ -1016,25 +1016,25 @@ body {
 .range-btn-sm.active { background: var(--text1); color: #000; border-color: var(--text1); }
 
 /* ── chart ── */
-.chart-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 10px 8px; }
-.chart-hdr { display: flex; justify-content: space-between; align-items: baseline; padding: 0 4px 6px; font-size: 11px; color: var(--text3); }
+.chart-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 8px 8px 5px; }
+.chart-hdr { display: flex; justify-content: space-between; align-items: baseline; padding: 0 4px 4px; font-size: 10px; color: var(--text3); }
 .chart-hdr .hi { color: var(--green); font-weight: 700; }
 .chart-hdr .lo { color: var(--red); font-weight: 700; }
-canvas#chart { width: 100%; height: 230px; display: block; }
-.chart-axis { display: flex; justify-content: space-between; padding: 4px 4px 0; font-size: 10px; color: var(--text3); }
+canvas#chart { width: 100%; height: 158px; display: block; }
+.chart-axis { display: flex; justify-content: space-between; padding: 3px 4px 0; font-size: 9.5px; color: var(--text3); }
 
 /* ── exchange rows ── */
 .rows-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; display: flex; overflow: hidden; }
-.ex-row { flex: 1; display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; }
+.ex-row { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 6px 11px; }
 .ex-row + .ex-row { border-left: 1px solid var(--border); }
-.ex-name { font-size: 10.5px; font-weight: 800; color: var(--text3); letter-spacing: 0.5px; text-transform: uppercase; }
-.ex-price-wrap { display: flex; align-items: baseline; gap: 7px; }
-.ex-price { font-size: 15px; font-weight: 800; padding: 2px 7px; border-radius: 6px; font-variant-numeric: tabular-nums; transition: background 0.25s, color 0.25s; }
+.ex-name { font-size: 9px; font-weight: 800; color: var(--text3); letter-spacing: 0.5px; text-transform: uppercase; }
+.ex-price-wrap { display: flex; align-items: baseline; gap: 6px; }
+.ex-price { font-size: 13px; font-weight: 800; padding: 1px 6px; border-radius: 5px; font-variant-numeric: tabular-nums; transition: background 0.25s, color 0.25s; }
 .ex-price.up   { background: var(--green-dim); color: var(--green); }
 .ex-price.down { background: var(--red-dim); color: var(--red); }
 .ex-price.flat { background: rgba(255,255,255,0.05); color: var(--text1); }
 .ex-price.off  { background: transparent; color: var(--text3); font-weight: 600; font-size: 12px; }
-.ex-pct { font-size: 11px; font-weight: 700; }
+.ex-pct { font-size: 10px; font-weight: 700; }
 .ex-pct.up { color: var(--green); }
 .ex-pct.down { color: var(--red); }
 .ex-pct.flat { color: var(--text3); }
@@ -1042,7 +1042,7 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 /* ── outlook (chance) card ── */
 .outlook-stack { display: grid; }
 .outlook-stack > * { grid-area: 1 / 1; align-self: start; }
-.outlook-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; opacity: 1; transition: opacity 0.35s ease; }
+.outlook-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 10px 13px; opacity: 1; transition: opacity 0.35s ease; }
 .outlook-card.hc-hidden { opacity: 0; pointer-events: none; }
 
 /* ── hour-close average banner ── */
@@ -1062,36 +1062,36 @@ canvas#chart { width: 100%; height: 230px; display: block; }
 .trend-headline { font-size: 14px; font-weight: 700; line-height: 1.35; color: var(--text1); }
 .trend-headline b.up { color: var(--green); }
 .trend-headline b.down { color: var(--red); }
-.gauge { position: relative; height: 8px; border-radius: 4px; margin: 10px 0 6px; background: linear-gradient(90deg, var(--red) 0%, var(--yellow) 50%, var(--green) 100%); }
+.gauge { position: relative; height: 7px; border-radius: 4px; margin: 8px 0 5px; background: linear-gradient(90deg, var(--red) 0%, var(--yellow) 50%, var(--green) 100%); }
 .gauge-pointer { position: absolute; top: -4px; width: 3px; height: 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 4px rgba(0,0,0,0.6); transform: translateX(-50%); animation: gaugePulse 1.4s ease-in-out infinite; }
 @keyframes gaugePulse { 0%, 100% { opacity: 1; transform: translateX(-50%) scaleY(1); } 50% { opacity: 0.5; transform: translateX(-50%) scaleY(1.3); } }
 .gauge-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text3); }
-.stat-chips { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-.chip { font-size: 11px; font-weight: 700; padding: 5px 10px; border-radius: 20px; background: rgba(255,255,255,0.05); color: var(--text2); }
+.stat-chips { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.chip { font-size: 10px; font-weight: 700; padding: 4px 9px; border-radius: 20px; background: rgba(255,255,255,0.05); color: var(--text2); }
 .chip.green { color: var(--green); background: var(--green-dim); }
 .chip.red { color: var(--red); background: var(--red-dim); }
 .chip.yellow { color: var(--yellow); background: var(--yellow-dim); }
 .trend-warmup { font-size: 13px; color: var(--text2); padding: 4px 0; }
 
 /* ── kalshi vs model ── */
-.kalshi-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
-.kalshi-hdr { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.kalshi-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 9px 12px; }
+.kalshi-hdr { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
 .kalshi-title { font-size: 11px; letter-spacing: 1.5px; color: var(--text3); font-weight: 800; text-transform: uppercase; }
 .kalshi-close { font-size: 10px; color: var(--text3); }
 .kalshi-compare { display: flex; align-items: stretch; gap: 8px; }
-.kalshi-cell { flex: 1; background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; text-align: center; }
-.kalshi-cell .lbl { font-size: 9.5px; letter-spacing: 1px; color: var(--text3); font-weight: 700; text-transform: uppercase; }
-.kalshi-cell .val { font-size: 20px; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; color: var(--text1); }
+.kalshi-cell { flex: 1; background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 5px 9px; text-align: center; }
+.kalshi-cell .lbl { font-size: 9px; letter-spacing: 1px; color: var(--text3); font-weight: 700; text-transform: uppercase; }
+.kalshi-cell .val { font-size: 17px; font-weight: 800; margin-top: 1px; font-variant-numeric: tabular-nums; color: var(--text1); }
 .kalshi-cell.edge .val.up { color: var(--green); }
 .kalshi-cell.edge .val.down { color: var(--red); }
 .kalshi-cell.edge .val.flat { color: var(--yellow); }
-.kalshi-detail { font-size: 11px; color: var(--text2); margin-top: 8px; text-align: center; }
+.kalshi-detail { font-size: 10px; color: var(--text2); margin-top: 6px; text-align: center; }
 .kalshi-detail b { color: var(--text1); }
 .kalshi-off { font-size: 11.5px; color: var(--text3); font-style: italic; margin-top: 2px; }
 
 /* ── my kalshi portfolio ── */
-.portfolio-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
-.port-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-variant-numeric: tabular-nums; }
+.portfolio-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 9px 12px; }
+.port-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-variant-numeric: tabular-nums; }
 .port-row:last-of-type { border-bottom: none; }
 .port-side { font-size: 10px; font-weight: 800; letter-spacing: 0.5px; padding: 2px 7px; border-radius: 5px; flex-shrink: 0; }
 .port-side.yes { background: var(--green-dim); color: var(--green); }
