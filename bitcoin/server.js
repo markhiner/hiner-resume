@@ -1774,7 +1774,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       card.style.display = "none";
       return;
     }
-    var html = '<div class="kalshi-hdr"><span class="kalshi-title">My Kalshi</span></div>';
+    var html = '<div class="kalshi-hdr"><span class="kalshi-title">Open Positions</span></div>';
     if (!p.positions.length) {
       html += '<div class="port-empty">No open contracts</div>';
     } else {
