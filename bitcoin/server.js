@@ -1049,7 +1049,15 @@ function connectBRTI() {
     const msg = m.msg || m;
     if (msg.index_id && msg.index_id !== "BRTI") return;
 
-    const frame = msg.data || {};
+    // msg.data arrives as a JSON *string* — the docs call it the "raw CF
+    // Benchmarks frame" and mean that literally:
+    //   "data":"{\"type\":\"value\",\"id\":\"BRTI\",\"value\":\"64071.14\"}"
+    // (the same double-encoding Bitstamp's feed uses above)
+    let frame = msg.data;
+    if (typeof frame === "string") {
+      try { frame = JSON.parse(frame); } catch { frame = {}; }
+    }
+    if (!frame || typeof frame !== "object") frame = {};
     const v = parseFloat(frame.value != null ? frame.value : msg.value);
     if (Number.isFinite(v)) {
       brtiState.value = v;
