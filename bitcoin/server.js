@@ -978,12 +978,14 @@ const BRTI_SIGN_PATH = "/trade-api/ws/v2";
 
 let brtiState = {
   enabled: !!(KALSHI_KEY_ID && kalshiPrivateKey),
-  connected: false,
+  connected: false, // socket handshake succeeded
+  subscribed: false, // server acknowledged the channel subscription
   value: null,      // latest BRTI print
   ts: null,
   avg60: null,      // trailing 60s average — what settlement uses
   avg60Window: null,
   error: null,
+  lastMsg: null,    // last frame seen, so a stuck feed can be diagnosed
 };
 
 let brtiSocket = null, brtiDelay = 1000;
@@ -1002,30 +1004,47 @@ function connectBRTI() {
   brtiSocket.on("open", () => {
     brtiDelay = 1000;
     brtiState = { ...brtiState, connected: true, error: null };
-    console.log("BRTI feed connected");
-    // Kalshi's WS v2 command envelope
-    brtiSocket.send(JSON.stringify({
-      id: 1,
-      cmd: "subscribe",
-      params: { channels: ["cfbenchmarks_value"], index_ids: ["BRTI"] },
-    }));
+    console.log("BRTI: socket open, sending subscribe attempts");
+    // The docs and the live endpoint have already disagreed once (the
+    // documented URL 404s), so send both documented shapes. Whichever the
+    // server doesn't understand comes back as an error we log; the other
+    // starts the stream.
+    const attempts = [
+      { id: 1, cmd: "subscribe", params: { channels: ["cfbenchmarks_value"], index_ids: ["BRTI"] } },
+      { type: "subscribe", channel: "cfbenchmarks_value", index_ids: ["BRTI"] },
+    ];
+    attempts.forEach((a, i) => {
+      setTimeout(() => {
+        if (brtiSocket && brtiSocket.readyState === WebSocket.OPEN && !brtiState.subscribed) {
+          console.log("BRTI -> subscribe attempt " + (i + 1) + ":", JSON.stringify(a));
+          try { brtiSocket.send(JSON.stringify(a)); } catch {}
+        }
+      }, i * 1500);
+    });
   });
 
   brtiSocket.on("message", (raw) => {
+    const text = raw.toString();
     let m;
-    try { m = JSON.parse(raw); } catch { return; }
+    try { m = JSON.parse(text); } catch { return; }
 
-    if (m.type === "subscribed" || m.type === "ok") {
-      console.log("BRTI subscribe ack:", raw.toString().slice(0, 200));
+    // Log every distinct frame type once so a stuck feed is diagnosable
+    // from the server log rather than guessing.
+    const kind = m.type || m.cmd || "?";
+    if (kind !== "cfbenchmarks_value") console.log("BRTI <-", text.slice(0, 300));
+    brtiState.lastMsg = text.slice(0, 200);
+
+    if (m.type === "subscribed" || m.type === "ok" || (m.msg && m.msg.sid != null && m.type !== "cfbenchmarks_value")) {
+      brtiState.subscribed = true;
       return;
     }
     if (m.type === "error" || m.error) {
-      console.error("BRTI feed error:", raw.toString().slice(0, 300));
-      brtiState.error = raw.toString().slice(0, 200);
+      brtiState.error = text.slice(0, 200);
       return;
     }
     if (m.type !== "cfbenchmarks_value") return;
 
+    brtiState.subscribed = true;
     // envelope has been seen as {type, msg:{...}}; tolerate a flat shape too
     const msg = m.msg || m;
     if (msg.index_id && msg.index_id !== "BRTI") return;
@@ -1046,7 +1065,7 @@ function connectBRTI() {
   });
 
   brtiSocket.on("close", (code) => {
-    brtiState = { ...brtiState, connected: false };
+    brtiState = { ...brtiState, connected: false, subscribed: false };
     console.log(`BRTI feed disconnected (${code}), retrying in ${brtiDelay}ms`);
     setTimeout(connectBRTI, brtiDelay);
     brtiDelay = Math.min(brtiDelay * 2, 30000);
@@ -2147,8 +2166,12 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     var b = lastBrti;
     if (!b || !b.enabled) return "";
     if (!b.connected || b.value == null) {
-      return '<div class="brti-line"><span class="lbl">BRTI</span> ' +
-        (b.error ? "unavailable" : "connecting\u2026") + "</div>";
+      // name the exact stage \u2014 a single "connecting" told us nothing
+      var why = b.error ? "error"
+        : !b.connected ? "connecting\u2026"
+        : !b.subscribed ? "connected, subscribing\u2026"
+        : "subscribed, no data yet\u2026";
+      return '<div class="brti-line"><span class="lbl">BRTI</span> ' + why + "</div>";
     }
     var out = '<div class="brti-line"><span class="lbl">BRTI</span> <b>' +
       fmtUSDShort(b.value) + "</b>";
