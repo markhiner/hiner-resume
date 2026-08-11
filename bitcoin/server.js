@@ -609,7 +609,7 @@ async function refreshQuotes() {
     }
     recomputeKalshiState();
     repricePortfolio(byTicker);
-    broadcast({ type: "kalshi", kalshi: kalshiState, portfolio: portfolioState });
+    broadcast({ type: "kalshi", kalshi: kalshiState, portfolio: portfolioState, brti: brtiState });
   } catch (e) {
     kalshiState = { ...kalshiState, error: e.message };
   }
@@ -958,6 +958,108 @@ if (portfolioState.enabled) {
   pollPortfolio();
 }
 
+// ---------- CF Benchmarks BRTI (the price Kalshi actually settles on) ----------
+// Kalshi's hourly BTC markets do NOT settle on Coinbase or Bitstamp. Their
+// rules read: "the simple average of the sixty seconds of CF Benchmarks'
+// BRTI before {hour}". So the Coinbase/Bitstamp blend is only a proxy for
+// the number that decides these markets. Kalshi republishes the BRTI feed,
+// including the trailing 60-second average — i.e. the settlement figure
+// itself — over an authenticated WebSocket, so the same credentials that
+// read the portfolio also get us the real index.
+//
+// Requires credentials; without them this stays inert and the page simply
+// does not show BRTI.
+
+// The docs give the URL as .../cfbenchmarks_value, but that path 404s.
+// Probing showed only /trade-api/ws/v2 exists (401 unauthenticated), so the
+// value feed is a CHANNEL on Kalshi's main socket, not its own endpoint.
+const BRTI_WS = "wss://external-api-ws.kalshi.com/trade-api/ws/v2";
+const BRTI_SIGN_PATH = "/trade-api/ws/v2";
+
+let brtiState = {
+  enabled: !!(KALSHI_KEY_ID && kalshiPrivateKey),
+  connected: false,
+  value: null,      // latest BRTI print
+  ts: null,
+  avg60: null,      // trailing 60s average — what settlement uses
+  avg60Window: null,
+  error: null,
+};
+
+let brtiSocket = null, brtiDelay = 1000;
+
+function connectBRTI() {
+  if (!brtiState.enabled) return;
+  let headers;
+  try {
+    headers = kalshiSignHeaders("GET", BRTI_SIGN_PATH);
+  } catch (e) {
+    brtiState = { ...brtiState, error: "signing failed: " + e.message };
+    return;
+  }
+  brtiSocket = new WebSocket(BRTI_WS, { headers });
+
+  brtiSocket.on("open", () => {
+    brtiDelay = 1000;
+    brtiState = { ...brtiState, connected: true, error: null };
+    console.log("BRTI feed connected");
+    // Kalshi's WS v2 command envelope
+    brtiSocket.send(JSON.stringify({
+      id: 1,
+      cmd: "subscribe",
+      params: { channels: ["cfbenchmarks_value"], index_ids: ["BRTI"] },
+    }));
+  });
+
+  brtiSocket.on("message", (raw) => {
+    let m;
+    try { m = JSON.parse(raw); } catch { return; }
+
+    if (m.type === "subscribed" || m.type === "ok") {
+      console.log("BRTI subscribe ack:", raw.toString().slice(0, 200));
+      return;
+    }
+    if (m.type === "error" || m.error) {
+      console.error("BRTI feed error:", raw.toString().slice(0, 300));
+      brtiState.error = raw.toString().slice(0, 200);
+      return;
+    }
+    if (m.type !== "cfbenchmarks_value") return;
+
+    // envelope has been seen as {type, msg:{...}}; tolerate a flat shape too
+    const msg = m.msg || m;
+    if (msg.index_id && msg.index_id !== "BRTI") return;
+
+    const frame = msg.data || {};
+    const v = parseFloat(frame.value != null ? frame.value : msg.value);
+    if (Number.isFinite(v)) {
+      brtiState.value = v;
+      brtiState.ts = Date.now();
+      brtiState.error = null;
+    }
+    const a = msg.avg_60s_data;
+    if (a) {
+      const av = parseFloat(a.value != null ? a.value : a.average);
+      if (Number.isFinite(av)) brtiState.avg60 = av;
+      if (a.window_size != null) brtiState.avg60Window = a.window_size;
+    }
+  });
+
+  brtiSocket.on("close", (code) => {
+    brtiState = { ...brtiState, connected: false };
+    console.log(`BRTI feed disconnected (${code}), retrying in ${brtiDelay}ms`);
+    setTimeout(connectBRTI, brtiDelay);
+    brtiDelay = Math.min(brtiDelay * 2, 30000);
+  });
+
+  brtiSocket.on("error", (err) => {
+    brtiState = { ...brtiState, error: err.message };
+    console.error("BRTI feed socket error:", err.message);
+    try { brtiSocket.terminate(); } catch {}
+  });
+}
+if (brtiState.enabled) connectBRTI();
+
 // ---------- history bucketing for chart ranges ----------
 
 function bucketize(data, bucketCount) {
@@ -1071,6 +1173,11 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(computeForecast()));
     return;
   }
+  if (url.pathname === "/api/brti") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(brtiState));
+    return;
+  }
   if (url.pathname === "/api/kalshi") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(kalshiState));
@@ -1097,7 +1204,7 @@ server.on("upgrade", (req, socket, head) => {
   if (pathname !== "/stream") { socket.destroy(); return; }
   wss.handleUpgrade(req, socket, head, (ws) => {
     clients.add(ws);
-    ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: computeForecast(), portfolio: portfolioState }));
+    ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: computeForecast(), portfolio: portfolioState, brti: brtiState }));
     ws.on("close", () => clients.delete(ws));
     ws.on("error", () => clients.delete(ws));
   });
@@ -1308,6 +1415,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .kalshi-cell.edge .val.down { color: var(--red); }
 .kalshi-cell.edge .val.flat { color: var(--yellow); }
 .kalshi-detail { font-size: 10px; color: var(--text2); margin-top: 6px; text-align: center; }
+.brti-line { font-size: 10.5px; color: var(--text2); margin-top: 6px; text-align: center; border-top: 1px solid var(--border); padding-top: 6px; }
+.brti-line b { color: var(--text1); font-variant-numeric: tabular-nums; }
+.brti-line .lbl { color: var(--text3); font-weight: 800; letter-spacing: 0.5px; }
+.brti-line .settle { color: var(--yellow); }
 .kalshi-detail b { color: var(--text1); }
 .kalshi-off { font-size: 11.5px; color: var(--text3); font-style: italic; margin-top: 2px; }
 
@@ -2025,7 +2136,24 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         '<div class="kalshi-cell"><div class="lbl">Model</div><div class="val">' + (modelPct != null ? modelPct + "%" : "\\u2013") + "</div></div>" +
         '<div class="kalshi-cell"><div class="lbl">Kalshi</div><div class="val">' + marketPct + "%</div></div>" +
         '<div class="kalshi-cell edge"><div class="lbl">Edge</div><div class="val ' + edgeCls + '">' + edgeStr + "</div></div>" +
-      "</div>" + detail;
+      "</div>" + detail + renderBrti();
+  }
+
+  // BRTI is the index Kalshi actually settles these markets on — the
+  // simple average of its last 60 seconds before the hour. The blended
+  // Coinbase/Bitstamp price at the top of the page is only a proxy for it.
+  var lastBrti = null;
+  function renderBrti() {
+    var b = lastBrti;
+    if (!b || !b.enabled) return "";
+    if (!b.connected || b.value == null) {
+      return '<div class="brti-line"><span class="lbl">BRTI</span> ' +
+        (b.error ? "unavailable" : "connecting\u2026") + "</div>";
+    }
+    var out = '<div class="brti-line"><span class="lbl">BRTI</span> <b>' +
+      fmtUSDShort(b.value) + "</b>";
+    if (b.avg60 != null) out += ' &middot; <span class="settle">60s avg</span> <b>' + fmtUSDShort(b.avg60) + "</b>";
+    return out + "</div>";
   }
 
   // ---------- my kalshi portfolio ----------
@@ -2269,6 +2397,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         applySnapshot(msg.snapshot);
         (msg.trades || []).forEach(pushTradeRow);
         renderTrend(msg.trend);
+        if (msg.brti) lastBrti = msg.brti;
         renderPortfolio(msg.portfolio);
         fetchHistory();
         armAutoRefresh();
@@ -2289,6 +2418,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       if (msg.type === "trend") { renderTrend(msg); return; }
       if (msg.type === "portfolio") { renderPortfolio(msg); return; }
       if (msg.type === "kalshi") {
+        if (msg.brti) lastBrti = msg.brti;
         // 1/sec market refresh: redraw the comparison card against the last
         // known model probability, and reprice the portfolio
         renderKalshi(msg.kalshi, lastModelPct);

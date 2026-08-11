@@ -155,6 +155,23 @@ finds the URL sees your balance and positions. If that matters, put the
 hostname behind Cloudflare Access (free for personal use) or run the
 card only on the LAN.
 
+## BRTI — the price Kalshi actually settles on
+
+Kalshi's hourly BTC markets do **not** settle on Coinbase or Bitstamp.
+Their rules read: *"the simple average of the sixty seconds of CF
+Benchmarks' BRTI before {hour}"*. The blended Coinbase/Bitstamp price at
+the top of the page is only a proxy for that number.
+
+With Kalshi credentials set, the server also subscribes to Kalshi's
+republished CF Benchmarks feed and the Kalshi Market Check card shows
+live BRTI plus its trailing 60-second average — the settlement figure
+itself. No extra configuration: it uses the same key as the portfolio.
+
+Note the documented URL (`wss://external-api-ws.kalshi.com/cfbenchmarks_value`)
+404s; the feed is a channel on the main socket at `/trade-api/ws/v2`.
+
+`GET /api/brti` exposes the same state.
+
 ## Sell button (optional, off by default)
 
 Each open position can show two buttons: **SELL**, which liquidates the
