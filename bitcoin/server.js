@@ -1745,7 +1745,14 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     var n = data.length;
     var leftPad = 44;
     var plotW = Math.max(w - leftPad, 10);
-    var x = function (i) { return leftPad + (n <= 1 ? 0 : (i / (n - 1)) * plotW); };
+    // Position points by TIME, not by array index. The points are not
+    // evenly spaced in time — server history arrives as ~12s buckets while
+    // live points land every second — so index spacing made the newest
+    // stretch of data occupy a growing share of the width and visibly
+    // squeeze the older data toward the left edge.
+    var tFirst = data[0].t, tLast = data[n - 1].t;
+    var tSpan = Math.max(tLast - tFirst, 1);
+    var x = function (i) { return leftPad + (n <= 1 ? 0 : ((data[i].t - tFirst) / tSpan) * plotW); };
     var y = function (v) { return chartH - ((v - minP) / (maxP - minP)) * chartH; };
 
     // volume bars
@@ -1844,7 +1851,20 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   function appendLivePoint(avg, vol) {
     if (state.range !== "1h") return;
     var now = Date.now();
-    state.history.push({ t: now, avg: avg, high: avg, low: avg, vol: vol || 0 });
+    // Coalesce into one point per second, matching the server's own tick
+    // resolution. This used to push a point per trade — hundreds a minute —
+    // which both bloated the series and packed the right-hand side with far
+    // more points than the historical buckets on the left.
+    var sec = Math.floor(now / 1000) * 1000;
+    var last = state.history[state.history.length - 1];
+    if (last && last.t >= sec) {
+      last.avg = avg;
+      last.high = Math.max(last.high, avg);
+      last.low = Math.min(last.low, avg);
+      last.vol = (last.vol || 0) + (vol || 0);
+    } else {
+      state.history.push({ t: sec, avg: avg, high: avg, low: avg, vol: vol || 0 });
+    }
     var cutoff = now - 60 * 60 * 1000;
     while (state.history.length && state.history[0].t < cutoff) state.history.shift();
     if (state.history.length && state.rangeStartAvg == null) state.rangeStartAvg = state.history[0].avg;
