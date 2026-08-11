@@ -534,8 +534,14 @@ const KALSHI_SERIES = "KXBTCD";
 // different rates and batch every fast request into ONE call via the
 // markets?tickers= endpoint, so per-second refresh costs ~1 request/sec
 // rather than dozens.
-const KALSHI_STRUCTURE_MS = 20_000;
-const KALSHI_QUOTE_MS = 1_000;
+const KALSHI_STRUCTURE_MS = Number(process.env.KALSHI_STRUCTURE_MS) || 20_000;
+// 400ms, not 1s. Measured end to end against a stubbed Kalshi at 300ms
+// round-trip: 1s delivered 1.10 P&L updates/sec, 400ms delivers 2.60/sec with
+// zero skipped ticks. Going below that is wasted work — at 250ms the interval
+// drops under the round-trip and the loop just churns (47 skips in 20s, and
+// no more updates than 400ms). One batched request per tick regardless of how
+// many positions are held, so this is ~2.5 reads/sec.
+const KALSHI_QUOTE_MS = Number(process.env.KALSHI_QUOTE_MS) || 400;
 
 let kalshiState = { available: false, error: null, updatedAt: 0 };
 let kalshiLadder = []; // full strike ladder for the live event, quotes patched in place
@@ -632,14 +638,26 @@ function recomputeKalshiState() {
 
 // Fast: one batched request refreshing only the quotes that are on screen —
 // the two strikes bracketing the current price, plus every held position.
+// setInterval fires on a timer, not on completion. Without a guard a request
+// slower than the interval stacks up behind the next one, and two in flight
+// can land out of order — an older quote overwriting a newer one, which shows
+// up as P&L that jumps backwards or sits still. Skip the tick instead, and
+// keep the counters so the real cadence is measurable rather than assumed.
+let quoteInFlight = false;
+let quoteStats = { lastOkAt: null, lastMs: null, skipped: 0, errors: 0, ticks: 0 };
+
 async function refreshQuotes() {
+  if (quoteInFlight) { quoteStats.skipped++; return; }
+  quoteInFlight = true;
+  quoteStats.ticks++;
+  const startedAt = Date.now();
   try {
     const { below, above } = recomputeKalshiState();
     const wanted = new Set();
     if (below) wanted.add(below.ticker);
     if (above) wanted.add(above.ticker);
     for (const r of portfolioState.positions || []) if (r.ticker) wanted.add(r.ticker);
-    if (!wanted.size) return;
+    if (!wanted.size) return; // finally{} still clears quoteInFlight
 
     const { markets = [] } = await kalshiGET(
       `/markets?tickers=${encodeURIComponent([...wanted].join(","))}&limit=${wanted.size}`
@@ -657,10 +675,30 @@ async function refreshQuotes() {
     }
     recomputeKalshiState();
     repricePortfolio(byTicker);
-    broadcast({ type: "kalshi", kalshi: kalshiState, portfolio: portfolioState, brti: brtiPublic() });
+    quoteStats.lastMs = Date.now() - startedAt;
+    quoteStats.lastOkAt = Date.now();
+    broadcast({ type: "kalshi", kalshi: kalshiState, portfolio: portfolioState, brti: brtiPublic(), quote: quoteSnapshot() });
   } catch (e) {
+    quoteStats.errors++;
     kalshiState = { ...kalshiState, error: e.message };
+  } finally {
+    quoteInFlight = false;
   }
+}
+
+// What the quote loop is actually achieving, as opposed to what the interval
+// asks for: if Kalshi round-trips slower than KALSHI_QUOTE_MS from wherever
+// this runs, `skipped` climbs and the true refresh rate is lastMs, not 1s.
+function quoteSnapshot() {
+  return {
+    intervalMs: KALSHI_QUOTE_MS,
+    portfolioPollMs: PORTFOLIO_POLL_MS,
+    lastRoundTripMs: quoteStats.lastMs,
+    ageMs: quoteStats.lastOkAt ? Date.now() - quoteStats.lastOkAt : null,
+    ticks: quoteStats.ticks,
+    skipped: quoteStats.skipped,
+    errors: quoteStats.errors,
+  };
 }
 
 setInterval(pollKalshiStructure, KALSHI_STRUCTURE_MS);
@@ -685,7 +723,7 @@ const SELL_PIN = process.env.SELL_PIN || null;
 // Position *structure* (which contracts you hold, cost basis, cash) only
 // changes when you trade or a market settles; the fast quote tick handles
 // marking those positions to market every second.
-const PORTFOLIO_POLL_MS = 15_000;
+const PORTFOLIO_POLL_MS = Number(process.env.KALSHI_PORTFOLIO_MS) || 15_000;
 
 let kalshiPrivateKey = null;
 if (KALSHI_KEY_ID && KALSHI_KEY_PATH) {
@@ -932,6 +970,19 @@ function repricePortfolio(byTicker) {
   if (!rows || !rows.length) return;
   let posValue = 0, totalPnl = 0, anyPnl = false;
   for (const r of rows) {
+    const m = byTicker && byTicker.get(r.ticker);
+    // The fast batch returns the whole market, not just its quote, so
+    // resolution state refreshes every second here instead of waiting on the
+    // 15s portfolio poll — a settled market is recognised, and a win
+    // announced, within a second of Kalshi publishing it.
+    if (m) {
+      const res = marketResult(m);
+      if (res) r.result = res;
+      if (m.status) r.status = m.status;
+      r.closed = marketClosed(m, r.closeTime);
+    } else if (!r.closed) {
+      r.closed = marketClosed(null, r.closeTime); // close_time alone can decide it
+    }
     if (r.result || r.closed) r.settleAvg = settlementAverage(r.closeTime);
     if (r.result) {
       // Kalshi has published the outcome — that is the price, full stop
@@ -950,7 +1001,6 @@ function repricePortfolio(byTicker) {
       r.resolved = false;
       r.pending = false;
       r.won = null;
-      const m = byTicker && byTicker.get(r.ticker);
       if (m) {
         const per = money(m, r.side === "yes" ? "yes_bid" : "no_bid");
         if (per != null) r.perContract = per;
@@ -1349,7 +1399,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/api/kalshi") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(kalshiState));
+    res.end(JSON.stringify({ ...kalshiState, quote: quoteSnapshot() }));
     return;
   }
   if (url.pathname === "/api/portfolio") {

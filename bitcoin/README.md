@@ -322,6 +322,40 @@ Settled positions drop out of Kalshi's list the moment they pay out, which
 would blink the result off screen at the moment it becomes interesting, so a
 decided row is held for two minutes after it disappears.
 
+### Polling cadence
+
+| what | how often | why |
+| --- | --- | --- |
+| quotes + resolution state (`/markets?tickers=`) | **400ms** | drives unrealized P&L; one batched request whatever the position count |
+| market structure / strike ladder | 20s | strikes don't move |
+| `/portfolio/positions` + balance | 15s | count and cost basis don't change while you hold |
+
+Unrealized P&L rides the 400ms loop, not the 15s one. `/portfolio/positions`
+only supplies quantity and cost basis; the mark comes from the quote batch,
+which also carries `status` and `result` — so a settlement is recognised, and
+a win announced, within a fraction of a second rather than waiting on the
+portfolio poll.
+
+400ms was measured, not guessed. Against a stubbed Kalshi at 300ms
+round-trip, a 1s interval delivered 1.10 P&L updates/sec to the browser and
+400ms delivered 2.60/sec with zero skipped ticks. Going lower is wasted
+work: at 250ms the interval falls under the round-trip and the loop churns —
+47 skipped ticks in 20 seconds and no more updates than 400ms.
+
+All three are overridable: `KALSHI_QUOTE_MS`, `KALSHI_STRUCTURE_MS`,
+`KALSHI_PORTFOLIO_MS`.
+
+`setInterval` fires on a timer, not on completion, so the quote loop carries
+an in-flight guard. Without it a request slower than the interval stacks
+behind the next one and two can land out of order, an older quote
+overwriting a newer one — P&L that jumps backwards or sits still. Measured
+at 1500ms of latency the guard skipped 10 ticks in 20 seconds and the
+delivered cadence degraded cleanly to the round-trip time instead of
+thrashing. `GET /api/kalshi` reports what the loop is actually achieving
+under `quote`: `intervalMs`, `lastRoundTripMs`, `ageMs`, `ticks`, `skipped`,
+`errors` — if `skipped` is climbing on your machine, Kalshi is slower than
+the interval and the real refresh rate is `lastRoundTripMs`.
+
 ## Sell button (optional, off by default)
 
 Each open position can show two buttons: **SELL**, which liquidates the
