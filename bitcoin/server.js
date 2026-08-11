@@ -148,7 +148,18 @@ function snapshot() {
     bitstampConnected: ex.bitstamp.connected,
     average: avg,
     averagePrev: prevAvg,
+    // BRTI is the headline price now, so it rides the 1/sec heartbeat rather
+    // than only the Kalshi market poll (which returns early when there are no
+    // markets to quote, and would leave the price stranded).
+    brti: brtiPublic(),
   };
+}
+
+// `lastMsg` is a diagnostic for /api/brti; the page never needs it, and it is
+// the largest field in a message sent once a second to every client.
+function brtiPublic() {
+  const { lastMsg, ...rest } = brtiState;
+  return rest;
 }
 
 // ---------- exchange connectors ----------
@@ -609,7 +620,7 @@ async function refreshQuotes() {
     }
     recomputeKalshiState();
     repricePortfolio(byTicker);
-    broadcast({ type: "kalshi", kalshi: kalshiState, portfolio: portfolioState, brti: brtiState });
+    broadcast({ type: "kalshi", kalshi: kalshiState, portfolio: portfolioState, brti: brtiPublic() });
   } catch (e) {
     kalshiState = { ...kalshiState, error: e.message };
   }
@@ -1231,7 +1242,7 @@ server.on("upgrade", (req, socket, head) => {
   if (pathname !== "/stream") { socket.destroy(); return; }
   wss.handleUpgrade(req, socket, head, (ws) => {
     clients.add(ws);
-    ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: computeForecast(), portfolio: portfolioState, brti: brtiState }));
+    ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: computeForecast(), portfolio: portfolioState, brti: brtiPublic() }));
     ws.on("close", () => clients.delete(ws));
     ws.on("error", () => clients.delete(ws));
   });
@@ -1302,22 +1313,37 @@ body {
 .brand-row { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 2px; }
 .brand-text { font-size: 10.5px; letter-spacing: 2px; color: var(--text3); font-weight: 800; text-transform: uppercase; }
 .brand-sep { color: var(--text3); font-size: 11px; }
-.status-word { font-size: 10.5px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: var(--red); margin-left: -2px; }
-.status-word.degraded { color: var(--yellow); }
-.status-word.down { color: var(--text3); }
-.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
-.status-dot.live { background: var(--red); box-shadow: 0 0 0 0 rgba(239,68,68,0.5); animation: pulseRed 1.4s infinite; }
-.status-dot.degraded { background: var(--yellow); }
-.status-dot.down { background: var(--red); }
+.status-word { font-size: 10.5px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: var(--green); margin-left: 1px; }
+.status-word.delay { color: var(--yellow); }
+.status-word.down { color: var(--red); }
+/* The health light. Green = BRTI printing in real time, yellow = the feed
+   has gone quiet (DELAY), red = no feed at all (OFFLINE). The pulse is
+   deliberately loud — a bright core, a halo that breathes, and an expanding
+   ring — because this dot is the only thing on the page that says whether
+   the big number can be trusted. */
+.status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
+.status-dot.live { background: #2fe36a; animation: pulseGreen 1.25s ease-out infinite; }
+.status-dot.delay { background: var(--yellow); animation: pulseYellow 1.25s ease-out infinite; }
+.status-dot.down { background: var(--red); animation: pulseRed 1s ease-out infinite; }
 @keyframes pulse {
   0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.45); }
   70%  { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
   100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
 }
+@keyframes pulseGreen {
+  0%   { box-shadow: 0 0 5px 1px rgba(47,227,106,0.95), 0 0 0 0 rgba(47,227,106,0.75); transform: scale(1); }
+  70%  { box-shadow: 0 0 9px 2px rgba(47,227,106,0.55), 0 0 0 9px rgba(47,227,106,0); transform: scale(1.18); }
+  100% { box-shadow: 0 0 5px 1px rgba(47,227,106,0.95), 0 0 0 0 rgba(47,227,106,0); transform: scale(1); }
+}
+@keyframes pulseYellow {
+  0%   { box-shadow: 0 0 5px 1px rgba(245,197,24,0.95), 0 0 0 0 rgba(245,197,24,0.75); transform: scale(1); }
+  70%  { box-shadow: 0 0 9px 2px rgba(245,197,24,0.55), 0 0 0 9px rgba(245,197,24,0); transform: scale(1.18); }
+  100% { box-shadow: 0 0 5px 1px rgba(245,197,24,0.95), 0 0 0 0 rgba(245,197,24,0); transform: scale(1); }
+}
 @keyframes pulseRed {
-  0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
-  70%  { box-shadow: 0 0 0 7px rgba(239,68,68,0); }
-  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+  0%   { box-shadow: 0 0 5px 1px rgba(239,68,68,0.95), 0 0 0 0 rgba(239,68,68,0.8); transform: scale(1); }
+  70%  { box-shadow: 0 0 9px 2px rgba(239,68,68,0.55), 0 0 0 9px rgba(239,68,68,0); transform: scale(1.22); }
+  100% { box-shadow: 0 0 5px 1px rgba(239,68,68,0.95), 0 0 0 0 rgba(239,68,68,0); transform: scale(1); }
 }
 
 /* ── big price ── */
@@ -1341,7 +1367,45 @@ body {
   12%  { opacity: 0.85; }
   100% { opacity: 0; }
 }
-.price-big { font-size: clamp(46px, 15.5vw, 64px); font-weight: 800; letter-spacing: -1.5px; line-height: 1; text-align: center; color: var(--text1); font-variant-numeric: tabular-nums; }
+.price-big { font-size: clamp(46px, 15.5vw, 64px); font-weight: 800; letter-spacing: -1.5px; line-height: 1; text-align: center; color: var(--text1); font-variant-numeric: tabular-nums; transition: font-size 0.35s ease; }
+/* During the settlement minute the live BRTI print steps aside: it shrinks to
+   half size and the 60-second average takes over as the headline number. */
+.price-big.half { font-size: clamp(23px, 7.75vw, 32px); letter-spacing: -0.5px; color: var(--text2); }
+.price-big-tag { display: none; font-size: 9px; letter-spacing: 2px; font-weight: 800; color: var(--text3); text-transform: uppercase; text-align: center; margin-top: 3px; }
+.price-big.half + .price-big-tag { display: block; }
+
+/* ── settlement-minute 60s average ── */
+.minute-avg {
+  width: 100vw;
+  margin: 4px calc(50% - 50vw) 0;
+  padding: 11px 0 10px;
+  text-align: center;
+  background: var(--yellow);
+  display: none;
+}
+.minute-avg.on { display: block; }
+.minute-avg-label { font-size: 11px; letter-spacing: 2.5px; font-weight: 900; text-transform: uppercase; color: rgba(0,0,0,0.72); }
+.minute-avg-price { font-size: clamp(46px, 15.5vw, 64px); font-weight: 800; letter-spacing: -1.5px; line-height: 1.05; color: #000; font-variant-numeric: tabular-nums; }
+.minute-avg-sub { font-size: 10.5px; font-weight: 700; color: rgba(0,0,0,0.62); font-variant-numeric: tabular-nums; }
+.minute-avg.locked .minute-avg-label::after { content: " · locked"; }
+
+/* ── settlement-minute capture list ── */
+.capture-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
+.capture-hdr { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+.capture-title { font-size: 11px; letter-spacing: 1.5px; color: var(--text3); font-weight: 800; text-transform: uppercase; }
+.capture-when { flex: 1; font-size: 10px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.capture-export {
+  border: 1px solid rgba(245,197,24,0.5); background: rgba(245,197,24,0.12); color: var(--yellow);
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.8px; padding: 4px 12px; border-radius: 6px;
+}
+.capture-export:disabled { opacity: 0.4; }
+.capture-list { max-height: 132px; overflow-y: auto; -webkit-overflow-scrolling: touch; font-variant-numeric: tabular-nums; }
+.capture-row { display: flex; align-items: center; gap: 8px; padding: 2.5px 2px; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+.capture-row:last-child { border-bottom: none; }
+.capture-sec { width: 62px; flex-shrink: 0; color: var(--text3); }
+.capture-idx { width: 34px; flex-shrink: 0; color: var(--text3); font-size: 10.5px; }
+.capture-px { flex: 1; text-align: right; font-weight: 700; color: var(--text1); }
+.capture-empty { font-size: 11.5px; color: var(--text3); font-style: italic; }
 
 /* ── hero row: delta + countdown ── */
 .hero-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 0; }
@@ -1375,46 +1439,8 @@ body {
 canvas#chart { width: 100%; height: 158px; display: block; }
 .chart-axis { display: flex; justify-content: space-between; padding: 3px 4px 0; font-size: 9.5px; color: var(--text3); }
 
-/* ── exchange rows ── */
-.rows-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; display: flex; overflow: hidden; }
-.ex-row { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 6px 11px; }
-.ex-row + .ex-row { border-left: 1px solid var(--border); }
-.ex-name { font-size: 9px; font-weight: 800; color: var(--text3); letter-spacing: 0.5px; text-transform: uppercase; }
-.ex-price-wrap { display: flex; align-items: baseline; gap: 6px; }
-.ex-price { font-size: 13px; font-weight: 800; padding: 1px 6px; border-radius: 5px; font-variant-numeric: tabular-nums; transition: background 0.25s, color 0.25s; }
-.ex-price.up   { background: var(--green-dim); color: var(--green); }
-.ex-price.down { background: var(--red-dim); color: var(--red); }
-.ex-price.flat { background: rgba(255,255,255,0.05); color: var(--text1); }
-.ex-price.off  { background: transparent; color: var(--text3); font-weight: 600; font-size: 12px; }
-.ex-pct { font-size: 10px; font-weight: 700; }
-.ex-pct.up { color: var(--green); }
-.ex-pct.down { color: var(--red); }
-.ex-pct.flat { color: var(--text3); }
-/* feed being discounted for staleness — visibly de-emphasised so the
-   blended price above never quietly changes meaning */
-.ex-row.stale { opacity: 0.42; }
-.ex-row.stale .ex-name::after { content: " · stale"; color: var(--yellow); }
-
 /* ── outlook (chance) card ── */
-.outlook-stack { display: grid; }
-.outlook-stack > * { grid-area: 1 / 1; align-self: start; }
-.outlook-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 10px 13px; opacity: 1; transition: opacity 0.35s ease; }
-.outlook-card.hc-hidden { opacity: 0; pointer-events: none; }
-
-/* ── hour-close average banner ── */
-.hourclose-wrap {
-  width: 100vw;
-  margin: 0 calc(50% - 50vw);
-  padding: 14px 0 12px;
-  text-align: center;
-  opacity: 0;
-  pointer-events: none;
-  background-color: transparent;
-  transition: opacity 0.35s ease, background-color 0.4s ease;
-}
-.hourclose-wrap.hc-visible { opacity: 1; pointer-events: auto; }
-.hourclose-label { font-size: 10.5px; letter-spacing: 2px; color: rgba(255,255,255,0.8); font-weight: 800; text-transform: uppercase; margin-bottom: 4px; }
-.hourclose-price { font-size: clamp(46px, 15.5vw, 64px); font-weight: 800; letter-spacing: -1.5px; line-height: 1; color: var(--text1); font-variant-numeric: tabular-nums; }
+.outlook-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 10px 13px; }
 .trend-headline { font-size: 14px; font-weight: 700; line-height: 1.35; color: var(--text1); }
 .trend-headline b.up { color: var(--green); }
 .trend-headline b.down { color: var(--red); }
@@ -1442,10 +1468,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .kalshi-cell.edge .val.down { color: var(--red); }
 .kalshi-cell.edge .val.flat { color: var(--yellow); }
 .kalshi-detail { font-size: 10px; color: var(--text2); margin-top: 6px; text-align: center; }
-.brti-line { font-size: 10.5px; color: var(--text2); margin-top: 6px; text-align: center; border-top: 1px solid var(--border); padding-top: 6px; }
-.brti-line b { color: var(--text1); font-variant-numeric: tabular-nums; }
-.brti-line .lbl { color: var(--text3); font-weight: 800; letter-spacing: 0.5px; }
-.brti-line .settle { color: var(--yellow); }
 .kalshi-detail b { color: var(--text1); }
 .kalshi-off { font-size: 11.5px; color: var(--text3); font-style: italic; margin-top: 2px; }
 
@@ -1496,11 +1518,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 /* ── footer ── */
 .footer { display: flex; justify-content: space-between; align-items: center; padding: 4px 4px 0; font-size: 10.5px; color: var(--text3); }
 .footer a { color: var(--text3); text-decoration: none; }
-.dot-list { display: flex; gap: 10px; }
-.dot-item { display: flex; align-items: center; gap: 4px; }
-.dot-item .d { width: 6px; height: 6px; border-radius: 50%; }
-.dot-item .d.on { background: var(--green); }
-.dot-item .d.off { background: var(--red); }
 
 </style>
 </head>
@@ -1509,7 +1526,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 <div id="app">
 
   <div class="brand-row">
-    <span class="brand-text">Hiner BTC Benchmark</span>
+    <span class="brand-text">CF Benchmark BRTI</span>
     <span class="brand-sep">|</span>
     <span class="status-dot" id="statusDot"></span>
     <span class="status-word" id="statusWord">LIVE</span>
@@ -1517,6 +1534,13 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
   <div class="price-flash-wrap" id="priceFlashWrap">
     <div class="price-big" id="bigPrice">—</div>
+    <div class="price-big-tag">BRTI Live</div>
+  </div>
+
+  <div class="minute-avg" id="minuteAvg">
+    <div class="minute-avg-label" id="minuteAvgLabel">60 Second Avg</div>
+    <div class="minute-avg-price" id="minuteAvgPrice">—</div>
+    <div class="minute-avg-sub" id="minuteAvgSub">&nbsp;</div>
   </div>
 
   <div class="hero-row">
@@ -1524,14 +1548,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     <div class="countdown" id="countdown">60:00</div>
   </div>
 
-  <div class="outlook-stack">
-    <div class="outlook-card" id="outlookCard">
-      <div id="outlookBody"><div class="trend-warmup">Gathering data for a projection…</div></div>
-    </div>
-    <div class="hourclose-wrap" id="hourCloseWrap">
-      <div class="hourclose-label">60s Hour-Close Avg</div>
-      <div class="hourclose-price" id="hourClosePrice">—</div>
-    </div>
+  <div class="outlook-card" id="outlookCard">
+    <div id="outlookBody"><div class="trend-warmup">Gathering data for a projection…</div></div>
   </div>
 
   <div class="range-row-sm">
@@ -1549,23 +1567,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     <div class="chart-axis"><span id="axisStart">—</span><span id="axisEnd">now</span></div>
   </div>
 
-  <div class="rows-card" id="rowsCard">
-    <div class="ex-row">
-      <div class="ex-name">Coinbase</div>
-      <div class="ex-price-wrap">
-        <span class="ex-price flat" id="cbPrice">—</span>
-        <span class="ex-pct flat" id="cbPct">—</span>
-      </div>
-    </div>
-    <div class="ex-row">
-      <div class="ex-name">Bitstamp</div>
-      <div class="ex-price-wrap">
-        <span class="ex-price flat" id="bsPrice">—</span>
-        <span class="ex-pct flat" id="bsPct">—</span>
-      </div>
-    </div>
-  </div>
-
   <div class="kalshi-card" id="kalshiCard"></div>
 
   <div class="portfolio-card" id="portfolioCard" style="display:none"></div>
@@ -1575,11 +1576,19 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     <div class="trades-list" id="tradesList"></div>
   </div>
 
-  <div class="footer">
-    <div class="dot-list">
-      <span class="dot-item"><span class="d off" id="footCbDot"></span>Coinbase</span>
-      <span class="dot-item"><span class="d off" id="footBsDot"></span>Bitstamp</span>
+  <div class="capture-card">
+    <div class="capture-hdr">
+      <span class="capture-title">60s Capture</span>
+      <span class="capture-when" id="captureWhen">—</span>
+      <button class="capture-export" id="captureExport" disabled>EXPORT</button>
     </div>
+    <div class="capture-list" id="captureList">
+      <div class="capture-empty">Fills each hour from :59:00 to :59:59</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>CF Benchmarks BRTI · Kalshi settlement index</span>
     <span id="lastUpdated">—</span>
   </div>
 
@@ -1593,7 +1602,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     range: "1h",
     history: [],
     live: { coinbase: null, bitstamp: null },
-    prevRow: { coinbase: null, bitstamp: null },
     rangeStartAvg: null,
     connCoinbase: false,
     connBitstamp: false,
@@ -1601,6 +1609,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     low24: null,
     lastMsgAt: 0,
     lastSnapshotAvg: null,
+    brti: null,
+    brtiSeenAt: 0, // local arrival time of the newest BRTI print
   };
 
   var BIG_MOVE_THRESHOLD = 10; // dollars of blended-price change within one snapshot tick (~1s)
@@ -1682,14 +1692,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     var sign = n > 0 ? "+" : "";
     return sign + n.toFixed(2) + "%";
   };
-  var dirClass = function (cur, prev) {
-    if (cur == null || prev == null) return "flat";
-    if (cur > prev) return "up";
-    if (cur < prev) return "down";
-    return "flat";
-  };
-
-  // ---------- header price + rows ----------
+  // ---------- headline price ----------
 
   // Mirrors the server's staleness weighting. The decay itself is computed
   // server-side and arrives with each snapshot; a trade from an exchange
@@ -1706,65 +1709,65 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     return null;
   }
 
-  function updateRow(id, price, prevPrice, connected, weight) {
-    var priceEl = document.getElementById(id + "Price");
-    var pctEl = document.getElementById(id + "Pct");
-    var rowEl = priceEl.closest(".ex-row");
-    if (!connected && price == null) {
-      priceEl.textContent = "reconnecting…";
-      priceEl.className = "ex-price off";
-      pctEl.textContent = "—";
-      pctEl.className = "ex-pct flat";
-      if (rowEl) rowEl.classList.add("stale");
-      return;
-    }
-    // a feed being discounted for staleness is shown, not hidden — the
-    // blended price above quietly means something different when it happens
-    if (rowEl) rowEl.classList.toggle("stale", weight != null && weight < 0.99);
-    var cls = dirClass(price, prevPrice);
-    priceEl.textContent = fmtUSDShort(price);
-    priceEl.className = "ex-price " + cls;
+  // BRTI — CF Benchmarks' Bitcoin Real Time Index — is the only price that
+  // matters here: it is the index Kalshi settles these markets on. Coinbase
+  // and Bitstamp still run behind the scenes (they drive the chart history,
+  // the big-move flash and the trade feed) but they are no longer shown as
+  // prices of their own.
+  function headlinePrice() {
+    var b = state.brti;
+    if (b && b.enabled && b.value != null) return b.value;
+    return recomputeAverage(); // no credentials configured, or no print yet
+  }
 
-    var base = state.rangeStartAvg;
-    if (base && price != null) {
-      var pct = ((price - base) / base) * 100;
-      pctEl.textContent = fmtPct(pct);
-      pctEl.className = "ex-pct " + (pct > 0 ? "up" : pct < 0 ? "down" : "flat");
+  // How long since the last BRTI print actually reached this browser. Measured
+  // against local arrival time rather than the server's own timestamp so a
+  // clock difference between the Mac and the phone can't fake a delay — and so
+  // a dead socket (no snapshots at all) reads as delayed too.
+  var BRTI_DELAY_MS = 4000, BRTI_OFFLINE_MS = 15000;
+  function brtiHealth() {
+    var b = state.brti;
+    if (!b || !b.enabled) {
+      // fall back to the exchange feeds, which are what's driving the price
+      if (state.connCoinbase && state.connBitstamp) return "live";
+      return (state.connCoinbase || state.connBitstamp) ? "delay" : "down";
     }
+    if (!b.connected || b.value == null) return "down";
+    if (!state.brtiSeenAt) return "down";
+    var age = Date.now() - state.brtiSeenAt;
+    if (age > BRTI_OFFLINE_MS) return "down";
+    if (age > BRTI_DELAY_MS) return "delay";
+    return "live";
   }
 
   function refreshHeaderAndRows() {
-    var avg = recomputeAverage();
+    var px = headlinePrice();
 
-    if (avg != null) {
-      document.getElementById("bigPrice").textContent = fmtUSD(avg);
+    if (px != null) {
+      document.getElementById("bigPrice").textContent = fmtUSD(px);
     }
-    if (state.rangeStartAvg && avg != null) {
-      var pct = ((avg - state.rangeStartAvg) / state.rangeStartAvg) * 100;
+    if (state.rangeStartAvg && px != null) {
+      var pct = ((px - state.rangeStartAvg) / state.rangeStartAvg) * 100;
       var deltaEl = document.getElementById("priceDelta");
       var cls = pct > 0 ? "up" : pct < 0 ? "down" : "flat";
       var arrow = pct > 0 ? "\\u25B2" : pct < 0 ? "\\u25BC" : "\\u2013";
       deltaEl.className = "price-delta " + cls;
       deltaEl.textContent = arrow + " " + fmtPct(pct) + " (" + state.range.toUpperCase() + ")";
     }
-
-    updateRow("cb", state.live.coinbase, state.prevRow.coinbase, state.connCoinbase, state.wCoinbase);
-    updateRow("bs", state.live.bitstamp, state.prevRow.bitstamp, state.connBitstamp, state.wBitstamp);
-
-    state.prevRow.coinbase = state.live.coinbase;
-    state.prevRow.bitstamp = state.live.bitstamp;
   }
 
   function updateStatus() {
     var dot = document.getElementById("statusDot");
     var word = document.getElementById("statusWord");
-    var cb = state.connCoinbase, bs = state.connBitstamp;
-    document.getElementById("footCbDot").className = "d " + (cb ? "on" : "off");
-    document.getElementById("footBsDot").className = "d " + (bs ? "on" : "off");
-    if (cb && bs) { dot.className = "status-dot live"; word.className = "status-word"; word.textContent = "LIVE"; }
-    else if (cb || bs) { dot.className = "status-dot degraded"; word.className = "status-word degraded"; word.textContent = "PARTIAL"; }
-    else { dot.className = "status-dot down"; word.className = "status-word down"; word.textContent = "OFFLINE"; }
+    var h = brtiHealth();
+    dot.className = "status-dot " + h;
+    if (h === "live") { word.className = "status-word"; word.textContent = "LIVE"; }
+    else if (h === "delay") { word.className = "status-word delay"; word.textContent = "DELAY"; }
+    else { word.className = "status-word down"; word.textContent = "OFFLINE"; }
   }
+  // the dot has to be able to go yellow/red on its own — nothing arriving is
+  // exactly the condition it reports, so it can't wait for a message to redraw
+  setInterval(updateStatus, 1000);
 
   function tickLastUpdated() {
     if (!state.lastMsgAt) return;
@@ -1799,90 +1802,229 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   setInterval(updateCountdown, 1000);
   updateCountdown();
 
-  // ---------- hour-close average banner ----------
-  // During HH:59:00-HH:59:59 sample the live blended price once a second and
-  // show its running average in place of the outlook card; lock that average
-  // (value + up/down color vs. the price at this hour's HH:00:00) the instant
-  // the new hour starts, hold it for 10s, then hand the card back.
+  // ---------- the settlement minute ----------
+  // Kalshi settles on "the simple average of the sixty seconds of BRTI before
+  // {hour}". So from HH:59:00 to HH:59:59 the page changes shape: the live
+  // BRTI print shrinks to half size and the running 60-second average takes
+  // over as the headline number on a yellow field. At HH:59:59 the last sample
+  // lands, the average freezes exactly where it is, holds for 30 seconds, and
+  // then the page goes back to the live price.
+  //
+  // Every one of those sixty prints is also kept in a scrollable list below
+  // the trade feed and stays there until the next hour replaces it.
 
-  var hourClose = {
-    openPrice: null,
-    openHourBucket: null,
-    referencePrice: null,
-    samples: [],
-    runningSum: 0,
-    sampleBucket: null,
-    finalAvg: null,
-    finalColor: null,
-    phase: "idle", // idle | collecting | holding
+  var HOLD_MS = 30000;
+  var CAPTURE_KEY = "brtiCapture";
+
+  var settle = {
+    phase: "idle",   // idle | collecting | frozen
+    hourKey: null,   // ISO hour this capture settles into
+    hourLabel: null,
+    samples: [],     // [{ t: epochMs, px: number }]
+    sum: 0,
+    lastSec: null,   // epoch-second of the most recent capture, so one per second
+    frozenUntil: 0,
+    frozenAvg: null,
   };
 
-  function hourCloseSetColor(dir) {
-    document.getElementById("hourCloseWrap").style.backgroundColor =
-      dir === "up" ? "rgba(0,200,0,0.6)" : "rgba(255,0,0,0.6)";
+  var elMinuteAvg = document.getElementById("minuteAvg");
+  var elMinuteAvgPrice = document.getElementById("minuteAvgPrice");
+  var elMinuteAvgSub = document.getElementById("minuteAvgSub");
+  var elBigPrice = document.getElementById("bigPrice");
+  var elCaptureList = document.getElementById("captureList");
+  var elCaptureWhen = document.getElementById("captureWhen");
+  var elCaptureExport = document.getElementById("captureExport");
+
+  function hhmmss(t) {
+    return new Date(t).toLocaleTimeString([], { hour12: false });
   }
 
-  function hourCloseShow(visible, fast) {
-    var outlook = document.getElementById("outlookCard");
-    var wrap = document.getElementById("hourCloseWrap");
-    var dur = fast ? "0.2s" : "0.35s";
-    outlook.style.transition = "opacity " + dur + " ease";
-    wrap.style.transition = "opacity " + dur + " ease, background-color 0.4s ease";
-    outlook.classList.toggle("hc-hidden", visible);
-    wrap.classList.toggle("hc-visible", visible);
+  function settleShow(on, locked) {
+    elMinuteAvg.classList.toggle("on", on);
+    elMinuteAvg.classList.toggle("locked", !!locked);
+    elBigPrice.classList.toggle("half", on);
   }
 
-  function updateHourClose() {
+  function settleAvg() {
+    return settle.samples.length ? settle.sum / settle.samples.length : null;
+  }
+
+  function settleStart(now) {
+    // the hour this minute settles INTO — :59 belongs to the next hour's close
+    var close = new Date(now.getTime());
+    close.setMinutes(0, 0, 0);
+    close.setHours(close.getHours() + 1);
+    settle.phase = "collecting";
+    settle.hourKey = close.toISOString();
+    settle.hourLabel = close.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    settle.samples = [];
+    settle.sum = 0;
+    settle.lastSec = null;
+    settle.frozenAvg = null;
+    renderCapture();
+    settleShow(true, false);
+  }
+
+  function settleCapture(now, px) {
+    if (px == null || !isFinite(px)) return;
+    var sec = Math.floor(now.getTime() / 1000);
+    if (settle.lastSec === sec) return; // exactly one print per second
+    settle.lastSec = sec;
+    settle.samples.push({ t: now.getTime(), px: px });
+    settle.sum += px;
+    appendCaptureRow(settle.samples.length - 1);
+    saveCapture();
+  }
+
+  function settleFreeze() {
+    settle.phase = "frozen";
+    settle.frozenAvg = settleAvg();
+    settle.frozenUntil = Date.now() + HOLD_MS;
+    saveCapture();
+  }
+
+  function renderMinuteAvg() {
+    var avg = settle.phase === "frozen" ? settle.frozenAvg : settleAvg();
+    elMinuteAvgPrice.textContent = fmtUSD(avg);
+    var n = settle.samples.length;
+    var sub = n + "/60";
+    if (settle.hourLabel) sub += " \\u00b7 settles " + settle.hourLabel;
+    // CF publishes its own trailing-60s figure; show it alongside ours as a
+    // cross-check rather than swapping the headline number mid-minute
+    var b = state.brti;
+    if (b && b.avg60 != null) sub += " \\u00b7 CF " + fmtUSDShort(b.avg60);
+    elMinuteAvgSub.textContent = sub;
+  }
+
+  function updateSettleMinute() {
     var now = new Date();
-    var minute = now.getMinutes();
-    var second = now.getSeconds();
-    var epochSec = Math.floor(now.getTime() / 1000);
-    var curAvg = recomputeAverage();
+    var min = now.getMinutes();
+    var sec = now.getSeconds();
 
-    if (minute === 0 && second === 0) {
-      var hourBucket = Math.floor(now.getTime() / 3600000);
-      if (hourClose.openHourBucket !== hourBucket && curAvg != null) {
-        hourClose.openPrice = curAvg;
-        hourClose.openHourBucket = hourBucket;
-      }
-    }
+    if (min === 59 && settle.phase === "idle") settleStart(now);
 
-    if (minute === 59) {
-      if (hourClose.phase !== "collecting") {
-        hourClose.phase = "collecting";
-        hourClose.samples = [];
-        hourClose.runningSum = 0;
-        hourClose.sampleBucket = null;
-        hourClose.referencePrice = hourClose.openPrice != null ? hourClose.openPrice : curAvg;
-        document.getElementById("hourClosePrice").textContent = fmtUSD(curAvg);
-        hourCloseShow(true, false);
+    if (settle.phase === "collecting") {
+      if (min === 59) {
+        settleCapture(now, headlinePrice());
+        renderMinuteAvg();
+        if (sec === 59) { settleFreeze(); renderMinuteAvg(); settleShow(true, true); }
+      } else {
+        // the tab was backgrounded or the clock jumped straight past :59:59 —
+        // close the window out rather than leaving it collecting forever
+        settleFreeze();
+        renderMinuteAvg();
+        settleShow(true, true);
       }
-      if (curAvg != null && hourClose.sampleBucket !== epochSec) {
-        hourClose.samples.push(curAvg);
-        hourClose.runningSum += curAvg;
-        hourClose.sampleBucket = epochSec;
-        var runningAvg = hourClose.runningSum / hourClose.samples.length;
-        var liveDir = (hourClose.referencePrice != null && runningAvg < hourClose.referencePrice) ? "down" : "up";
-        document.getElementById("hourClosePrice").textContent = fmtUSD(runningAvg);
-        hourCloseSetColor(liveDir);
-      }
-    } else if (hourClose.phase === "collecting") {
-      // just crossed HH:59:59 -> HH:00:00 — lock the final average in place
-      var finalAvg = hourClose.samples.length ? hourClose.runningSum / hourClose.samples.length : curAvg;
-      hourClose.finalAvg = finalAvg;
-      hourClose.finalColor = (hourClose.referencePrice != null && finalAvg < hourClose.referencePrice) ? "down" : "up";
-      hourClose.phase = "holding";
-      document.getElementById("hourClosePrice").textContent = fmtUSD(finalAvg);
-      hourCloseSetColor(hourClose.finalColor);
-    } else if (hourClose.phase === "holding") {
-      if (!(minute === 0 && second < 10)) {
-        hourClose.phase = "idle";
-        hourCloseShow(false, true);
+    } else if (settle.phase === "frozen") {
+      if (Date.now() >= settle.frozenUntil) {
+        settle.phase = "idle";
+        settleShow(false, false);
       }
     }
   }
-  setInterval(updateHourClose, 1000);
-  updateHourClose();
+  setInterval(updateSettleMinute, 250); // sub-second so :59:59 is never missed
+  updateSettleMinute();
+
+  // ---------- the captured 60 prints ----------
+
+  function captureRowHTML(i) {
+    var s = settle.samples[i];
+    return '<div class="capture-row">' +
+      '<span class="capture-idx">' + (i + 1) + "</span>" +
+      '<span class="capture-sec">' + hhmmss(s.t) + "</span>" +
+      '<span class="capture-px">' + fmtUSDShort(s.px) + "</span>" +
+      "</div>";
+  }
+
+  function appendCaptureRow(i) {
+    if (i === 0) elCaptureList.innerHTML = "";
+    elCaptureList.insertAdjacentHTML("beforeend", captureRowHTML(i));
+    elCaptureList.scrollTop = elCaptureList.scrollHeight;
+    elCaptureWhen.textContent = settle.hourLabel ? "settles " + settle.hourLabel : "";
+    elCaptureExport.disabled = false;
+  }
+
+  function renderCapture() {
+    if (!settle.samples.length) {
+      elCaptureList.innerHTML = '<div class="capture-empty">Fills each hour from :59:00 to :59:59</div>';
+      elCaptureWhen.textContent = settle.hourLabel ? "settles " + settle.hourLabel : "\\u2014";
+      elCaptureExport.disabled = true;
+      return;
+    }
+    var html = "";
+    for (var i = 0; i < settle.samples.length; i++) html += captureRowHTML(i);
+    elCaptureList.innerHTML = html;
+    elCaptureList.scrollTop = elCaptureList.scrollHeight;
+    elCaptureWhen.textContent = settle.hourLabel ? "settles " + settle.hourLabel : "";
+    elCaptureExport.disabled = false;
+  }
+
+  // Survive a reload: the list is meant to stay put for the whole hour, and a
+  // refresh in the middle of one shouldn't throw the sixty prints away.
+  function saveCapture() {
+    try {
+      localStorage.setItem(CAPTURE_KEY, JSON.stringify({
+        hourKey: settle.hourKey,
+        hourLabel: settle.hourLabel,
+        samples: settle.samples,
+      }));
+    } catch (e) {}
+  }
+
+  function loadCapture() {
+    var raw;
+    try { raw = localStorage.getItem(CAPTURE_KEY); } catch (e) { return; }
+    if (!raw) return;
+    var saved;
+    try { saved = JSON.parse(raw); } catch (e) { return; }
+    if (!saved || !Array.isArray(saved.samples) || !saved.samples.length) return;
+    // drop it once its hour is more than an hour behind us — it has been
+    // superseded even if this tab was closed when that happened
+    var closeMs = Date.parse(saved.hourKey);
+    if (isFinite(closeMs) && Date.now() - closeMs > 3600000) {
+      try { localStorage.removeItem(CAPTURE_KEY); } catch (e) {}
+      return;
+    }
+    settle.hourKey = saved.hourKey;
+    settle.hourLabel = saved.hourLabel;
+    settle.samples = saved.samples;
+    settle.sum = saved.samples.reduce(function (a, s) { return a + s.px; }, 0);
+    renderCapture();
+  }
+  loadCapture();
+
+  function captureCSV() {
+    var rows = ["settle_hour,second,timestamp_iso,timestamp_local,brti_price,running_avg"];
+    var sum = 0;
+    for (var i = 0; i < settle.samples.length; i++) {
+      var s = settle.samples[i];
+      sum += s.px;
+      rows.push([
+        settle.hourKey || "",
+        i + 1,
+        new Date(s.t).toISOString(),
+        hhmmss(s.t),
+        s.px.toFixed(2),
+        (sum / (i + 1)).toFixed(4),
+      ].join(","));
+    }
+    // the last row's running_avg IS the 60-second settlement average, so the
+    // file needs no separate summary line to carry it
+    return rows.join("\\n") + "\\n";
+  }
+
+  elCaptureExport.addEventListener("click", function () {
+    if (!settle.samples.length) return;
+    var blob = new Blob([captureCSV()], { type: "text/csv;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "brti-60s-" + (settle.hourKey || "capture").replace(/[:.]/g, "-") + ".csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  });
 
   // ---------- chart ----------
 
@@ -2163,28 +2305,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         '<div class="kalshi-cell"><div class="lbl">Model</div><div class="val">' + (modelPct != null ? modelPct + "%" : "\\u2013") + "</div></div>" +
         '<div class="kalshi-cell"><div class="lbl">Kalshi</div><div class="val">' + marketPct + "%</div></div>" +
         '<div class="kalshi-cell edge"><div class="lbl">Edge</div><div class="val ' + edgeCls + '">' + edgeStr + "</div></div>" +
-      "</div>" + detail + renderBrti();
-  }
-
-  // BRTI is the index Kalshi actually settles these markets on — the
-  // simple average of its last 60 seconds before the hour. The blended
-  // Coinbase/Bitstamp price at the top of the page is only a proxy for it.
-  var lastBrti = null;
-  function renderBrti() {
-    var b = lastBrti;
-    if (!b || !b.enabled) return "";
-    if (!b.connected || b.value == null) {
-      // name the exact stage \u2014 a single "connecting" told us nothing
-      var why = b.error ? "error"
-        : !b.connected ? "connecting\u2026"
-        : !b.subscribed ? "connected, subscribing\u2026"
-        : "subscribed, no data yet\u2026";
-      return '<div class="brti-line"><span class="lbl">BRTI</span> ' + why + "</div>";
-    }
-    var out = '<div class="brti-line"><span class="lbl">BRTI</span> <b>' +
-      fmtUSDShort(b.value) + "</b>";
-    if (b.avg60 != null) out += ' &middot; <span class="settle">60s avg</span> <b>' + fmtUSDShort(b.avg60) + "</b>";
-    return out + "</div>";
+      "</div>" + detail;
   }
 
   // ---------- my kalshi portfolio ----------
@@ -2383,6 +2504,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         state.live.bitstamp = snap.bitstamp;
         state.connCoinbase = snap.coinbaseConnected;
         state.connBitstamp = snap.bitstampConnected;
+        applyBrti(snap.brti);
         state.high24 = snap.high24;
         state.low24 = snap.low24;
         state.lastMsgAt = Date.now();
@@ -2396,6 +2518,18 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   }
 
+  // A BRTI print is only "fresh" from the moment it lands here — the server's
+  // own timestamp is on a different clock, and a snapshot repeating a value the
+  // feed already went quiet on must not reset the age.
+  function applyBrti(b) {
+    if (!b) return;
+    var prev = state.brti;
+    if (b.value != null && (!prev || prev.ts !== b.ts || prev.value !== b.value)) {
+      state.brtiSeenAt = Date.now();
+    }
+    state.brti = b;
+  }
+
   function applySnapshot(snap) {
     state.live.coinbase = snap.coinbase;
     state.live.bitstamp = snap.bitstamp;
@@ -2403,6 +2537,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     state.connBitstamp = snap.bitstampConnected;
     state.wCoinbase = snap.coinbaseWeight;
     state.wBitstamp = snap.bitstampWeight;
+    applyBrti(snap.brti);
     state.high24 = snap.high24;
     state.low24 = snap.low24;
     state.lastMsgAt = Date.now();
@@ -2428,7 +2563,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         applySnapshot(msg.snapshot);
         (msg.trades || []).forEach(pushTradeRow);
         renderTrend(msg.trend);
-        if (msg.brti) lastBrti = msg.brti;
+        if (msg.brti) applyBrti(msg.brti);
         renderPortfolio(msg.portfolio);
         fetchHistory();
         armAutoRefresh();
@@ -2449,7 +2584,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       if (msg.type === "trend") { renderTrend(msg); return; }
       if (msg.type === "portfolio") { renderPortfolio(msg); return; }
       if (msg.type === "kalshi") {
-        if (msg.brti) lastBrti = msg.brti;
+        if (msg.brti) applyBrti(msg.brti);
         // 1/sec market refresh: redraw the comparison card against the last
         // known model probability, and reprice the portfolio
         renderKalshi(msg.kalshi, lastModelPct);

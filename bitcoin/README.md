@@ -1,8 +1,13 @@
 # BTC/USD Live Ticker
 
-A live Bitcoin price ticker that blends real-time trade streams from
-**Coinbase** and **Bitstamp**, built to run on your iMac and be exposed at
-`btc.hiner.nyc` the same way `trains/` serves `amtrak.hiner.nyc`.
+A live Bitcoin price ticker headlined by **CF Benchmarks' BRTI** — the
+index Kalshi settles its hourly BTC markets on — built to run on your iMac
+and be exposed at `btc.hiner.nyc` the same way `trains/` serves
+`amtrak.hiner.nyc`.
+
+Coinbase and Bitstamp still stream in the background (they drive the chart,
+the big-move flash and the trade feed) but they are no longer shown as
+prices of their own.
 
 Everything — the API, the WebSocket feed, and the mobile UI — is served by
 one Node process (`server.js`). No build step, no framework, no external
@@ -14,9 +19,12 @@ JS libraries loaded in the browser.
   channel and Bitstamp's `live_trades_btcusd` channel and keeps them alive
   with automatic reconnect + backoff (and a watchdog that force-reconnects
   a feed that's gone silent for 20s).
+- Subscribes to Kalshi's republished CF Benchmarks feed and shows BRTI big
+  at the top. Without Kalshi credentials there is no BRTI, and the headline
+  falls back to a Coinbase/Bitstamp blend so the page still works.
 - Blends the two exchanges into a running average, recomputed on every
-  single trade from either exchange — that's the number shown big at the
-  top.
+  single trade from either exchange. That average is what the chart, the
+  forecast model and the big-move flash run on.
 - Keeps a rolling in-memory history: 1 hour at 1-second resolution, and 24
   hours at 1-minute resolution (bucketed further for smooth chart
   rendering). History is flushed to `history.json` every 60s so a restart
@@ -111,8 +119,11 @@ full-screen launch.
 
 ## API
 
-- `GET /api/latest` — current snapshot (both exchange prices, blended
-  average, bid/ask, 24h high/low, connection status).
+- `GET /api/latest` — current snapshot (BRTI + its 60s average, both
+  exchange prices, blended average, bid/ask, 24h high/low, connection
+  status). BRTI rides this 1/sec heartbeat rather than the Kalshi market
+  poll, which returns early when there is nothing to quote and would leave
+  the headline price stranded.
 - `GET /api/history?range=1h|3h|24h` — chart data for that window, already
   bucketed to ~300 points with per-bucket high/low/avg/volume.
 - `GET /api/trend` — regression drift, volatility, RSI, streak, plus the
@@ -159,18 +170,67 @@ card only on the LAN.
 
 Kalshi's hourly BTC markets do **not** settle on Coinbase or Bitstamp.
 Their rules read: *"the simple average of the sixty seconds of CF
-Benchmarks' BRTI before {hour}"*. The blended Coinbase/Bitstamp price at
-the top of the page is only a proxy for that number.
+Benchmarks' BRTI before {hour}"*. So BRTI is the headline price, and the
+page is built around that sixty-second window.
 
-With Kalshi credentials set, the server also subscribes to Kalshi's
-republished CF Benchmarks feed and the Kalshi Market Check card shows
-live BRTI plus its trailing 60-second average — the settlement figure
-itself. No extra configuration: it uses the same key as the portfolio.
+With Kalshi credentials set, the server subscribes to Kalshi's republished
+CF Benchmarks feed using the same key as the portfolio. Note the documented
+URL (`wss://external-api-ws.kalshi.com/cfbenchmarks_value`) 404s; the feed
+is a channel on the main socket at `/trade-api/ws/v2`, and its `data` field
+arrives as a JSON *string*, not an object.
 
-Note the documented URL (`wss://external-api-ws.kalshi.com/cfbenchmarks_value`)
-404s; the feed is a channel on the main socket at `/trade-api/ws/v2`.
+`GET /api/brti` exposes the same state, including the last raw frame seen
+so a stalled feed can be diagnosed without guessing.
 
-`GET /api/brti` exposes the same state.
+### The health light
+
+`CF BENCHMARK BRTI | ● LIVE` in the header is the page's honesty signal —
+it is the only thing that says whether the big number can be trusted:
+
+| light | word | meaning |
+| --- | --- | --- |
+| green | `LIVE` | a BRTI print landed in the last 4 seconds |
+| yellow | `DELAY` | nothing for 4s — the price on screen is aging |
+| red | `OFFLINE` | nothing for 15s, or the feed reports itself down |
+
+Age is measured from when a print reached the *browser*, not from the
+server's own timestamp, so a clock difference between the Mac and the phone
+can't fake a delay — and a dead socket (no messages at all) correctly reads
+as offline rather than staying green on the last value.
+
+### The settlement minute
+
+From `HH:59:00` the page changes shape:
+
+- the live BRTI print shrinks to half size and moves to the top,
+- beneath it, on a yellow field, the running 60-second average takes over as
+  the headline number under the label **60 SECOND AVG**,
+- at `HH:59:59` the last of the sixty samples lands, the average **freezes**
+  exactly where it is, holds for 30 seconds, and the page returns to live.
+
+The number shown is the mean of the sixty per-second BRTI prints — the same
+window settlement uses. CF's own trailing-60s figure is printed small
+alongside it as a cross-check rather than swapped in mid-minute, which
+would make the headline jump.
+
+### The capture list
+
+Every one of those sixty prints is kept in a scrollable list under the
+trade feed, numbered and timestamped, and stays there until the next hour
+replaces it. It survives a page reload (localStorage) and is discarded once
+its hour is more than an hour behind.
+
+**EXPORT** downloads it as CSV:
+
+```
+settle_hour,second,timestamp_iso,timestamp_local,brti_price,running_avg
+2026-08-11T11:00:00.000Z,1,2026-08-11T10:59:00.041Z,10:59:00,64000.00,64000.0000
+...
+2026-08-11T11:00:00.000Z,60,2026-08-11T10:59:59.038Z,10:59:59,64059.00,64029.5000
+```
+
+The last row's `running_avg` **is** the sixty-second settlement average, so
+the file needs no separate summary line to carry it.
 
 ## Sell button (optional, off by default)
 
