@@ -1779,11 +1779,20 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   // ---------- countdown to top of hour ----------
 
   function countdownColor(remainingSec) {
-    var WHITE = [255, 255, 255], YELLOW = [245, 197, 24], ORANGE = [249, 115, 22], RED = [239, 68, 68];
+    // The clock's yellow is its own, deliberately hotter than the --yellow
+    // used elsewhere on the page (245,197,24 — that one is a marigold). This
+    // is a neon: near-full red and green, almost no blue, so it reads
+    // electric against black rather than amber.
+    var WHITE = [255, 255, 255], YELLOW = [255, 245, 40], ORANGE = [249, 115, 22], RED = [239, 68, 68];
     function lerp(a, b, t) { return [0, 1, 2].map(function (i) { return Math.round(a[i] + (b[i] - a[i]) * t); }); }
     function rgb(c) { return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")"; }
     if (remainingSec >= 1800) return rgb(WHITE);
-    if (remainingSec >= 900) return rgb(lerp(YELLOW, ORANGE, (1800 - remainingSec) / 900));
+    // Hold the neon for three minutes before starting toward orange. Lerping
+    // straight off the turn dives through amber within a minute, which is the
+    // marigold this is meant to get away from — the neon would only ever have
+    // existed for the instant of the changeover.
+    if (remainingSec >= 1620) return rgb(YELLOW);
+    if (remainingSec >= 900) return rgb(lerp(YELLOW, ORANGE, (1620 - remainingSec) / 720));
     if (remainingSec >= 300) return rgb(lerp(ORANGE, RED, (900 - remainingSec) / 600));
     return rgb(RED);
   }
