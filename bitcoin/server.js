@@ -1349,33 +1349,49 @@ body {
 .status-word.delay { color: var(--yellow); }
 .status-word.down { color: var(--red); }
 /* The health light. Green = BRTI printing in real time, yellow = the feed
-   has gone quiet (DELAY), red = no feed at all (OFFLINE). The pulse is
-   deliberately loud — a bright core, a halo that breathes, and an expanding
-   ring — because this dot is the only thing on the page that says whether
-   the big number can be trusted. */
-.status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
-.status-dot.live { background: #2fe36a; animation: pulseGreen 1.25s ease-out infinite; }
-.status-dot.delay { background: var(--yellow); animation: pulseYellow 1.25s ease-out infinite; }
-.status-dot.down { background: var(--red); animation: pulseRed 1s ease-out infinite; }
+   has gone quiet (DELAY), red = no feed at all (OFFLINE).
+   Each state is a lit bead rather than a flat disc: the radial gradient puts
+   a near-white specular highlight up and to the left and darkens toward the
+   lower rim, which is what reads as depth at this size. background-color
+   stays set underneath as the flat fallback. */
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background-color: var(--text3); flex-shrink: 0; }
+.status-dot.live {
+  background-color: #2fe36a;
+  background-image: radial-gradient(circle at 32% 26%, #e4fff0 0%, #7bf7ab 26%, #2fe36a 55%, #0f9c45 100%);
+  animation: pulseGreen 1.25s ease-out infinite;
+}
+.status-dot.delay {
+  background-color: var(--yellow);
+  background-image: radial-gradient(circle at 32% 26%, #fffadf 0%, #ffe98c 26%, #f5c518 55%, #9a7a08 100%);
+  animation: pulseYellow 1.25s ease-out infinite;
+}
+.status-dot.down {
+  background-color: var(--red);
+  background-image: radial-gradient(circle at 32% 26%, #ffe6e6 0%, #ff9d9d 26%, #ef4444 55%, #8f1a1a 100%);
+  animation: pulseRed 1s ease-out infinite;
+}
 @keyframes pulse {
   0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.45); }
   70%  { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
   100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
 }
+/* Pulse strength sits between where it started (a bare 7px ring, easy to
+   miss) and where it went (a 9px ring plus a hard glow at scale 1.18, which
+   drew the eye off the price): a soft halo, a 5px ring, and a scale of 1.08. */
 @keyframes pulseGreen {
-  0%   { box-shadow: 0 0 5px 1px rgba(47,227,106,0.95), 0 0 0 0 rgba(47,227,106,0.75); transform: scale(1); }
-  70%  { box-shadow: 0 0 9px 2px rgba(47,227,106,0.55), 0 0 0 9px rgba(47,227,106,0); transform: scale(1.18); }
-  100% { box-shadow: 0 0 5px 1px rgba(47,227,106,0.95), 0 0 0 0 rgba(47,227,106,0); transform: scale(1); }
+  0%   { box-shadow: 0 0 3px 0.5px rgba(47,227,106,0.7), 0 0 0 0 rgba(47,227,106,0.5); transform: scale(1); }
+  70%  { box-shadow: 0 0 5px 1px rgba(47,227,106,0.35), 0 0 0 5px rgba(47,227,106,0); transform: scale(1.08); }
+  100% { box-shadow: 0 0 3px 0.5px rgba(47,227,106,0.7), 0 0 0 0 rgba(47,227,106,0); transform: scale(1); }
 }
 @keyframes pulseYellow {
-  0%   { box-shadow: 0 0 5px 1px rgba(245,197,24,0.95), 0 0 0 0 rgba(245,197,24,0.75); transform: scale(1); }
-  70%  { box-shadow: 0 0 9px 2px rgba(245,197,24,0.55), 0 0 0 9px rgba(245,197,24,0); transform: scale(1.18); }
-  100% { box-shadow: 0 0 5px 1px rgba(245,197,24,0.95), 0 0 0 0 rgba(245,197,24,0); transform: scale(1); }
+  0%   { box-shadow: 0 0 3px 0.5px rgba(245,197,24,0.7), 0 0 0 0 rgba(245,197,24,0.5); transform: scale(1); }
+  70%  { box-shadow: 0 0 5px 1px rgba(245,197,24,0.35), 0 0 0 5px rgba(245,197,24,0); transform: scale(1.08); }
+  100% { box-shadow: 0 0 3px 0.5px rgba(245,197,24,0.7), 0 0 0 0 rgba(245,197,24,0); transform: scale(1); }
 }
 @keyframes pulseRed {
-  0%   { box-shadow: 0 0 5px 1px rgba(239,68,68,0.95), 0 0 0 0 rgba(239,68,68,0.8); transform: scale(1); }
-  70%  { box-shadow: 0 0 9px 2px rgba(239,68,68,0.55), 0 0 0 9px rgba(239,68,68,0); transform: scale(1.22); }
-  100% { box-shadow: 0 0 5px 1px rgba(239,68,68,0.95), 0 0 0 0 rgba(239,68,68,0); transform: scale(1); }
+  0%   { box-shadow: 0 0 3px 0.5px rgba(239,68,68,0.75), 0 0 0 0 rgba(239,68,68,0.55); transform: scale(1); }
+  70%  { box-shadow: 0 0 5px 1px rgba(239,68,68,0.4), 0 0 0 5px rgba(239,68,68,0); transform: scale(1.1); }
+  100% { box-shadow: 0 0 3px 0.5px rgba(239,68,68,0.75), 0 0 0 0 rgba(239,68,68,0); transform: scale(1); }
 }
 
 /* ── big price ── */
@@ -1427,7 +1443,7 @@ body {
 .capture-title { font-size: 11px; letter-spacing: 1.5px; color: var(--text3); font-weight: 800; text-transform: uppercase; }
 .capture-when { flex: 1; font-size: 10px; color: var(--text3); font-variant-numeric: tabular-nums; }
 .capture-export {
-  border: 1px solid rgba(245,197,24,0.5); background: rgba(245,197,24,0.12); color: var(--yellow);
+  border: 1px solid rgba(255,255,255,0.22); background: rgba(255,255,255,0.09); color: #d6dae1;
   font-size: 10.5px; font-weight: 800; letter-spacing: 0.8px; padding: 4px 12px; border-radius: 6px;
 }
 .capture-export:disabled { opacity: 0.4; }
@@ -1550,7 +1566,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .trade-price.flat { color: var(--text1); }
 
 /* ── footer ── */
-.footer { display: flex; justify-content: space-between; align-items: center; padding: 4px 4px 0; font-size: 10.5px; color: var(--text3); }
+.footer { display: flex; flex-direction: column; gap: 2px; padding: 4px 4px 0; font-size: 10.5px; color: var(--text3); }
+.footer-row { display: flex; justify-content: space-between; align-items: baseline; }
+.footer-brand { font-weight: 800; letter-spacing: 1.5px; color: var(--text2); }
+.footer-note { font-size: 9.5px; color: var(--text3); opacity: 0.75; }
 .footer a { color: var(--text3); text-decoration: none; }
 
 </style>
@@ -1622,8 +1641,11 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   </div>
 
   <div class="footer">
-    <span>CF Benchmarks BRTI · Kalshi settlement index</span>
-    <span id="lastUpdated">—</span>
+    <div class="footer-row">
+      <span class="footer-brand">HINER.NYC</span>
+      <span id="lastUpdated">—</span>
+    </div>
+    <div class="footer-note">No claims made to accuracy or timeliness of market data</div>
   </div>
 
 </div>
