@@ -286,6 +286,42 @@ settle_hour,second,timestamp_iso,timestamp_local,brti_price,running_avg
 The last row's `running_avg` **is** the sixty-second settlement average, so
 the file needs no separate summary line to carry it.
 
+## Settlement — a contract resolves, it doesn't trade
+
+A binary contract does not have a closing price. At expiry it **resolves**:
+$1 to the winning side, $0 to the losing one. A closed market's bid is 0 on
+*both* sides, so marking a held position to the bid the way an open one is
+marked reports a winner as a total wipeout — value $0, P&L equal to the
+entire stake. That is exactly what a NO position on "$64,300 or above" showed
+when the benchmark settled at $64,281: it had won, and the card said
+`$0.00 / -$29.36`.
+
+Positions are now priced by state, not by quote:
+
+| market | priced at |
+| --- | --- |
+| open | the live bid on the held side, as before |
+| closed, Kalshi has published `result` | $1.00 if the side won, $0.00 if it lost |
+| closed, result not published yet | called from this server's own settlement window, flagged **unofficial** |
+| closed, too little of that window recorded | no call, no invented price — shows `SETTLING` |
+
+The provisional call uses `settlementAverage()`: the mean of the sixty
+benchmark prints before the close, the same window Kalshi settles on, taken
+from the ticks this server already records. It needs at least 30 of those 60
+seconds before it will commit to an answer. Strike comparison follows
+Kalshi's own convention — "or above" is inclusive, so an exact tie is a YES.
+
+A won position gets a green field and a `WON` badge, a lost one steps back
+with `LOST`, and trading buttons withdraw once a market closes since there is
+nothing left to trade. A win also raises a full-width banner above the card
+naming the profit and the settlement figure that decided it — it lives
+outside the positions card because that card is rebuilt every second by the
+quote feed, which would restart any animation inside it mid-flight.
+
+Settled positions drop out of Kalshi's list the moment they pay out, which
+would blink the result off screen at the moment it becomes interesting, so a
+decided row is held for two minutes after it disappears.
+
 ## Sell button (optional, off by default)
 
 Each open position can show two buttons: **SELL**, which liquidates the

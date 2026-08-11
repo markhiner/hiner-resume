@@ -886,6 +886,44 @@ function money(obj, base) {
   return null;
 }
 
+// ---------- settlement ----------
+// A binary contract does not trade at the end — it RESOLVES, paying $1 on the
+// winning side and $0 on the losing one. A closed market's bid is 0 on both
+// sides, so marking a held position to the bid the way an open one is marked
+// reports a winner as a total loss: value $0, P&L equal to the whole stake.
+// That is what happened to a NO position on "$64,300 or above" when the
+// benchmark settled at $64,281 — it won, and the card showed it wiped out.
+
+function marketResult(m) {
+  const r = String(m?.result || "").toLowerCase();
+  return r === "yes" || r === "no" ? r : null;
+}
+
+function marketClosed(m, closeTime) {
+  if (/closed|settled|finalized|determined/i.test(String(m?.status || ""))) return true;
+  return closeTime != null && Date.now() >= closeTime;
+}
+
+// The settlement figure for an hour: the mean of the sixty benchmark prints
+// before it. Same window Kalshi settles on, computed from the ticks this
+// server recorded, so an outcome can be called in the gap between the market
+// closing and Kalshi publishing its result.
+function settlementAverage(closeMs) {
+  if (!closeMs) return null;
+  const vals = secondTicks.filter((p) => p.t >= closeMs - 60_000 && p.t < closeMs).map((p) => p.avg);
+  if (vals.length < 30) return null; // too little of the window to call it
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+// true = this position won, false = lost, null = can't tell yet.
+function provisionalOutcome(r) {
+  if (r.strike == null || !r.strikeDir) return null;
+  const s = settlementAverage(r.closeTime);
+  if (s == null) return null;
+  const yesWon = r.strikeDir === "above" ? s >= r.strike : s < r.strike;
+  return r.side === "yes" ? yesWon : !yesWon;
+}
+
 // Mark every held position to the live bid on its own side and derive
 // unrealized P&L against its cost basis. Called on the fast quote tick, so
 // values and P&L move in step with the market rather than once a poll.
@@ -894,10 +932,29 @@ function repricePortfolio(byTicker) {
   if (!rows || !rows.length) return;
   let posValue = 0, totalPnl = 0, anyPnl = false;
   for (const r of rows) {
-    const m = byTicker && byTicker.get(r.ticker);
-    if (m) {
-      const per = money(m, r.side === "yes" ? "yes_bid" : "no_bid");
-      if (per != null) r.perContract = per;
+    if (r.result || r.closed) r.settleAvg = settlementAverage(r.closeTime);
+    if (r.result) {
+      // Kalshi has published the outcome — that is the price, full stop
+      r.won = r.side === r.result;
+      r.perContract = r.won ? 1 : 0;
+      r.resolved = true;
+      r.pending = false;
+    } else if (r.closed) {
+      // closed but not yet published: call it from our own settlement window
+      // and say plainly that it is provisional
+      r.resolved = false;
+      r.pending = true;
+      r.won = provisionalOutcome(r);
+      r.perContract = r.won == null ? null : (r.won ? 1 : 0);
+    } else {
+      r.resolved = false;
+      r.pending = false;
+      r.won = null;
+      const m = byTicker && byTicker.get(r.ticker);
+      if (m) {
+        const per = money(m, r.side === "yes" ? "yes_bid" : "no_bid");
+        if (per != null) r.perContract = per;
+      }
     }
     if (r.perContract != null && Number.isFinite(r.count)) {
       const v = r.count * r.perContract;
@@ -921,6 +978,10 @@ function repricePortfolio(byTicker) {
   };
 }
 
+const warnedFractional = new Set();
+const RESOLVED_HOLD_MS = 120_000;
+const resolvedMemo = new Map(); // ticker -> { row, until }
+
 async function pollPortfolio() {
   if (!portfolioState.enabled) return;
   try {
@@ -936,6 +997,20 @@ async function pollPortfolio() {
     const open = (pos.market_positions || [])
       .map((p) => ({ p, qty: firstNum(p, "position", "position_fp", "quantity", "quantity_fp") }))
       .filter((r) => r.qty != null && r.qty !== 0);
+
+    // Contract counts are whole numbers. A fractional one means the field we
+    // picked is fixed-point at some scale we have not accounted for, and that
+    // scale flows straight into the payout ($1 x count), so log the raw
+    // payload once rather than quietly reporting the wrong money.
+    for (const { p, qty } of open) {
+      if (Number.isInteger(qty) || warnedFractional.has(p.ticker)) continue;
+      warnedFractional.add(p.ticker);
+      console.warn(
+        `Kalshi position ${p.ticker}: quantity parsed as ${qty}, which is not a whole ` +
+        `number of contracts. Raw fields: ` +
+        JSON.stringify(Object.fromEntries(Object.entries(p).filter(([k]) => /position|quantity|exposure|traded|pnl|fp$/i.test(k))))
+      );
+    }
 
     const rows = [];
     for (const { p, qty } of open.slice(0, 20)) {
@@ -976,12 +1051,13 @@ async function pollPortfolio() {
         else if (capS != null && floorS == null) { strike = capS; strikeDir = "below"; }
       }
 
+      const closeTime = m ? Date.parse(m.close_time) || null : null;
       rows.push({
         ticker: p.ticker,
         subtitle: label,
         strike,
         strikeDir,
-        closeTime: m ? Date.parse(m.close_time) || null : null,
+        closeTime,
         side,
         count,
         perContract: per,
@@ -990,7 +1066,25 @@ async function pollPortfolio() {
         avgCost: costBasis != null && count > 0 ? Math.round((costBasis / count) * 100) / 100 : null,
         pnl: null,
         pnlPct: null,
+        status: m ? m.status || null : null,
+        result: marketResult(m),
+        closed: marketClosed(m, closeTime),
       });
+    }
+
+    // A settled position drops out of Kalshi's list the moment it pays out,
+    // which would blink the result off the screen at the exact moment it
+    // becomes interesting. Hold a decided row for a couple of minutes so the
+    // outcome can actually be read.
+    const now = Date.now();
+    for (const prev of portfolioState.positions || []) {
+      if (prev.won == null) continue;
+      if (rows.some((r) => r.ticker === prev.ticker)) continue;
+      resolvedMemo.set(prev.ticker, { row: { ...prev, settledOut: true }, until: now + RESOLVED_HOLD_MS });
+    }
+    for (const [ticker, entry] of resolvedMemo) {
+      if (entry.until <= now) { resolvedMemo.delete(ticker); continue; }
+      if (!rows.some((r) => r.ticker === ticker)) rows.push(entry.row);
     }
 
     portfolioState = { ...portfolioState, enabled: true, error: null, cash, positions: rows };
@@ -1554,6 +1648,29 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .port-sell-msg.ok { color: var(--green); }
 .port-sell-msg.err { color: var(--red); }
 .port-empty { font-size: 11.5px; color: var(--text3); font-style: italic; }
+/* a decided position: won rows carry a green field, lost ones step back */
+.port-row.won { background: linear-gradient(90deg, rgba(34,197,94,0.18), rgba(34,197,94,0.02)); border-radius: 8px; }
+.port-row.lost { opacity: 0.6; }
+.port-badge { font-size: 9.5px; font-weight: 900; letter-spacing: 1px; padding: 3px 8px; border-radius: 5px; text-align: center; }
+.port-badge.won { background: var(--green); color: #042a12; }
+.port-badge.lost { background: var(--red-dim); color: var(--red); }
+.port-badge.settling { background: rgba(245,197,24,0.16); color: var(--yellow); }
+.port-prov { font-size: 8.5px; color: var(--text3); text-align: center; letter-spacing: 0.3px; }
+
+/* the win announcement — lives outside the positions card so the 1/sec
+   rebuild of that card can't restart its animation mid-flight */
+.win-toast {
+  display: none;
+  width: 100vw; margin: 0 calc(50% - 50vw); padding: 11px 14px;
+  background: linear-gradient(90deg, #16a34a, #22c55e);
+  color: #04220f; text-align: center;
+}
+.win-toast.on { display: block; animation: winIn 0.45s ease-out, winGlow 1.1s ease-in-out 0.45s 4; }
+.win-toast .wt-top { font-size: 11px; font-weight: 900; letter-spacing: 2.5px; text-transform: uppercase; opacity: 0.8; }
+.win-toast .wt-amt { font-size: 27px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.win-toast .wt-sub { font-size: 10.5px; font-weight: 700; opacity: 0.78; font-variant-numeric: tabular-nums; }
+@keyframes winIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes winGlow { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.22); } }
 
 /* ── live trades ── */
 .trades-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
@@ -1626,6 +1743,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   </div>
 
   <div class="kalshi-card" id="kalshiCard"></div>
+
+  <div class="win-toast" id="winToast"></div>
 
   <div class="portfolio-card" id="portfolioCard" style="display:none"></div>
 
@@ -2432,8 +2551,16 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       html += '<div class="port-empty">No open contracts</div>';
     } else {
       html += p.positions.map(function (r) {
-        var per = r.perContract != null ? Math.round(r.perContract * 100) + "\\u00a2" : "no quote";
-        if (r.avgCost != null && r.perContract != null) per += " \\u00b7 paid " + Math.round(r.avgCost * 100) + "\\u00a2";
+        // A decided contract does not have a quote — it has a payout. Showing
+        // the closed market's bid here is what made a winner read as a wipeout.
+        var decided = r.won === true || r.won === false;
+        var per;
+        if (decided) {
+          per = (r.pending ? "resolves " : "settled ") + (r.won ? "$1.00" : "$0.00");
+        } else {
+          per = r.perContract != null ? Math.round(r.perContract * 100) + "\\u00a2" : "no quote";
+        }
+        if (r.avgCost != null && (decided || r.perContract != null)) per += " \\u00b7 paid " + Math.round(r.avgCost * 100) + "\\u00a2";
         var val = r.value != null ? "$" + r.value.toFixed(2) : "\\u2013";
         // never print a raw null/NaN count into the badge
         var qty = (typeof r.count === "number" && isFinite(r.count)) ? " \\u00d7" + r.count : "";
@@ -2443,19 +2570,31 @@ canvas#chart { width: 100%; height: 158px; display: block; }
           var sign = r.pnl > 0 ? "+" : r.pnl < 0 ? "\\u2212" : "";
           pnlHtml = '<span class="port-pnl ' + pc + '">' + sign + "$" + Math.abs(r.pnl).toFixed(2) + "</span>";
         }
-        var sellBtn = p.sellEnabled
-          ? '<div class="port-actions">' +
+        // Once a market closes there is nothing to trade, so the buttons give
+        // way to the outcome.
+        var sellBtn;
+        if (decided) {
+          sellBtn = '<div class="port-actions"><span class="port-badge ' + (r.won ? "won" : "lost") + '">' +
+            (r.won ? "WON" : "LOST") + "</span>" +
+            (r.pending ? '<span class="port-prov">unofficial</span>' : "") + "</div>";
+        } else if (r.pending || r.closed) {
+          sellBtn = '<div class="port-actions"><span class="port-badge settling">SETTLING</span></div>';
+        } else if (p.sellEnabled) {
+          sellBtn = '<div class="port-actions">' +
               '<button class="port-buy" data-ticker="' + r.ticker + '">+10</button>' +
               '<button class="port-sell" data-ticker="' + r.ticker + '">SELL</button>' +
-            "</div>"
-          : "";
+            "</div>";
+        } else {
+          sellBtn = "";
+        }
         // compact strike ("$65,000+") when we know it, full label otherwise
         var desc = r.subtitle;
         if (r.strike != null && isFinite(r.strike) && r.strikeDir) {
           desc = "$" + Math.round(r.strike).toLocaleString("en-US") +
             (r.strikeDir === "above" ? "+" : "\\u2212");
         }
-        return '<div class="port-row">' +
+        var rowCls = "port-row" + (r.won === true ? " won" : r.won === false ? " lost" : "");
+        return '<div class="' + rowCls + '">' +
           '<span class="port-side ' + r.side + '">' + r.side.toUpperCase() + qty + "</span>" +
           '<span class="port-desc">' + desc + "</span>" +
           '<span class="port-val">' + val + "<span>" + per + "</span></span>" +
@@ -2465,6 +2604,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     }
     html += '<div class="port-sell-msg" id="sellMsg"></div>';
     card.innerHTML = html;
+    announceWins(p.positions);
     card.style.display = "";
     if (sellMsg.text) {
       var el = document.getElementById("sellMsg");
@@ -2485,6 +2625,41 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       }
     }
     if (p.sellEnabled) ensurePin();
+  }
+
+  // A win is the one thing on this page worth interrupting for, and the
+  // positions card is rebuilt every second by the quote feed — an animation
+  // living inside it would restart mid-flight. The banner sits outside.
+  var celebrated = {};
+  var winToastTimer = null;
+
+  function announceWins(rows) {
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (r.won !== true || celebrated[r.ticker]) continue;
+      celebrated[r.ticker] = true;
+      showWinToast(r);
+    }
+  }
+
+  function showWinToast(r) {
+    var el = document.getElementById("winToast");
+    var payout = (typeof r.count === "number" && isFinite(r.count)) ? r.count : null;
+    var profit = (r.value != null && r.costBasis != null) ? r.value - r.costBasis : null;
+    var what = r.strike != null && r.strikeDir
+      ? "$" + Math.round(r.strike).toLocaleString("en-US") + (r.strikeDir === "above" ? "+" : "\u2212")
+      : r.subtitle;
+    var sub = [];
+    if (payout != null) sub.push(r.side.toUpperCase() + " \u00d7" + payout + " \u00d7 $1.00");
+    if (r.settleAvg != null) sub.push("settled " + fmtUSDShort(r.settleAvg));
+    if (r.pending) sub.push("unofficial");
+    el.innerHTML =
+      '<div class="wt-top">Position won \u00b7 ' + what + "</div>" +
+      '<div class="wt-amt">' + (profit != null ? (profit >= 0 ? "+" : "\u2212") + "$" + Math.abs(profit).toFixed(2) : "$" + (r.value != null ? r.value.toFixed(2) : "\u2013")) + "</div>" +
+      '<div class="wt-sub">' + sub.join(" \u00b7 ") + "</div>";
+    el.classList.add("on");
+    clearTimeout(winToastTimer);
+    winToastTimer = setTimeout(function () { el.classList.remove("on"); }, 20000);
   }
 
   // ---------- selling ----------
