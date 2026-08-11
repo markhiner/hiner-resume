@@ -736,6 +736,14 @@ async function tradePosition(ticker, action) {
   const price = money(market, priceKey);
   if (price == null || price <= 0 || price >= 1) throw new Error("no usable quote to trade against");
 
+  // The order is priced on the YES leg because that is how V2 quotes
+  // everything, but the number shown back to the user has to be the price
+  // on the side they actually hold. For a NO position those are opposites:
+  // buying NO is selling YES, so a $0.40 yes-leg order means paying $0.60
+  // per NO contract. Reporting the raw order price made a 60c fill read as
+  // "Bought 10 @ 40c".
+  const shownPrice = holdingYes ? price : 1 - price;
+
   const count = selling ? row.count : BUY_COUNT;
   const order = {
     ticker,
@@ -753,13 +761,24 @@ async function tradePosition(ticker, action) {
   if (selling) order.reduce_only = true;
 
   console.log(
-    `${action.toUpperCase()} ${row.side.toUpperCase()} x${count} ${ticker} -> ${orderSide} @ $${order.price}`
+    `${action.toUpperCase()} ${row.side.toUpperCase()} x${count} ${ticker} -> ` +
+    `${orderSide} @ $${order.price} yes-leg (= ${Math.round(shownPrice * 100)}c on the ${row.side} leg)`
   );
   const resp = await kalshiAuthPOST(KALSHI_TRADE_API, "/portfolio/events/orders", order);
   const filled = resp && (resp.fill_count != null ? resp.fill_count : null);
   console.log("  order ack:", JSON.stringify(resp));
   await pollPortfolio(); // refresh immediately so the card reflects the trade
-  return { ok: true, action, ticker, side: row.side, count, priceCents: Math.round(price * 100), filled, order: resp };
+  return {
+    ok: true,
+    action,
+    ticker,
+    side: row.side,
+    count,
+    priceCents: Math.round(shownPrice * 100),      // on the side actually held
+    orderPriceCents: Math.round(price * 100),      // the yes-leg price sent to Kalshi
+    filled,
+    order: resp,
+  };
 }
 
 function dollars(obj, dollarsKey, centsKey) {
