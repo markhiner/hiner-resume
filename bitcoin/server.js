@@ -67,11 +67,43 @@ function currentAverage() {
   return null;
 }
 
+// The benchmark. BRTI is the index Kalshi settles on, so it is the price
+// everything downstream runs on: the chart, the forecast model, the big-move
+// flash and the strike the market check is interpolated at.
+//
+// It deliberately never falls back to the exchange blend once BRTI has been
+// the series. The two differ by tens of dollars, so substituting one for the
+// other mid-series would put a step in the history that reads as a real move
+// — a false crash flash, and a volatility estimate poisoned for the next
+// twenty minutes. Better to stop appending and leave an honest gap; the
+// health light in the header is already saying DELAY or OFFLINE.
+const BRTI_HOLD_MS = 90_000;
+
+function benchmarkPrice() {
+  // no credentials, or BRTI has never printed — the blend is all there is
+  if (!brtiState.enabled || brtiState.value == null) return currentAverage();
+  if (Date.now() - (brtiState.ts || 0) > BRTI_HOLD_MS) return null;
+  return brtiState.value;
+}
+
 // ---------- persistence ----------
+
+// Which price the stored history was recorded against. Replaying blend-priced
+// bars into a BRTI series (or the reverse) would splice two different numbers
+// into one line and show a $50 cliff at the restart point, so a mismatch
+// discards the file instead.
+function historySeries() {
+  return brtiState.enabled ? "brti" : "blend";
+}
 
 function loadHistory() {
   try {
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+    const want = historySeries();
+    if (parsed.series !== want) {
+      console.log(`History on disk is a "${parsed.series || "blend"}" series, this run is "${want}" — starting fresh`);
+      return;
+    }
     if (Array.isArray(parsed.minuteBars)) minuteBars = parsed.minuteBars.slice(-MAX_MINUTE_BARS);
     if (Array.isArray(parsed.secondTicks)) secondTicks = parsed.secondTicks.slice(-MAX_SECOND_TICKS);
     console.log(`Loaded ${minuteBars.length} minute bars, ${secondTicks.length} second ticks from disk`);
@@ -82,7 +114,7 @@ function loadHistory() {
 
 function saveHistory() {
   try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ minuteBars, secondTicks }));
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ series: historySeries(), minuteBars, secondTicks }));
   } catch (e) {
     console.error("Failed to save history:", e.message);
   }
@@ -101,7 +133,7 @@ function recordTrade(exchange, price, size, side) {
 }
 
 function ingestTick() {
-  const avg = currentAverage();
+  const avg = benchmarkPrice();
   if (avg == null) { volSinceLastTick = 0; return; }
 
   const t = Date.now();
@@ -131,7 +163,7 @@ function ingestTick() {
 setInterval(ingestTick, 1000);
 
 function snapshot() {
-  const avg = currentAverage();
+  const avg = benchmarkPrice();
   const prevAvg = secondTicks.length > 1 ? secondTicks[secondTicks.length - 2].avg : avg;
   const now = Date.now();
   return {
@@ -560,7 +592,7 @@ async function pollKalshiStructure() {
 
 // Derive the displayed state from whatever quotes the ladder currently holds.
 function recomputeKalshiState() {
-  const price = currentAverage();
+  const price = benchmarkPrice();
   let implied = null, below = null, above = null;
   if (price != null) {
     for (const r of kalshiLadder) {
@@ -1387,7 +1419,7 @@ body {
 .minute-avg-label { font-size: 11px; letter-spacing: 2.5px; font-weight: 900; text-transform: uppercase; color: rgba(0,0,0,0.72); }
 .minute-avg-price { font-size: clamp(46px, 15.5vw, 64px); font-weight: 800; letter-spacing: -1.5px; line-height: 1.05; color: #000; font-variant-numeric: tabular-nums; }
 .minute-avg-sub { font-size: 10.5px; font-weight: 700; color: rgba(0,0,0,0.62); font-variant-numeric: tabular-nums; }
-.minute-avg.locked .minute-avg-label::after { content: " · locked"; }
+.minute-avg.locked .minute-avg-label::after { content: " · final"; }
 
 /* ── settlement-minute capture list ── */
 .capture-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
@@ -1413,7 +1445,9 @@ body {
 .price-delta.up   { background: var(--green-dim); color: var(--green); }
 .price-delta.down { background: var(--red-dim); color: var(--red); }
 .price-delta.flat { background: rgba(255,255,255,0.06); color: var(--text2); }
-.countdown { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; transition: color 0.9s ease-out; }
+.countdown { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; padding: 1px 8px; border-radius: 8px; transition: color 0.9s ease-out, background-color 0.9s ease-out; }
+/* last ten minutes: invert to black on solid red */
+.countdown.urgent { background: var(--red); color: #000; }
 .countdown.flashing { animation: countdownFlash 1s step-start infinite; }
 @keyframes countdownFlash { 50% { opacity: 0.15; } }
 
@@ -1786,14 +1820,13 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     var WHITE = [255, 255, 255], YELLOW = [255, 245, 40], ORANGE = [249, 115, 22], RED = [239, 68, 68];
     function lerp(a, b, t) { return [0, 1, 2].map(function (i) { return Math.round(a[i] + (b[i] - a[i]) * t); }); }
     function rgb(c) { return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")"; }
+    // 30:00 white -> neon, and the neon HOLDS all the way to 20:00. The slide
+    // then runs 20:00 -> 10:00, through orange at the midpoint, arriving at
+    // full red exactly at 10:00 — where the clock inverts to black-on-red.
     if (remainingSec >= 1800) return rgb(WHITE);
-    // Hold the neon for three minutes before starting toward orange. Lerping
-    // straight off the turn dives through amber within a minute, which is the
-    // marigold this is meant to get away from — the neon would only ever have
-    // existed for the instant of the changeover.
-    if (remainingSec >= 1620) return rgb(YELLOW);
-    if (remainingSec >= 900) return rgb(lerp(YELLOW, ORANGE, (1620 - remainingSec) / 720));
-    if (remainingSec >= 300) return rgb(lerp(ORANGE, RED, (900 - remainingSec) / 600));
+    if (remainingSec >= 1200) return rgb(YELLOW);
+    if (remainingSec >= 900) return rgb(lerp(YELLOW, ORANGE, (1200 - remainingSec) / 300));
+    if (remainingSec >= 600) return rgb(lerp(ORANGE, RED, (900 - remainingSec) / 300));
     return rgb(RED);
   }
 
@@ -1805,8 +1838,13 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     var m = Math.floor(remaining / 60), s = remaining % 60;
     var el = document.getElementById("countdown");
     el.textContent = m + ":" + String(s).padStart(2, "0");
-    el.style.color = countdownColor(remaining);
-    el.classList.toggle("flashing", remaining < 300);
+    // Under 10:00 the clock inverts — black numerals on a solid red field —
+    // so the color is carried by the background and the text must not also be
+    // painted red on top of it.
+    var urgent = remaining <= 600;
+    el.classList.toggle("urgent", urgent);
+    el.style.color = urgent ? "" : countdownColor(remaining);
+    el.classList.toggle("flashing", remaining <= 300);
   }
   setInterval(updateCountdown, 1000);
   updateCountdown();
@@ -2200,6 +2238,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
   function appendLivePoint(avg, vol) {
     if (state.range !== "1h") return;
+    if (avg == null || !isFinite(avg)) return; // benchmark has no price right now
     var now = Date.now();
     // Coalesce into one point per second, matching the server's own tick
     // resolution. This used to push a point per trade — hundreds a minute —
@@ -2517,7 +2556,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         state.high24 = snap.high24;
         state.low24 = snap.low24;
         state.lastMsgAt = Date.now();
-        checkBigMove(snap.average);
+        checkBigMove(headlinePrice());
         refreshHeaderAndRows();
         updateStatus();
       }).catch(function () {});
@@ -2550,7 +2589,11 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     state.high24 = snap.high24;
     state.low24 = snap.low24;
     state.lastMsgAt = Date.now();
-    checkBigMove(snap.average);
+    var px = headlinePrice();
+    checkBigMove(px);
+    // BRTI only arrives on the snapshot, so the chart's right edge advances
+    // here rather than on trades — it must keep moving through a quiet book
+    if (px != null) appendLivePoint(px, 0);
     refreshHeaderAndRows();
     updateStatus();
   }
@@ -2585,8 +2628,9 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         // a fresh print means this feed is live — restore its full weight
         if (exKey === "coinbase") state.wCoinbase = 1; else state.wBitstamp = 1;
         state.lastMsgAt = Date.now();
-        refreshHeaderAndRows();
-        appendLivePoint(recomputeAverage(), msg.size);
+        // an exchange print carries volume but must not move the BRTI line —
+        // the point keeps the benchmark's own price and only accrues size
+        appendLivePoint(headlinePrice(), msg.size);
         pushTradeRow(msg);
         return;
       }

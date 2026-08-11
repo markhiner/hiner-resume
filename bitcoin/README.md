@@ -19,12 +19,15 @@ JS libraries loaded in the browser.
   channel and Bitstamp's `live_trades_btcusd` channel and keeps them alive
   with automatic reconnect + backoff (and a watchdog that force-reconnects
   a feed that's gone silent for 20s).
-- Subscribes to Kalshi's republished CF Benchmarks feed and shows BRTI big
-  at the top. Without Kalshi credentials there is no BRTI, and the headline
-  falls back to a Coinbase/Bitstamp blend so the page still works.
+- Subscribes to Kalshi's republished CF Benchmarks feed and runs everything
+  off BRTI: the headline price, the chart, the forecast model, the big-move
+  flash and the strike the market check is interpolated at. Without Kalshi
+  credentials there is no BRTI, and it all falls back to a Coinbase/Bitstamp
+  blend so the page still works.
 - Blends the two exchanges into a running average, recomputed on every
-  single trade from either exchange. That average is what the chart, the
-  forecast model and the big-move flash run on.
+  single trade from either exchange. That average is the fallback benchmark,
+  and Coinbase/Bitstamp trades still supply the live trade feed and the
+  per-bar volume either way.
 - Keeps a rolling in-memory history: 1 hour at 1-second resolution, and 24
   hours at 1-minute resolution (bucketed further for smooth chart
   rendering). History is flushed to `history.json` every 60s so a restart
@@ -32,7 +35,7 @@ JS libraries loaded in the browser.
 - Pushes live updates to connected browsers over `/stream` (WebSocket);
   falls back to polling `/api/latest` every 3s if the socket drops.
 - Computes a "Next Hour Outlook": a linear regression on the last ~20
-  minutes of blended price gives a drift + volatility estimate, projected
+  minutes of benchmark price gives a drift + volatility estimate, projected
   forward (random-walk style, drift·t ± vol·√t) to the top of the *next*
   hour in the viewer's own timezone. Turned into a probability via the
   normal CDF. Also reports a 14-period RSI and a streak counter ("4
@@ -182,6 +185,25 @@ arrives as a JSON *string*, not an object.
 `GET /api/brti` exposes the same state, including the last raw frame seen
 so a stalled feed can be diagnosed without guessing.
 
+### One benchmark, no quiet substitutions
+
+`benchmarkPrice()` is the single source of truth everything downstream
+reads. It returns BRTI when BRTI is live, and the exchange blend only when
+BRTI is not configured or has never printed.
+
+What it deliberately does **not** do is fall back mid-series. BRTI and the
+blend differ by tens of dollars, so swapping one for the other when the feed
+goes quiet would put a step in the history that reads as a real move — a
+false crash flash, and a volatility estimate poisoned for the next twenty
+minutes. Instead a print is held for up to 90 seconds, and past that the
+server stops appending and leaves an honest gap. The header light is
+already saying DELAY or OFFLINE while that happens.
+
+For the same reason `history.json` records which series it holds. A
+BRTI-priced file will not load into a blend-mode run (or the reverse) — the
+chart resets once rather than showing a cliff at the restart point. Expect
+one empty chart the first time you start the server with credentials.
+
 ### The health light
 
 `CF BENCHMARK BRTI | ● LIVE` in the header is the page's honesty signal —
@@ -206,12 +228,30 @@ From `HH:59:00` the page changes shape:
 - beneath it, on a yellow field, the running 60-second average takes over as
   the headline number under the label **60 SECOND AVG**,
 - at `HH:59:59` the last of the sixty samples lands, the average **freezes**
-  exactly where it is, holds for 30 seconds, and the page returns to live.
+  exactly where it is and the label picks up a `· FINAL` marker, holds for
+  30 seconds, and the page returns to live.
 
 The number shown is the mean of the sixty per-second BRTI prints — the same
 window settlement uses. CF's own trailing-60s figure is printed small
 alongside it as a cross-check rather than swapped in mid-minute, which
 would make the headline jump.
+
+### The countdown
+
+The clock to the top of the hour escalates on its own schedule:
+
+| remaining | look |
+| --- | --- |
+| 30:00+ | white |
+| 30:00 to 20:00 | neon yellow, held |
+| 20:00 to 10:00 | slides yellow to orange to red |
+| under 10:00 | inverts: black numerals on solid red |
+| under 5:00 | same, flashing |
+
+The neon is the countdown's own yellow, hotter than the `--yellow` used
+elsewhere on the page, and it is held rather than lerped straight off the
+turn — a lerp reaches amber within a minute, so the neon would only ever
+have existed for the instant of the changeover.
 
 ### The capture list
 
