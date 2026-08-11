@@ -36,11 +36,34 @@ let currentBar = null;
 let recentTrades = []; // { t, ex, price, size, side, dir }
 let volSinceLastTick = 0;
 
+// Staleness weighting. During fast moves one exchange (usually Bitstamp)
+// can go quiet for seconds at a time while the other keeps printing. A
+// flat 50/50 blend then drags the benchmark toward a price that no longer
+// exists. Each feed keeps full weight while it is fresh, then decays
+// exponentially, so a stale quote fades out of the average smoothly
+// instead of either counting fully or vanishing at a cliff edge.
+const FEED_FRESH_MS = 5_000; // full weight up to here
+const FEED_TAU_MS = 10_000; // e-folding time after that
+const FEED_MIN_WEIGHT = 0.02; // below this, drop the feed entirely
+
+function feedWeight(feed, now) {
+  if (feed.price == null || feed.ts == null) return 0;
+  const age = now - feed.ts;
+  if (age <= FEED_FRESH_MS) return 1;
+  const w = Math.exp(-(age - FEED_FRESH_MS) / FEED_TAU_MS);
+  return w < FEED_MIN_WEIGHT ? 0 : w;
+}
+
 function currentAverage() {
-  const c = ex.coinbase.price, b = ex.bitstamp.price;
-  if (c != null && b != null) return (c + b) / 2;
-  if (c != null) return c;
-  if (b != null) return b;
+  const now = Date.now();
+  const c = ex.coinbase, b = ex.bitstamp;
+  const wc = feedWeight(c, now), wb = feedWeight(b, now);
+  const total = wc + wb;
+  if (total > 0) return ((c.price || 0) * wc + (b.price || 0) * wb) / total;
+  // both stale — better a known old price than nothing; take the newer one
+  if (c.price != null && b.price != null) return (c.ts || 0) >= (b.ts || 0) ? c.price : b.price;
+  if (c.price != null) return c.price;
+  if (b.price != null) return b.price;
   return null;
 }
 
@@ -110,8 +133,11 @@ setInterval(ingestTick, 1000);
 function snapshot() {
   const avg = currentAverage();
   const prevAvg = secondTicks.length > 1 ? secondTicks[secondTicks.length - 2].avg : avg;
+  const now = Date.now();
   return {
-    ts: Date.now(),
+    ts: now,
+    coinbaseWeight: Math.round(feedWeight(ex.coinbase, now) * 100) / 100,
+    bitstampWeight: Math.round(feedWeight(ex.bitstamp, now) * 100) / 100,
     coinbase: ex.coinbase.price,
     coinbaseConnected: ex.coinbase.connected,
     bid: ex.coinbase.bid,
@@ -1230,6 +1256,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .ex-pct.up { color: var(--green); }
 .ex-pct.down { color: var(--red); }
 .ex-pct.flat { color: var(--text3); }
+/* feed being discounted for staleness — visibly de-emphasised so the
+   blended price above never quietly changes meaning */
+.ex-row.stale { opacity: 0.42; }
+.ex-row.stale .ex-name::after { content: " · stale"; color: var(--yellow); }
 
 /* ── outlook (chance) card ── */
 .outlook-stack { display: grid; }
@@ -1523,24 +1553,36 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
   // ---------- header price + rows ----------
 
+  // Mirrors the server's staleness weighting. The decay itself is computed
+  // server-side and arrives with each snapshot; a trade from an exchange
+  // proves that feed is live again, so it resets to full weight here
+  // without waiting for the next snapshot.
   function recomputeAverage() {
     var c = state.live.coinbase, b = state.live.bitstamp;
-    if (c != null && b != null) return (c + b) / 2;
+    var wc = c == null ? 0 : (state.wCoinbase != null ? state.wCoinbase : 1);
+    var wb = b == null ? 0 : (state.wBitstamp != null ? state.wBitstamp : 1);
+    var total = wc + wb;
+    if (total > 0) return ((c || 0) * wc + (b || 0) * wb) / total;
     if (c != null) return c;
     if (b != null) return b;
     return null;
   }
 
-  function updateRow(id, price, prevPrice, connected) {
+  function updateRow(id, price, prevPrice, connected, weight) {
     var priceEl = document.getElementById(id + "Price");
     var pctEl = document.getElementById(id + "Pct");
+    var rowEl = priceEl.closest(".ex-row");
     if (!connected && price == null) {
       priceEl.textContent = "reconnecting…";
       priceEl.className = "ex-price off";
       pctEl.textContent = "—";
       pctEl.className = "ex-pct flat";
+      if (rowEl) rowEl.classList.add("stale");
       return;
     }
+    // a feed being discounted for staleness is shown, not hidden — the
+    // blended price above quietly means something different when it happens
+    if (rowEl) rowEl.classList.toggle("stale", weight != null && weight < 0.99);
     var cls = dirClass(price, prevPrice);
     priceEl.textContent = fmtUSDShort(price);
     priceEl.className = "ex-price " + cls;
@@ -1568,8 +1610,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       deltaEl.textContent = arrow + " " + fmtPct(pct) + " (" + state.range.toUpperCase() + ")";
     }
 
-    updateRow("cb", state.live.coinbase, state.prevRow.coinbase, state.connCoinbase);
-    updateRow("bs", state.live.bitstamp, state.prevRow.bitstamp, state.connBitstamp);
+    updateRow("cb", state.live.coinbase, state.prevRow.coinbase, state.connCoinbase, state.wCoinbase);
+    updateRow("bs", state.live.bitstamp, state.prevRow.bitstamp, state.connBitstamp, state.wBitstamp);
 
     state.prevRow.coinbase = state.live.coinbase;
     state.prevRow.bitstamp = state.live.bitstamp;
@@ -2200,6 +2242,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     state.live.bitstamp = snap.bitstamp;
     state.connCoinbase = snap.coinbaseConnected;
     state.connBitstamp = snap.bitstampConnected;
+    state.wCoinbase = snap.coinbaseWeight;
+    state.wBitstamp = snap.bitstampWeight;
     state.high24 = snap.high24;
     state.low24 = snap.low24;
     state.lastMsgAt = Date.now();
@@ -2234,6 +2278,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       if (msg.type === "trade") {
         var exKey = msg.ex === "coinbase" ? "coinbase" : "bitstamp";
         state.live[exKey] = msg.price;
+        // a fresh print means this feed is live — restore its full weight
+        if (exKey === "coinbase") state.wCoinbase = 1; else state.wBitstamp = 1;
         state.lastMsgAt = Date.now();
         refreshHeaderAndRows();
         appendLivePoint(recomputeAverage(), msg.size);
