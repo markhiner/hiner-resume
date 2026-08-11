@@ -199,6 +199,20 @@ minutes. Instead a print is held for up to 90 seconds, and past that the
 server stops appending and leaves an honest gap. The header light is
 already saying DELAY or OFFLINE while that happens.
 
+That includes **startup**: with credentials set but no frame yet, it returns
+nothing rather than opening the series on a blend tick. Measured against a
+stubbed feed, opening on one blend tick and stepping to BRTI a second later
+reported `driftPerMin 1212` and `volPerMin 20609` on a series actually
+moving $24/min — the splice inflated volatility roughly 2900x, and the model
+carried that for its whole 20-minute lookback. Waiting instead gives
+`driftPerMin 6.7`, `volPerMin 7.2`.
+
+For the same reason the page shows an em dash, not a Coinbase/Bitstamp
+number, if BRTI is configured but silent — the header says CF BENCHMARK
+BRTI, and printing something else under that label would be a lie. Once
+BRTI has printed once, its last value is held (and flagged by the light), so
+the dash only appears when there is genuinely nothing.
+
 For the same reason `history.json` records which series it holds. A
 BRTI-priced file will not load into a blend-mode run (or the reverse) — the
 chart resets once rather than showing a cliff at the restart point. Expect

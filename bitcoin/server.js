@@ -80,8 +80,13 @@ function currentAverage() {
 const BRTI_HOLD_MS = 90_000;
 
 function benchmarkPrice() {
-  // no credentials, or BRTI has never printed — the blend is all there is
-  if (!brtiState.enabled || brtiState.value == null) return currentAverage();
+  // no credentials at all — the blend is the benchmark, and says so
+  if (!brtiState.enabled) return currentAverage();
+  // configured but not printing yet: WAIT. Opening the series on a blend tick
+  // and stepping to BRTI a second later is the same splice this rule exists to
+  // prevent, just at startup — it fires the big-move flash and hands the model
+  // a jump it reads as real volatility for the next twenty minutes.
+  if (brtiState.value == null) return null;
   if (Date.now() - (brtiState.ts || 0) > BRTI_HOLD_MS) return null;
   return brtiState.value;
 }
@@ -1772,8 +1777,12 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   // prices of their own.
   function headlinePrice() {
     var b = state.brti;
-    if (b && b.enabled && b.value != null) return b.value;
-    return recomputeAverage(); // no credentials configured, or no print yet
+    // Only stand in the blend when BRTI isn't configured at all. With it
+    // configured, the header says CF BENCHMARK BRTI — printing a
+    // Coinbase/Bitstamp number under that label would be a lie, so show
+    // nothing and let the light say DELAY or OFFLINE.
+    if (!b || !b.enabled) return recomputeAverage();
+    return b.value;
   }
 
   // How long since the last BRTI print actually reached this browser. Measured
@@ -1798,17 +1807,22 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
   function refreshHeaderAndRows() {
     var px = headlinePrice();
+    var deltaEl = document.getElementById("priceDelta");
 
-    if (px != null) {
-      document.getElementById("bigPrice").textContent = fmtUSD(px);
-    }
+    // fmtUSD renders null as an em dash: when the benchmark has no price to
+    // report, say so. Leaving the last number up while the light goes red
+    // reads as a live quote, which is the one thing it isn't.
+    document.getElementById("bigPrice").textContent = fmtUSD(px);
+
     if (state.rangeStartAvg && px != null) {
       var pct = ((px - state.rangeStartAvg) / state.rangeStartAvg) * 100;
-      var deltaEl = document.getElementById("priceDelta");
       var cls = pct > 0 ? "up" : pct < 0 ? "down" : "flat";
       var arrow = pct > 0 ? "\\u25B2" : pct < 0 ? "\\u25BC" : "\\u2013";
       deltaEl.className = "price-delta " + cls;
       deltaEl.textContent = arrow + " " + fmtPct(pct) + " (" + state.range.toUpperCase() + ")";
+    } else if (px == null) {
+      deltaEl.className = "price-delta flat";
+      deltaEl.textContent = "\\u2013 (" + state.range.toUpperCase() + ")";
     }
   }
 
