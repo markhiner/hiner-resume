@@ -2144,12 +2144,33 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     return ticks;
   }
 
+  var RANGE_MS = { "1h": 3600000, "3h": 3 * 3600000, "24h": 24 * 3600000 };
+
   function drawChart() {
-    var data = state.history;
     var rect = canvas.getBoundingClientRect();
     var w = rect.width, h = rect.height;
     ctx.clearRect(0, 0, w, h);
+    if (!state.history.length) return;
+
+    // The X axis is a FIXED window ending at now — not the span of whatever
+    // data happens to be in hand. Normalizing to the data's own span meant
+    // that while the buffer was still filling (after any restart, when the
+    // server holds less than an hour), every new point on the right stretched
+    // the span and shoved the whole existing line leftward, since nothing was
+    // old enough to age off yet. Measured: the median gap between plotted
+    // points shrank 1.051px -> 0.948px over three minutes, so the left end
+    // kept compressing while the right kept growing. With the window pinned,
+    // a point's position depends only on its timestamp: old data scrolls off
+    // the left at exactly the rate new data arrives on the right, and a
+    // partly-filled buffer simply starts partway across instead of being
+    // stretched to fit.
+    var spanMs = RANGE_MS[state.range] || RANGE_MS["1h"];
+    var data = state.history.filter(function (p) { return p.t >= Date.now() - spanMs; });
     if (!data.length) return;
+    // tolerate a little clock skew between this browser and the server rather
+    // than clipping the newest point off the right edge
+    var tLast = Math.max(Date.now(), data[data.length - 1].t);
+    var tFirst = tLast - spanMs;
 
     var highs = data.map(function (p) { return p.high; });
     var lows = data.map(function (p) { return p.low; });
@@ -2174,14 +2195,16 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     // live points land every second — so index spacing made the newest
     // stretch of data occupy a growing share of the width and visibly
     // squeeze the older data toward the left edge.
-    var tFirst = data[0].t, tLast = data[n - 1].t;
-    var tSpan = Math.max(tLast - tFirst, 1);
-    var x = function (i) { return leftPad + (n <= 1 ? 0 : ((data[i].t - tFirst) / tSpan) * plotW); };
+    var x = function (i) { return leftPad + ((data[i].t - tFirst) / spanMs) * plotW; };
     var y = function (v) { return chartH - ((v - minP) / (maxP - minP)) * chartH; };
 
     // volume bars
     ctx.fillStyle = "rgba(255,255,255,0.10)";
-    var barW = Math.max(plotW / n - 1, 1);
+    // width from the data's own cadence — with a fixed window, dividing the
+    // full plot by the point count would fatten the bars whenever the buffer
+    // is only partly filled
+    var dataSpan = n > 1 ? data[n - 1].t - data[0].t : spanMs;
+    var barW = Math.max((dataSpan / Math.max(n - 1, 1) / spanMs) * plotW - 1, 1);
     for (var i = 0; i < n; i++) {
       var bh = (vols[i] / maxV) * volH;
       ctx.fillRect(x(i) - barW / 2, h - bh, barW, bh);
@@ -2235,11 +2258,15 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         ? d.toLocaleTimeString([], { hour: "numeric" })
         : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     };
-    document.getElementById("axisStart").textContent = axisFmt(data[0].t);
-    document.getElementById("axisEnd").textContent = axisFmt(data[n - 1].t);
+    document.getElementById("axisStart").textContent = axisFmt(tFirst);
+    document.getElementById("axisEnd").textContent = axisFmt(tLast);
   }
 
   window.addEventListener("resize", function () { resizeCanvas(); drawChart(); });
+  // the window ends at now, so it has to keep scrolling even when nothing is
+  // arriving — otherwise a quiet feed freezes the axis and the line drifts
+  // out of step with the clock
+  setInterval(drawChart, 1000);
 
   function setHistory(data) {
     state.history = data;

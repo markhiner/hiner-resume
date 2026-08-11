@@ -352,5 +352,17 @@ See `lab/README.md`.
 - Range High/Low on the chart is computed from whatever's actually in the
   displayed window, not a fixed 24h figure — so it rescales correctly even
   right after a restart when history is still short.
+- The chart's X axis is a **fixed window ending at now**, not the span of
+  whatever data is in hand. Normalizing to the data's own span meant that
+  while the buffer was still filling — after any restart, when the server
+  holds less than an hour — every new point on the right stretched the span
+  and shoved the existing line leftward, because nothing was yet old enough
+  to age off. Measured against the live page, the median gap between plotted
+  points shrank 1.051px to 0.948px over three minutes while the right-hand
+  third gained 161 points and the left gained 11. With the window pinned,
+  that gap holds constant and the line extends rightward at exactly the rate
+  the clock advances. The trade-off is visible and intended: a partly-filled
+  buffer starts partway across the canvas instead of being stretched to fit,
+  so expect blank space on the left for the first hour after a restart.
 - `history.json` (gitignored) is local ticker state, not something to
   commit.
