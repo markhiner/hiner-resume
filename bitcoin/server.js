@@ -677,7 +677,7 @@ async function refreshQuotes() {
     repricePortfolio(byTicker);
     quoteStats.lastMs = Date.now() - startedAt;
     quoteStats.lastOkAt = Date.now();
-    broadcast({ type: "kalshi", kalshi: kalshiState, portfolio: portfolioState, brti: brtiPublic(), quote: quoteSnapshot(), settlements: settlementState });
+    broadcast({ type: "kalshi", kalshi: kalshiState, portfolio: portfolioState, brti: brtiPublic(), quote: quoteSnapshot() });
   } catch (e) {
     quoteStats.errors++;
     kalshiState = { ...kalshiState, error: e.message };
@@ -1030,159 +1030,6 @@ function repricePortfolio(byTicker) {
 
 const warnedFractional = new Set();
 const RESOLVED_HOLD_MS = Number(process.env.KALSHI_RESOLVED_HOLD_MS) || 120_000;
-
-// ---------- fills: the ground truth for count and cost ----------
-// market_exposure is a derived figure. The fills are what actually happened,
-// so summing them gives the real contract count and an exact VWAP cost basis
-// — and is the only way to settle whether a fractional position count is a
-// genuine fractional holding or a fixed-point scaling artefact.
-//
-// Field names differ across API versions, so every read goes through the
-// tolerant helpers and the whole thing fails soft: if the shape isn't
-// understood, positionFromFills returns null and the caller keeps the
-// market_exposure figures it already had.
-let fillsByTicker = new Map();
-let loggedFillShape = false;
-
-function fillCount(f) {
-  return firstNum(f, "count", "count_fp", "quantity", "quantity_fp", "size", "size_fp");
-}
-function fillPrice(f, side) {
-  const p = money(f, side === "yes" ? "yes_price" : "no_price");
-  return p != null ? p : money(f, "price");
-}
-
-function positionFromFills(list) {
-  if (!list || !list.length) return null;
-  let net = 0;
-  for (const f of list) {
-    const c = fillCount(f);
-    const side = String(f.side || "").toLowerCase();
-    const action = String(f.action || f.taker_side || "").toLowerCase();
-    if (c == null || (side !== "yes" && side !== "no")) return null;
-    // holding NO is a short YES position; selling flips the sign again
-    net += (side === "yes" ? 1 : -1) * (action === "sell" ? -1 : 1) * c;
-  }
-  if (!net) return null;
-  const heldSide = net > 0 ? "yes" : "no";
-  const count = Math.abs(net);
-  // VWAP of the trades that opened the side still held
-  let qty = 0, cost = 0;
-  for (const f of list) {
-    const side = String(f.side || "").toLowerCase();
-    const action = String(f.action || f.taker_side || "").toLowerCase();
-    if (side !== heldSide || action === "sell") continue;
-    const c = fillCount(f), px = fillPrice(f, side);
-    if (c == null || px == null) continue;
-    qty += c; cost += c * px;
-  }
-  const avgCost = qty > 0 ? cost / qty : null;
-  return {
-    side: heldSide,
-    count,
-    avgCost,
-    costBasis: avgCost != null ? avgCost * count : null,
-    fills: list.length,
-  };
-}
-
-async function pollFills() {
-  try {
-    const res = await kalshiAuthGET("/portfolio/fills?limit=200");
-    const fills = res.fills || res.settlements || [];
-    if (!loggedFillShape && fills.length) {
-      loggedFillShape = true;
-      console.log("Kalshi fill shape:", JSON.stringify(fills[0]).slice(0, 400));
-    }
-    const map = new Map();
-    for (const f of fills) {
-      if (!f || !f.ticker) continue;
-      if (!map.has(f.ticker)) map.set(f.ticker, []);
-      map.get(f.ticker).push(f);
-    }
-    fillsByTicker = map;
-  } catch (e) {
-    console.error("Kalshi fills poll:", e.message);
-  }
-}
-
-// ---------- settlements: what actually paid out ----------
-let settlementState = {
-  enabled: !!(KALSHI_KEY_ID && kalshiPrivateKey),
-  today: null,   // { n, won, lost, pnl, since }
-  recent: [],    // most recent few, newest first
-  byTicker: {},  // ground truth for a position that just resolved
-  error: null,
-};
-let loggedSettlementShape = false;
-
-function settlementPnl(s) {
-  const revenue = money(s, "revenue");
-  let cost = money(s, "cost");
-  if (cost == null) {
-    const y = money(s, "yes_total_cost"), n = money(s, "no_total_cost");
-    if (y != null || n != null) cost = (y || 0) + (n || 0);
-  }
-  if (revenue == null || cost == null) return null;
-  return revenue - cost;
-}
-
-async function pollSettlements() {
-  if (!settlementState.enabled) return;
-  try {
-    const res = await kalshiAuthGET("/portfolio/settlements?limit=200");
-    const rows = res.settlements || [];
-    if (!loggedSettlementShape && rows.length) {
-      loggedSettlementShape = true;
-      console.log("Kalshi settlement shape:", JSON.stringify(rows[0]).slice(0, 400));
-    }
-    const midnight = new Date();
-    midnight.setHours(0, 0, 0, 0);
-    const since = midnight.getTime();
-
-    const parsed = [];
-    for (const s of rows) {
-      const ts = Date.parse(s.settled_time || s.settled_ts || s.created_time || "") || null;
-      const yesCount = firstNum(s, "yes_count", "yes_count_fp") || 0;
-      const noCount = firstNum(s, "no_count", "no_count_fp") || 0;
-      const side = yesCount >= noCount ? "yes" : "no";
-      const result = String(s.market_result || s.result || "").toLowerCase();
-      const won = result === "yes" || result === "no" ? side === result : null;
-      parsed.push({
-        ticker: s.ticker,
-        ts,
-        side,
-        count: Math.max(yesCount, noCount) || null,
-        result: result || null,
-        won,
-        pnl: settlementPnl(s),
-        revenue: money(s, "revenue"),
-      });
-    }
-    parsed.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-
-    const todays = parsed.filter((r) => r.ts != null && r.ts >= since);
-    let pnl = 0, anyPnl = false;
-    for (const r of todays) if (r.pnl != null) { pnl += r.pnl; anyPnl = true; }
-
-    settlementState = {
-      ...settlementState,
-      error: null,
-      today: {
-        n: todays.length,
-        won: todays.filter((r) => r.won === true).length,
-        lost: todays.filter((r) => r.won === false).length,
-        pnl: anyPnl ? Math.round(pnl * 100) / 100 : null,
-        since,
-      },
-      recent: parsed.slice(0, 8),
-      byTicker: Object.fromEntries(parsed.filter((r) => r.ticker).map((r) => [r.ticker, r])),
-    };
-  } catch (e) {
-    settlementState = { ...settlementState, error: e.message };
-    console.error("Kalshi settlements poll:", e.message);
-  }
-}
 const resolvedMemo = new Map(); // ticker -> { row, until }
 
 async function pollPortfolio() {
@@ -1197,8 +1044,6 @@ async function pollPortfolio() {
       kalshiAuthGET("/portfolio/balance"),
       kalshiAuthGET("/portfolio/positions?limit=200&settlement_status=unsettled")
         .catch(() => kalshiAuthGET("/portfolio/positions?limit=200")),
-      pollFills(),
-      pollSettlements(),
     ]);
     const cash = dollars(bal, "balance_dollars", "balance");
 
@@ -1224,21 +1069,13 @@ async function pollPortfolio() {
     for (const { p, qty } of open.slice(0, 20)) {
       let m = null;
       try { m = (await kalshiGET(`/markets/${p.ticker}`)).market; } catch {}
-      let side = qty > 0 ? "yes" : "no";
-      let count = Math.abs(qty);
-      // Prefer the fills when they parse: they are the actual trades, so the
-      // count is exact rather than whatever scale the position field uses.
-      const fromFills = positionFromFills(fillsByTicker.get(p.ticker));
-      if (fromFills && fromFills.count > 0) {
-        side = fromFills.side;
-        count = fromFills.count;
-      }
+      const side = qty > 0 ? "yes" : "no";
+      const count = Math.abs(qty);
       const per = m ? money(m, side === "yes" ? "yes_bid" : "no_bid") : null;
       // What the open position cost: market_exposure is the standard field;
       // fall back to total_traded net of realized P&L. Left null when it
       // can't be determined, so the UI shows no P&L rather than a wrong one.
-      let costBasis = fromFills && fromFills.costBasis != null ? fromFills.costBasis : null;
-      if (costBasis == null) costBasis = money(p, "market_exposure");
+      let costBasis = money(p, "market_exposure");
       if (costBasis == null) {
         const traded = money(p, "total_traded");
         const realized = money(p, "realized_pnl");
@@ -1287,11 +1124,8 @@ async function pollPortfolio() {
         pnl: null,
         pnlPct: null,
         status: m ? m.status || null : null,
-        // a published settlement is the last word, ahead of the market's own
-        // result field and well ahead of our provisional call
-        result: (settlementState.byTicker[p.ticker] || {}).result || marketResult(m),
+        result: marketResult(m),
         closed: marketClosed(m, closeTime),
-        fillCount: fromFills ? fromFills.fills : null,
       });
     }
 
@@ -1321,7 +1155,7 @@ async function pollPortfolio() {
 
     portfolioState = { ...portfolioState, enabled: true, error: null, cash, positions: rows };
     repricePortfolio(null); // derive values/P&L from the quotes just fetched
-    broadcast({ type: "portfolio", ...portfolioState, settlements: settlementState });
+    broadcast({ type: "portfolio", ...portfolioState });
   } catch (e) {
     console.error("Kalshi portfolio poll:", e.message);
     portfolioState = { ...portfolioState, error: e.message, updatedAt: Date.now() };
@@ -1512,71 +1346,7 @@ function broadcast(msg) {
   const data = JSON.stringify(msg);
   for (const c of clients) if (c.readyState === WebSocket.OPEN) c.send(data);
 }
-// ---------- edge history: model vs market, over the hour ----------
-// "Edge +5" is a snapshot. Keeping the series turns it into a curve — where
-// the two diverged and whether they converged before settlement.
-//
-// The comparison is only coherent against a FIXED strike: the nearest strike
-// moves as the price does, so each sample records which strike it was for and
-// the client draws the model line only where it matches the strike on screen.
-const MAX_PROB_POINTS = 900; // 10s cadence -> 2.5h
-let probHistory = [];
-
-function recordProb(forecast) {
-  if (!forecast || forecast.insufficient || !forecast.model) return;
-  const ns = forecast.kalshi && forecast.kalshi.available ? forecast.kalshi.nearestStrike : null;
-  probHistory.push({
-    t: Date.now(),
-    strike: forecast.model.threshold != null ? Math.round(forecast.model.threshold) : null,
-    ticker: ns ? ns.ticker : null,
-    model: forecast.model.probAbove,
-    market: ns && ns.bid != null && ns.ask != null ? Math.round(((ns.bid + ns.ask) / 2) * 1000) / 1000 : null,
-  });
-  if (probHistory.length > MAX_PROB_POINTS) probHistory.shift();
-}
-
-setInterval(() => {
-  const f = computeForecast();
-  recordProb(f);
-  broadcast({ type: "trend", ...f });
-}, 10000);
-
-// Candlesticks give the market's own implied probability back to the top of
-// the hour, including the stretch before this page was ever opened — which
-// the in-memory series above cannot.
-const CANDLE_CACHE_MS = 25_000;
-let candleCache = { ticker: null, at: 0, series: [] };
-
-async function marketProbSeries(ticker) {
-  if (!ticker) return [];
-  if (candleCache.ticker === ticker && Date.now() - candleCache.at < CANDLE_CACHE_MS) {
-    return candleCache.series;
-  }
-  const series = [];
-  try {
-    const now = Math.floor(Date.now() / 1000);
-    const start = now - 3 * 3600;
-    const seriesTicker = String(ticker).split("-")[0];
-    const { candlesticks = [] } = await kalshiGET(
-      `/series/${encodeURIComponent(seriesTicker)}/markets/${encodeURIComponent(ticker)}` +
-      `/candlesticks?start_ts=${start}&end_ts=${now}&period_interval=1`
-    );
-    for (const c of candlesticks) {
-      const t = (c.end_period_ts || 0) * 1000;
-      const bid = parseFloat(c.yes_bid && c.yes_bid.close_dollars);
-      const ask = parseFloat(c.yes_ask && c.yes_ask.close_dollars);
-      // an untraded minute quotes 0.00/1.00 or 0.00/0.01 — no information
-      if (!Number.isFinite(bid) || !Number.isFinite(ask)) continue;
-      if (ask - bid > 0.5) continue;
-      if (bid <= 0 && ask <= 0.01) continue;
-      series.push({ t, prob: Math.round(((bid + ask) / 2) * 1000) / 1000 });
-    }
-  } catch (e) {
-    // a market with no candles yet is normal, not an error worth surfacing
-  }
-  candleCache = { ticker, at: Date.now(), series };
-  return series;
-}
+setInterval(() => broadcast({ type: "trend", ...computeForecast() }), 10000);
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -1648,29 +1418,6 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ ...kalshiState, quote: quoteSnapshot() }));
     return;
   }
-  // Model vs market across the hour, for the strike currently on screen.
-  if (url.pathname === "/api/edge") {
-    const ns = kalshiState && kalshiState.available ? kalshiState.nearestStrike : null;
-    const ticker = url.searchParams.get("ticker") || (ns ? ns.ticker : null);
-    const strike = ns ? ns.strike : null;
-    marketProbSeries(ticker).then((market) => {
-      const model = probHistory
-        .filter((r) => r.model != null && (ticker == null || r.ticker === ticker))
-        .map((r) => ({ t: r.t, prob: r.model }));
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        ticker, strike,
-        closeTime: ns ? kalshiState.closeTime : null,
-        market, model,
-      }));
-    });
-    return;
-  }
-  if (url.pathname === "/api/settlements") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(settlementState));
-    return;
-  }
   if (url.pathname === "/api/portfolio") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(portfolioState));
@@ -1692,7 +1439,7 @@ server.on("upgrade", (req, socket, head) => {
   if (pathname !== "/stream") { socket.destroy(); return; }
   wss.handleUpgrade(req, socket, head, (ws) => {
     clients.add(ws);
-    ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: computeForecast(), portfolio: portfolioState, brti: brtiPublic(), settlements: settlementState }));
+    ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: computeForecast(), portfolio: portfolioState, brti: brtiPublic() }));
     ws.on("close", () => clients.delete(ws));
     ws.on("error", () => clients.delete(ws));
   });
@@ -1905,23 +1652,7 @@ body {
 .chart-hdr .hi { color: var(--green); font-weight: 700; }
 .chart-hdr .lo { color: var(--red); font-weight: 700; }
 canvas#chart { width: 100%; height: 158px; display: block; }
-.chart-axis { display: flex; justify-content: space-between; align-items: center; padding: 3px 4px 0; font-size: 9.5px; color: var(--text3); }
-.edge-legend { display: flex; gap: 9px; align-items: center; font-size: 9px; letter-spacing: 0.3px; }
-.edge-legend i { display: inline-block; width: 9px; height: 2px; border-radius: 1px; margin-right: 3px; vertical-align: middle; }
-.edge-legend .mkt i { background: #5ac8fa; }
-.edge-legend .mdl i { background: #c084fc; }
-.range-btn-sm.edge { min-width: 0; padding: 4px 11px; letter-spacing: 0.5px; }
-.range-btn-sm.edge.on { background: rgba(90,200,250,0.16); border-color: rgba(90,200,250,0.55); color: #5ac8fa; }
-
-/* today's realized record, from actual settlements */
-.score { display: flex; gap: 6px; align-items: baseline; font-size: 10px; font-variant-numeric: tabular-nums; }
-.score .lbl { color: var(--text3); font-weight: 800; letter-spacing: 1px; }
-.score .w { color: var(--green); font-weight: 800; }
-.score .l { color: var(--red); font-weight: 800; }
-.score .pnl { font-weight: 800; }
-.score .pnl.up { color: var(--green); }
-.score .pnl.down { color: var(--red); }
-.score .pnl.flat { color: var(--text2); }
+.chart-axis { display: flex; justify-content: space-between; padding: 3px 4px 0; font-size: 9.5px; color: var(--text3); }
 
 /* ── outlook (chance) card ── */
 .outlook-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 10px 13px; }
@@ -2066,7 +1797,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     <button class="range-btn-sm active" data-range="1h">1</button>
     <button class="range-btn-sm" data-range="3h">3</button>
     <button class="range-btn-sm" data-range="24h">24</button>
-    <button class="range-btn-sm edge on" id="edgeToggle">EDGE</button>
   </div>
 
   <div class="chart-card">
@@ -2075,11 +1805,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       <span>Low <b class="lo" id="rangeLow">—</b></span>
     </div>
     <canvas id="chart"></canvas>
-    <div class="chart-axis">
-      <span id="axisStart">—</span>
-      <span class="edge-legend" id="edgeLegend"></span>
-      <span id="axisEnd">now</span>
-    </div>
+    <div class="chart-axis"><span id="axisStart">—</span><span id="axisEnd">now</span></div>
   </div>
 
   <div class="kalshi-card" id="kalshiCard"></div>
@@ -2131,8 +1857,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     lastSnapshotAvg: null,
     brti: null,
     brtiSeenAt: 0, // local arrival time of the newest BRTI print
-    edgeOn: true,
-    edge: null,    // { ticker, strike, market: [{t,prob}], model: [{t,prob}] }
   };
 
   var BIG_MOVE_THRESHOLD = 10; // dollars of blended-price change within one snapshot tick (~1s)
@@ -2713,8 +2437,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     ctx.fillStyle = "#fff";
     ctx.fill();
 
-    drawEdgeOverlay(ctx, tFirst, spanMs, leftPad, plotW, chartH);
-
     var axisFmt = function (t) {
       var d = new Date(t);
       return state.range === "24h"
@@ -2724,80 +2446,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     document.getElementById("axisStart").textContent = axisFmt(tFirst);
     document.getElementById("axisEnd").textContent = axisFmt(tLast);
   }
-
-  // ---------- model vs market, drawn over the price ----------
-  // A second, independent Y axis: 0% at the bottom of the plot, 100% at the
-  // top, so the two probability curves share the price chart's time axis
-  // without any relation to its dollar scale. Kept deliberately thin and cool
-  // in colour so the benchmark line stays the thing you read first.
-  function edgeVisible() {
-    return state.edgeOn && state.range === "1h" && state.edge &&
-      ((state.edge.market && state.edge.market.length) || (state.edge.model && state.edge.model.length));
-  }
-
-  function drawEdgeOverlay(ctx, tFirst, spanMs, leftPad, plotW, chartH) {
-    var legend = document.getElementById("edgeLegend");
-    if (!edgeVisible()) { legend.innerHTML = ""; return; }
-
-    var px = function (t) { return leftPad + ((t - tFirst) / spanMs) * plotW; };
-    var py = function (p) { return chartH - p * chartH; };
-
-    // 0 / 50 / 100% ticks down the right-hand edge
-    ctx.save();
-    ctx.font = "8.5px -apple-system, sans-serif";
-    ctx.textAlign = "right";
-    ctx.textBaseline = "middle";
-    [0, 0.5, 1].forEach(function (p) {
-      var gy = Math.max(5, Math.min(chartH - 4, py(p)));
-      ctx.fillStyle = "rgba(90,200,250,0.35)";
-      ctx.fillText(Math.round(p * 100) + "%", leftPad + plotW, gy);
-    });
-
-    function line(series, color, dashed) {
-      if (!series || !series.length) return null;
-      var pts = series.filter(function (r) { return r.t >= tFirst && r.prob != null; });
-      if (!pts.length) return null;
-      ctx.beginPath();
-      ctx.setLineDash(dashed ? [3, 3] : []);
-      for (var i = 0; i < pts.length; i++) {
-        var X = px(pts[i].t), Y = py(pts[i].prob);
-        if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
-      }
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.3;
-      ctx.stroke();
-      ctx.setLineDash([]);
-      return pts[pts.length - 1].prob;
-    }
-
-    var lastMkt = line(state.edge.market, "rgba(90,200,250,0.9)", false);
-    var lastMdl = line(state.edge.model, "rgba(192,132,252,0.9)", true);
-    ctx.restore();
-
-    var pct = function (v) { return v == null ? "\u2013" : Math.round(v * 100) + "%"; };
-    legend.innerHTML =
-      '<span class="mkt"><i></i>MKT ' + pct(lastMkt) + "</span>" +
-      '<span class="mdl"><i></i>MDL ' + pct(lastMdl) + "</span>" +
-      (state.edge.strike != null
-        ? '<span style="color:var(--text3)">@' + Math.round(state.edge.strike).toLocaleString("en-US") + "</span>"
-        : "");
-  }
-
-  function fetchEdge() {
-    if (!state.edgeOn || state.range !== "1h") return;
-    fetch("/api/edge")
-      .then(function (r) { return r.json(); })
-      .then(function (e) { state.edge = e; drawChart(); })
-      .catch(function () {});
-  }
-  setInterval(fetchEdge, 25000);
-
-  document.getElementById("edgeToggle").addEventListener("click", function () {
-    state.edgeOn = !state.edgeOn;
-    this.classList.toggle("on", state.edgeOn);
-    if (state.edgeOn) fetchEdge();
-    drawChart();
-  });
 
   window.addEventListener("resize", function () { resizeCanvas(); drawChart(); });
   // the window ends at now, so it has to keep scrolling even when nothing is
@@ -2833,7 +2481,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       state.range = btn.getAttribute("data-range");
       fetchHistory();
       armAutoRefresh();
-      fetchEdge();
     });
   });
 
@@ -2965,8 +2612,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       card.style.display = "none";
       return;
     }
-    var html = '<div class="kalshi-hdr"><span class="kalshi-title">Open Positions</span>' +
-      renderScore() + "</div>";
+    var html = '<div class="kalshi-hdr"><span class="kalshi-title">Open Positions</span></div>';
     if (!p.positions.length) {
       html += '<div class="port-empty">No open contracts</div>';
     } else {
@@ -3045,26 +2691,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       }
     }
     if (p.sellEnabled) ensurePin();
-  }
-
-  // Today's realized record, straight from Kalshi's settlement records rather
-  // than inferred from anything on screen. Unrealized P&L above says how the
-  // open bet is doing; this says how the day went.
-  var lastSettlements = null;
-
-  function renderScore() {
-    var s = lastSettlements;
-    if (!s || !s.enabled || !s.today || !s.today.n) return "";
-    var t = s.today;
-    var parts = '<span class="lbl">Today</span>' +
-      '<span class="w">' + t.won + "W</span>" +
-      '<span class="l">' + t.lost + "L</span>";
-    if (t.pnl != null) {
-      var cls = t.pnl > 0.004 ? "up" : t.pnl < -0.004 ? "down" : "flat";
-      var sign = t.pnl > 0 ? "+" : t.pnl < 0 ? "\u2212" : "";
-      parts += '<span class="pnl ' + cls + '">' + sign + "$" + Math.abs(t.pnl).toFixed(2) + "</span>";
-    }
-    return '<span class="score">' + parts + "</span>";
   }
 
   // A win is the one thing on this page worth interrupting for, and the
@@ -3294,7 +2920,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         (msg.trades || []).forEach(pushTradeRow);
         renderTrend(msg.trend);
         if (msg.brti) applyBrti(msg.brti);
-        if (msg.settlements) lastSettlements = msg.settlements;
         renderPortfolio(msg.portfolio);
         fetchHistory();
         armAutoRefresh();
@@ -3314,10 +2939,9 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         return;
       }
       if (msg.type === "trend") { renderTrend(msg); return; }
-      if (msg.type === "portfolio") { if (msg.settlements) lastSettlements = msg.settlements; renderPortfolio(msg); return; }
+      if (msg.type === "portfolio") { renderPortfolio(msg); return; }
       if (msg.type === "kalshi") {
         if (msg.brti) applyBrti(msg.brti);
-        if (msg.settlements) lastSettlements = msg.settlements;
         // 1/sec market refresh: redraw the comparison card against the last
         // known model probability, and reprice the portfolio
         renderKalshi(msg.kalshi, lastModelPct);
@@ -3343,7 +2967,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   fetchHistory();
   armAutoRefresh();
   pollTrend();
-  fetchEdge();
 })();
 </script>
 </body>

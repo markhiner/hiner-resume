@@ -378,57 +378,6 @@ under `quote`: `intervalMs`, `lastRoundTripMs`, `ageMs`, `ticks`, `skipped`,
 `errors` — if `skipped` is climbing on your machine, Kalshi is slower than
 the interval and the real refresh rate is `lastRoundTripMs`.
 
-## Fills, settlements, and the edge curve
-
-Three more things the Kalshi API gives up, all wired in.
-
-### Fills are the ground truth for count and cost
-
-`market_exposure` is a derived figure; `/portfolio/fills` is what actually
-happened. Summing the fills gives the real contract count and an exact VWAP
-cost basis, and it is the only way to settle whether a fractional position
-count is a genuine fractional holding or a fixed-point scaling artefact —
-individual trades must add up to a whole number.
-
-Fills take priority over the position field when they parse. Every read goes
-through the tolerant helpers and the whole thing fails soft: an unrecognised
-shape returns null and the caller keeps the `market_exposure` figures it
-already had. The first fill seen is logged so an unfamiliar shape is
-diagnosable rather than silent.
-
-### Today's record
-
-`/portfolio/settlements` is what actually paid out. The positions card
-header now carries a running realized scorecard — `Today 4W 3L +$18.40` —
-counted from local midnight. Unrealized P&L on the rows says how the open
-bet is doing; this says how the day went. A published settlement also
-outranks both the market's own `result` field and the provisional call when
-pricing a position that just resolved.
-
-`GET /api/settlements` exposes the same state.
-
-### Model vs market, as a curve
-
-"Edge +5" is a snapshot. `/series/{series}/markets/{ticker}/candlesticks`
-returns per-minute OHLC of the market's own bid/ask, which gives the
-market-implied probability back to the top of the hour — including the
-stretch before the page was opened, which an in-memory series can't. The
-model's own probability is sampled every 10s alongside it.
-
-The **EDGE** button overlays both on the price chart: an independent Y axis
-with 0% at the bottom and 100% at the top, sharing the time axis but with no
-relation to the dollar scale. Market in cyan, model dashed in violet, ticks
-down the right-hand edge. Deliberately thin and cool in colour so the
-benchmark line stays the thing you read first. 1h range only — the hourly
-market doesn't mean anything on a 3h or 24h axis.
-
-The comparison is only coherent against a **fixed** strike, since the
-nearest strike moves as the price does. Each sample records which strike it
-was taken for, and the model line is drawn only where that matches the strike
-currently on screen — so the curve never silently splices two different
-questions together. `GET /api/edge` returns strike and both series together,
-so they always agree with each other.
-
 ## Sell button (optional, off by default)
 
 Each open position can show two buttons: **SELL**, which liquidates the
