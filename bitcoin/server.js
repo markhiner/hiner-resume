@@ -109,8 +109,18 @@ function loadHistory() {
       console.log(`History on disk is a "${parsed.series || "blend"}" series, this run is "${want}" — starting fresh`);
       return;
     }
-    if (Array.isArray(parsed.minuteBars)) minuteBars = parsed.minuteBars.slice(-MAX_MINUTE_BARS);
-    if (Array.isArray(parsed.secondTicks)) secondTicks = parsed.secondTicks.slice(-MAX_SECOND_TICKS);
+    // Drop anything already outside the window it feeds before it takes up a
+    // slot. secondTicks is capped by COUNT, so ticks from yesterday sit in the
+    // buffer occupying room that fresh ones need — they are never read (the
+    // only consumer is the 1h range) and they push the buffer's real coverage
+    // well under an hour until they finally age out.
+    const now = Date.now();
+    if (Array.isArray(parsed.minuteBars)) {
+      minuteBars = parsed.minuteBars.filter((b) => b && now - b.t < 24 * 60 * 60 * 1000).slice(-MAX_MINUTE_BARS);
+    }
+    if (Array.isArray(parsed.secondTicks)) {
+      secondTicks = parsed.secondTicks.filter((p) => p && now - p.t < 60 * 60 * 1000).slice(-MAX_SECOND_TICKS);
+    }
     console.log(`Loaded ${minuteBars.length} minute bars, ${secondTicks.length} second ticks from disk`);
   } catch {
     console.log("No prior history on disk, starting fresh");
@@ -1327,7 +1337,19 @@ function getHistory(range) {
   const now = Date.now();
   if (range === "1h") {
     const cutoff = now - 60 * 60 * 1000;
-    return bucketize(secondTicks.filter((p) => p.t >= cutoff), 300);
+    const ticks = secondTicks.filter((p) => p.t >= cutoff);
+    // secondTicks is capped at a COUNT, not a duration: 3600 entries that,
+    // across restarts and downtime, can span a whole day rather than the last
+    // hour. Whatever part of the window it doesn't reach back to gets filled
+    // from the 1-minute bars, which cover 24h and survive the same gaps. The
+    // left of the chart then degrades to minute resolution instead of going
+    // blank — the fixed-width axis makes that emptiness visible, honestly, but
+    // there is no reason to show nothing when coarser data is right there.
+    const from = ticks.length ? ticks[0].t : now;
+    const bars = minuteBars
+      .concat(currentBar ? [currentBar] : [])
+      .filter((b) => b.t >= cutoff && b.t < from);
+    return bucketize(bars.concat(ticks), 300);
   }
   if (range === "3h") {
     const cutoff = now - 3 * 60 * 60 * 1000;
