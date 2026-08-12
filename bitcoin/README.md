@@ -322,6 +322,19 @@ Settled positions drop out of Kalshi's list the moment they pay out, which
 would blink the result off screen at the moment it becomes interesting, so a
 decided row is held for two minutes after it disappears.
 
+### Only what's actually open
+
+`/portfolio/positions` returns position *history*, not just what is open now,
+so the request carries `settlement_status=unsettled`. Without it every market
+ever traded comes back — and since the quantity field parses to a non-zero
+number for those old rows rather than the `undefined` it used to yield, each
+one rendered as a settled loss. Hours of them, stacked up on the card.
+
+A second guard drops any row whose market closed longer ago than the two
+minute hold, in case that parameter isn't honoured by a given API version.
+Either mechanism alone is enough; both are tested, including that a market
+which closed thirty seconds ago still shows its WON/LOST outcome.
+
 ### Polling cadence
 
 | what | how often | why |

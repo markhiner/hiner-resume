@@ -1035,15 +1035,18 @@ const resolvedMemo = new Map(); // ticker -> { row, until }
 async function pollPortfolio() {
   if (!portfolioState.enabled) return;
   try {
+    // This endpoint returns POSITION HISTORY, not just what is open now, so
+    // ask it to filter. Without settlement_status=unsettled every market ever
+    // traded comes back and — now that the quantity field parses to a non-zero
+    // number for those old rows rather than undefined — every one of them
+    // rendered as a settled loss. Hours of them, stacked up on the card.
     const [bal, pos] = await Promise.all([
       kalshiAuthGET("/portfolio/balance"),
-      kalshiAuthGET("/portfolio/positions?limit=200"),
+      kalshiAuthGET("/portfolio/positions?limit=200&settlement_status=unsettled")
+        .catch(() => kalshiAuthGET("/portfolio/positions?limit=200")),
     ]);
     const cash = dollars(bal, "balance_dollars", "balance");
 
-    // Only genuinely open positions: a settled or closed-out market still
-    // appears in this list with a zero quantity, and previously every one
-    // of them slipped through because the quantity parsed as undefined.
     const open = (pos.market_positions || [])
       .map((p) => ({ p, qty: firstNum(p, "position", "position_fp", "quantity", "quantity_fp") }))
       .filter((r) => r.qty != null && r.qty !== 0);
@@ -1102,6 +1105,10 @@ async function pollPortfolio() {
       }
 
       const closeTime = m ? Date.parse(m.close_time) || null : null;
+      // Second line of defence, in case settlement_status is not honoured by
+      // this API version: a market that closed longer ago than the hold window
+      // has had its outcome shown already and is simply history now.
+      if (closeTime != null && Date.now() - closeTime > RESOLVED_HOLD_MS) continue;
       rows.push({
         ticker: p.ticker,
         subtitle: label,
