@@ -1339,6 +1339,149 @@ function getHistory(range) {
   return bucketize(bars, 360);
 }
 
+// ---------- flight search (SerpApi Google Flights) ----------
+// One-way only, and every search runs TWICE — once for economy, once for
+// first — because SerpApi's travel_class takes a single value per request.
+// The two result sets are merged into one list so the cheapest fare of either
+// cabin is visible at a glance rather than buried in a separate tab.
+//
+// Two searches per query means two API credits, so results are cached: the
+// same route/date/cabin inside FLIGHT_CACHE_MS is served from memory.
+
+const SERPAPI_KEY = process.env.SERPAPI_KEY || "";
+const FLIGHT_CACHE_MS = Number(process.env.FLIGHT_CACHE_MS) || 5 * 60 * 1000;
+const SERP_CLASS = { economy: 1, first: 4 };
+const flightCache = new Map(); // key -> { at, itineraries }
+
+// Aircraft with two aisles. Listed as explicit patterns rather than a clever
+// regex so a narrowbody can never sneak in: 737 and 757 are single-aisle and
+// must not match, and they would under a looser pattern like 7[0-9]7.
+const WIDEBODY = [
+  /\b747\b/, /\b767\b/, /\b777\b/, /\b787\b/,
+  /\bA300\b/i, /\bA310\b/i, /\bA330\b/i, /\bA340\b/i, /\bA350\b/i, /\bA380\b/i,
+  /\bDC-?10\b/i, /\bMD-?11\b/i, /\bL-?1011\b/i, /\bIL-?96\b/i,
+];
+function isWidebody(name) {
+  const s = String(name || "");
+  return WIDEBODY.some((re) => re.test(s));
+}
+
+const LONG_LAYOVER_MIN = 90;
+
+// "2026-08-13 07:05" -> { date: "2026-08-13", label: "7:05 AM" }. Parsed by
+// hand on purpose: these are LOCAL times at each airport, and handing them to
+// Date() would reinterpret them in the server's zone and shift the clock.
+function splitStamp(stamp) {
+  const [date, time] = String(stamp || "").split(" ");
+  if (!time) return { date: date || null, label: null };
+  const [hStr, m] = time.split(":");
+  let h = parseInt(hStr, 10);
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return { date, label: h + ":" + m + " " + ampm };
+}
+
+function fmtDuration(mins) {
+  const n = Number(mins);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const h = Math.floor(n / 60), m = n % 60;
+  return (h ? h + "h" : "") + (h && m ? " " : "") + (m || !h ? m + "m" : "");
+}
+
+function normalizeItinerary(it, cabin) {
+  const legs = Array.isArray(it.flights) ? it.flights : [];
+  if (!legs.length) return null;
+  const first = legs[0], last = legs[legs.length - 1];
+  const dep = splitStamp(first.departure_airport && first.departure_airport.time);
+  const arr = splitStamp(last.arrival_airport && last.arrival_airport.time);
+  const layovers = (it.layovers || []).map((l) => ({
+    id: l.id || null,
+    name: l.name || null,
+    minutes: Number(l.duration) || null,
+    durationLabel: fmtDuration(l.duration),
+    overnight: !!l.overnight,
+  }));
+  const aircraft = legs.map((l) => l.airplane).filter(Boolean);
+  return {
+    cabin,
+    price: Number(it.price) || null,
+    logo: it.airline_logo || first.airline_logo || null,
+    airlines: [...new Set(legs.map((l) => l.airline).filter(Boolean))],
+    flightNumbers: legs.map((l) => l.flight_number).filter(Boolean),
+    depAirport: (first.departure_airport && first.departure_airport.id) || null,
+    depTime: dep.label,
+    arrAirport: (last.arrival_airport && last.arrival_airport.id) || null,
+    arrTime: arr.label,
+    // a red-eye landing the next day, so the arrival time is not misread
+    dayOffset: dep.date && arr.date && arr.date !== dep.date ? 1 : 0,
+    stops: Math.max(legs.length - 1, 0),
+    layovers,
+    aircraft,
+    totalDuration: Number(it.total_duration) || null,
+    totalDurationLabel: fmtDuration(it.total_duration),
+    nonstop: legs.length === 1,
+    widebody: aircraft.some(isWidebody),
+    longLayover: layovers.some((l) => l.minutes != null && l.minutes > LONG_LAYOVER_MIN),
+  };
+}
+
+async function serpFlights(from, to, date, cabin) {
+  const key = [from, to, date, cabin].join("|");
+  const hit = flightCache.get(key);
+  if (hit && Date.now() - hit.at < FLIGHT_CACHE_MS) return hit.itineraries;
+
+  const url = new URL("https://serpapi.com/search.json");
+  url.searchParams.set("engine", "google_flights");
+  url.searchParams.set("departure_id", from);
+  url.searchParams.set("arrival_id", to);
+  url.searchParams.set("outbound_date", date);
+  url.searchParams.set("type", "2"); // one way
+  url.searchParams.set("travel_class", String(SERP_CLASS[cabin]));
+  url.searchParams.set("currency", "USD");
+  url.searchParams.set("hl", "en");
+  url.searchParams.set("api_key", SERPAPI_KEY);
+
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.error) {
+    throw new Error(json.error || `serpapi ${res.status}`);
+  }
+  const raw = [].concat(json.best_flights || [], json.other_flights || []);
+  const itineraries = raw.map((it) => normalizeItinerary(it, cabin)).filter(Boolean);
+  flightCache.set(key, { at: Date.now(), itineraries });
+  return itineraries;
+}
+
+// Flags are computed across the MERGED list, because "cheapest coach" only
+// means anything once both cabins are in hand. Ties all get flagged.
+function flagItineraries(list) {
+  for (const cabin of Object.keys(SERP_CLASS)) {
+    const inCabin = list.filter((r) => r.cabin === cabin && r.price != null);
+    if (!inCabin.length) continue;
+    const min = Math.min(...inCabin.map((r) => r.price));
+    for (const r of inCabin) if (r.price === min) r.cheapest = true;
+  }
+  return list;
+}
+
+async function searchFlights(from, to, date) {
+  const settled = await Promise.allSettled([
+    serpFlights(from, to, date, "economy"),
+    serpFlights(from, to, date, "first"),
+  ]);
+  const list = [];
+  const errors = [];
+  settled.forEach((r, i) => {
+    if (r.status === "fulfilled") list.push(...r.value);
+    else errors.push((i === 0 ? "economy: " : "first: ") + r.reason.message);
+  });
+  // one cabin failing should not sink the whole search
+  if (!list.length && errors.length) throw new Error(errors.join("; "));
+  flagItineraries(list);
+  list.sort((a, b) => (a.price || 1e9) - (b.price || 1e9) || (a.totalDuration || 0) - (b.totalDuration || 0));
+  return { itineraries: list, partialError: errors.length ? errors.join("; ") : null };
+}
+
 // ---------- HTTP + WebSocket server ----------
 
 const clients = new Set();
@@ -1416,6 +1559,24 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/api/kalshi") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ...kalshiState, quote: quoteSnapshot() }));
+    return;
+  }
+  if (url.pathname === "/api/flights") {
+    const send = (code, obj) => {
+      res.writeHead(code, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(obj));
+    };
+    if (!SERPAPI_KEY) return send(200, { enabled: false });
+    // uppercase and de-space so "lga, jfk" and "LGA,JFK" are the same search
+    const clean = (v) => String(v || "").toUpperCase().replace(/\s+/g, "").replace(/,+/g, ",").replace(/^,|,$/g, "");
+    const from = clean(url.searchParams.get("from"));
+    const to = clean(url.searchParams.get("to"));
+    const date = String(url.searchParams.get("date") || "");
+    if (!from || !to) return send(400, { enabled: true, error: "need both a departure and an arrival" });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return send(400, { enabled: true, error: "need a date as YYYY-MM-DD" });
+    searchFlights(from, to, date)
+      .then((r) => send(200, { enabled: true, from, to, date, ...r }))
+      .catch((e) => send(200, { enabled: true, from, to, date, itineraries: [], error: e.message }));
     return;
   }
   if (url.pathname === "/api/portfolio") {
@@ -1753,6 +1914,96 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .trade-price.down { color: var(--red); }
 .trade-price.flat { color: var(--text1); }
 
+/* ── flight search ── */
+.jump-flights {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  width: 26px; height: 26px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
+  font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.jump-flights:active { background: var(--panel); color: var(--text1); }
+
+.flights-section { margin-top: 16px; scroll-margin-top: 10px; }
+.flights-hdr { display: flex; align-items: baseline; gap: 8px; padding: 0 4px 8px; }
+.flights-title { font-size: 12px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: var(--text2); }
+.flights-sub { font-size: 10px; color: var(--text3); }
+
+.fl-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 13px; }
+.fl-field { margin-bottom: 9px; }
+.fl-label { font-size: 9px; letter-spacing: 1.4px; font-weight: 800; text-transform: uppercase; color: var(--text3); margin-bottom: 4px; }
+.fl-input {
+  width: 100%; background: var(--panel2); border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text1); font-size: 15px; font-weight: 700; letter-spacing: 1.2px;
+  padding: 9px 11px; text-transform: uppercase;
+}
+.fl-input::placeholder { color: var(--text3); font-weight: 500; letter-spacing: 0.5px; text-transform: none; }
+.fl-input:focus { outline: none; border-color: rgba(90,200,250,0.55); background: rgba(90,200,250,0.06); }
+.fl-chips { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
+.fl-chip {
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.8px;
+  padding: 4px 10px; border-radius: 20px;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
+}
+.fl-chip.on { background: var(--text1); color: #000; border-color: var(--text1); }
+
+.fl-row2 { display: flex; gap: 9px; align-items: flex-end; }
+.fl-row2 > .fl-field { flex: 1; margin-bottom: 0; }
+/* the native picker sits invisibly on top of the styled label so iOS opens
+   its own date wheel on tap while the page keeps the relative wording */
+.fl-date-wrap { position: relative; }
+.fl-date-display {
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text1); font-size: 15px; font-weight: 700; padding: 9px 11px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fl-date-wrap input[type="date"] {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; border: 0; padding: 0; margin: 0;
+}
+.fl-go {
+  width: 100%; margin-top: 11px; padding: 11px; border-radius: 10px;
+  border: 1px solid rgba(90,200,250,0.5); background: rgba(90,200,250,0.14); color: #5ac8fa;
+  font-size: 12.5px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase;
+}
+.fl-go:active { background: rgba(90,200,250,0.24); }
+.fl-go:disabled { opacity: 0.5; }
+.fl-msg { font-size: 11.5px; color: var(--text3); margin-top: 9px; text-align: center; font-style: italic; }
+.fl-msg.err { color: var(--red); font-style: normal; }
+
+.fl-results { display: flex; flex-direction: column; gap: 7px; margin-top: 9px; }
+.fl-item { background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px; }
+.fl-item.first-cabin { border-color: rgba(192,132,252,0.32); background: linear-gradient(180deg, rgba(192,132,252,0.055), rgba(0,0,0,0)); }
+.fl-top { display: flex; align-items: center; gap: 9px; }
+.fl-logo { width: 26px; height: 26px; border-radius: 7px; background: #fff; object-fit: contain; flex-shrink: 0; padding: 2px; }
+.fl-carrier { flex: 1; min-width: 0; }
+.fl-carrier .nm { font-size: 12.5px; font-weight: 700; color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-carrier .fn { font-size: 9.5px; color: var(--text3); letter-spacing: 0.4px; }
+.fl-price { text-align: right; flex-shrink: 0; }
+.fl-price .amt { font-size: 19px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
+.fl-price .cab { font-size: 8.5px; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text3); }
+.fl-item.first-cabin .fl-price .cab { color: #c084fc; }
+
+.fl-times { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.fl-end { text-align: center; }
+.fl-end .t { font-size: 15px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; }
+.fl-end .a { font-size: 9.5px; font-weight: 800; letter-spacing: 1px; color: var(--text3); }
+.fl-end .t sup { font-size: 8.5px; color: var(--yellow); font-weight: 800; }
+.fl-path { flex: 1; text-align: center; position: relative; }
+.fl-path .bar { height: 1px; background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.28), rgba(255,255,255,0.05)); margin: 7px 0 5px; position: relative; }
+.fl-path .bar::after { content: ""; position: absolute; right: -1px; top: -2px; width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.4); }
+.fl-path .dur { font-size: 9.5px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.fl-path .via { font-size: 10px; color: var(--text2); font-weight: 700; }
+.fl-path .via.direct { color: var(--green); }
+
+.fl-meta { font-size: 10px; color: var(--text3); margin-top: 7px; line-height: 1.45; }
+.fl-meta b { color: var(--text2); font-weight: 700; }
+.fl-flags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+.fl-flag { font-size: 8.5px; font-weight: 900; letter-spacing: 0.9px; padding: 3px 7px; border-radius: 5px; text-transform: uppercase; }
+.fl-flag.cheap { background: var(--green); color: #042a12; }
+.fl-flag.nonstop { background: rgba(34,197,94,0.15); color: var(--green); }
+.fl-flag.wide { background: rgba(90,200,250,0.15); color: #5ac8fa; }
+.fl-flag.longlay { background: rgba(245,197,24,0.15); color: var(--yellow); }
+
 /* ── footer ── */
 .footer { display: flex; flex-direction: column; gap: 2px; padding: 4px 4px 0; font-size: 10.5px; color: var(--text3); }
 .footer-row { display: flex; justify-content: space-between; align-items: baseline; }
@@ -1766,11 +2017,12 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 <div class="screen-flash" id="screenFlash"></div>
 <div id="app">
 
-  <div class="brand-row">
+  <div class="brand-row" style="position:relative">
     <span class="brand-text">CF Benchmark BRTI</span>
     <span class="brand-sep">|</span>
     <span class="status-dot" id="statusDot"></span>
     <span class="status-word" id="statusWord">LIVE</span>
+    <button class="jump-flights" id="jumpFlights" aria-label="Jump to flight search">&#9992;</button>
   </div>
 
   <div class="price-flash-wrap" id="priceFlashWrap">
@@ -1828,6 +2080,42 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     <div class="capture-list" id="captureList">
       <div class="capture-empty">Fills each hour from :59:00 to :59:59</div>
     </div>
+  </div>
+
+  <div class="flights-section" id="flights">
+    <div class="flights-hdr">
+      <span class="flights-title">Flights</span>
+      <span class="flights-sub">one way &middot; economy + first</span>
+    </div>
+
+    <div class="fl-card">
+      <div class="fl-field">
+        <div class="fl-label">From</div>
+        <input class="fl-input" id="flFrom" placeholder="airport code" autocomplete="off"
+               autocapitalize="characters" spellcheck="false" inputmode="text">
+        <div class="fl-chips" id="flFromChips"></div>
+      </div>
+
+      <div class="fl-field">
+        <div class="fl-label">To</div>
+        <input class="fl-input" id="flTo" placeholder="airport code" autocomplete="off"
+               autocapitalize="characters" spellcheck="false" inputmode="text">
+        <div class="fl-chips" id="flToChips"></div>
+      </div>
+
+      <div class="fl-field">
+        <div class="fl-label">Depart</div>
+        <div class="fl-date-wrap">
+          <div class="fl-date-display" id="flDateDisplay">&mdash;</div>
+          <input type="date" id="flDate">
+        </div>
+      </div>
+
+      <button class="fl-go" id="flGo">Search</button>
+      <div class="fl-msg" id="flMsg"></div>
+    </div>
+
+    <div class="fl-results" id="flResults"></div>
   </div>
 
   <div class="footer">
@@ -2843,6 +3131,197 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     tradesList.appendChild(row);
     while (tradesList.children.length > MAX_VISIBLE_TRADES) tradesList.removeChild(tradesList.firstChild);
   }
+
+  // ---------- flight search ----------
+
+  var AIRPORTS = [
+    { label: "LGA", codes: "LGA" },
+    { label: "NYC", codes: "LGA,JFK,EWR" },
+    { label: "GSO", codes: "GSO" },
+    { label: "RDU", codes: "RDU" },
+    { label: "OC", codes: "GSO,RDU" }
+  ];
+  var WD_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  var WD_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  function esc(v) {
+    return String(v == null ? "" : v).replace(/[&<>"\u0027]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "\u0027": "&#39;" }[c];
+    });
+  }
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function toYMD(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
+
+  // Before noon the useful default is today; after noon it is tomorrow,
+  // because by then most of today has already gone.
+  function defaultDepartDate() {
+    var now = new Date();
+    var d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (now.getHours() >= 12) d.setDate(d.getDate() + 1);
+    return toYMD(d);
+  }
+
+  // Today / Tomorrow / a weekday name while that is still unambiguous, and a
+  // real date once it is not.
+  function dayLabel(ymd) {
+    var p = String(ymd).split("-");
+    if (p.length !== 3) return ymd;
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var diff = Math.round((d - today) / 86400000);
+    if (diff === 0) return "Today";
+    if (diff === 1) return "Tomorrow";
+    if (diff >= 2 && diff <= 5) return WD_FULL[d.getDay()];
+    return WD_SHORT[d.getDay()] + " " + pad2(d.getMonth() + 1) + "/" + pad2(d.getDate());
+  }
+
+  var elFrom = document.getElementById("flFrom");
+  var elTo = document.getElementById("flTo");
+  var elDate = document.getElementById("flDate");
+  var elDateDisplay = document.getElementById("flDateDisplay");
+  var elGo = document.getElementById("flGo");
+  var elMsg = document.getElementById("flMsg");
+  var elResults = document.getElementById("flResults");
+  var flightsEnabled = true;
+
+  function normCodes(v) {
+    return String(v || "").toUpperCase().replace(/\s+/g, "").replace(/,+/g, ",").replace(/^,|,$/g, "");
+  }
+
+  function renderChips(host, input) {
+    host.innerHTML = AIRPORTS.map(function (a) {
+      var on = normCodes(input.value) === a.codes ? " on" : "";
+      return '<button class="fl-chip' + on + '" data-codes="' + a.codes + '">' + a.label + "</button>";
+    }).join("");
+  }
+  function refreshChips() {
+    renderChips(document.getElementById("flFromChips"), elFrom);
+    renderChips(document.getElementById("flToChips"), elTo);
+  }
+  function wireChips(hostId, input) {
+    document.getElementById(hostId).addEventListener("click", function (e) {
+      var btn = e.target.closest(".fl-chip");
+      if (!btn) return;
+      input.value = btn.getAttribute("data-codes");
+      refreshChips();
+      saveFlightPrefs();
+    });
+  }
+  wireChips("flFromChips", elFrom);
+  wireChips("flToChips", elTo);
+  elFrom.addEventListener("input", function () { refreshChips(); });
+  elTo.addEventListener("input", function () { refreshChips(); });
+
+  function syncDate() { elDateDisplay.textContent = dayLabel(elDate.value); }
+  elDate.addEventListener("change", function () { syncDate(); saveFlightPrefs(); });
+
+  function saveFlightPrefs() {
+    try {
+      localStorage.setItem("flightPrefs", JSON.stringify({ from: elFrom.value, to: elTo.value }));
+    } catch (e) {}
+  }
+  function loadFlightPrefs() {
+    try {
+      var p = JSON.parse(localStorage.getItem("flightPrefs") || "{}");
+      if (p.from) elFrom.value = p.from;
+      if (p.to) elTo.value = p.to;
+    } catch (e) {}
+  }
+
+  elDate.value = defaultDepartDate();
+  elDate.min = toYMD(new Date());
+  loadFlightPrefs();
+  syncDate();
+  refreshChips();
+
+  function flagHTML(r) {
+    var out = [];
+    if (r.cheapest) out.push('<span class="fl-flag cheap">Lowest ' + (r.cabin === "first" ? "First" : "Coach") + "</span>");
+    if (r.nonstop) out.push('<span class="fl-flag nonstop">Nonstop</span>');
+    if (r.widebody) out.push('<span class="fl-flag wide">Widebody</span>');
+    if (r.longLayover) out.push('<span class="fl-flag longlay">Long layover</span>');
+    return out.length ? '<div class="fl-flags">' + out.join("") + "</div>" : "";
+  }
+
+  function itineraryHTML(r) {
+    var viaTxt = r.nonstop
+      ? '<div class="via direct">Nonstop</div>'
+      : '<div class="via">via ' + esc(r.layovers.map(function (l) { return l.id || l.name; }).join(", ")) + "</div>";
+
+    var meta = [];
+    if (!r.nonstop && r.layovers.length) {
+      meta.push(r.layovers.map(function (l) {
+        return esc(l.durationLabel || "?") + " in " + esc(l.id || l.name) + (l.overnight ? " (overnight)" : "");
+      }).join(" &middot; "));
+    }
+    if (r.aircraft.length) {
+      meta.push(r.aircraft.map(function (a) { return "<b>" + esc(a) + "</b>"; }).join(" &middot; "));
+    }
+
+    return '<div class="fl-item' + (r.cabin === "first" ? " first-cabin" : "") + '">' +
+      '<div class="fl-top">' +
+        (r.logo ? '<img class="fl-logo" src="' + esc(r.logo) + '" alt="" loading="lazy">' : '<div class="fl-logo"></div>') +
+        '<div class="fl-carrier">' +
+          '<div class="nm">' + esc(r.airlines.join(" / ")) + "</div>" +
+          '<div class="fn">' + esc(r.flightNumbers.join(" \u00b7 ")) + "</div>" +
+        "</div>" +
+        '<div class="fl-price">' +
+          '<div class="amt">' + (r.price != null ? "$" + r.price.toLocaleString("en-US") : "\u2013") + "</div>" +
+          '<div class="cab">' + (r.cabin === "first" ? "First" : "Economy") + "</div>" +
+        "</div>" +
+      "</div>" +
+      '<div class="fl-times">' +
+        '<div class="fl-end"><div class="t">' + esc(r.depTime) + '</div><div class="a">' + esc(r.depAirport) + "</div></div>" +
+        '<div class="fl-path">' + viaTxt + '<div class="bar"></div><div class="dur">' + esc(r.totalDurationLabel || "") + "</div></div>" +
+        '<div class="fl-end"><div class="t">' + esc(r.arrTime) + (r.dayOffset ? "<sup>+1</sup>" : "") +
+          '</div><div class="a">' + esc(r.arrAirport) + "</div></div>" +
+      "</div>" +
+      (meta.length ? '<div class="fl-meta">' + meta.join(" &middot; ") + "</div>" : "") +
+      flagHTML(r) +
+      "</div>";
+  }
+
+  function setFlightMsg(text, isErr) {
+    elMsg.textContent = text || "";
+    elMsg.className = "fl-msg" + (isErr ? " err" : "");
+  }
+
+  function searchFlights() {
+    if (!flightsEnabled) return;
+    var from = normCodes(elFrom.value), to = normCodes(elTo.value);
+    if (!from || !to) { setFlightMsg("Pick a departure and an arrival", true); return; }
+    elGo.disabled = true;
+    setFlightMsg("Searching economy and first\u2026");
+    elResults.innerHTML = "";
+    fetch("/api/flights?from=" + encodeURIComponent(from) + "&to=" + encodeURIComponent(to) +
+          "&date=" + encodeURIComponent(elDate.value))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.enabled === false) { flightsEnabled = false; setFlightMsg("Flight search needs SERPAPI_KEY on the server", true); return; }
+        if (d.error && (!d.itineraries || !d.itineraries.length)) { setFlightMsg(d.error, true); return; }
+        var list = d.itineraries || [];
+        if (!list.length) { setFlightMsg("No flights found for that route and date", true); return; }
+        elResults.innerHTML = list.map(itineraryHTML).join("");
+        setFlightMsg(list.length + " itineraries \u00b7 " + from + " \u2192 " + to + " \u00b7 " + dayLabel(d.date) +
+          (d.partialError ? " \u00b7 one cabin unavailable" : ""));
+      })
+      .catch(function (e) { setFlightMsg("Search failed: " + e.message, true); })
+      .then(function () { elGo.disabled = false; });
+  }
+  elGo.addEventListener("click", searchFlights);
+
+  // is the key configured at all? cheap probe, no search burned
+  fetch("/api/flights").then(function (r) { return r.json(); }).then(function (d) {
+    if (d && d.enabled === false) {
+      flightsEnabled = false;
+      elGo.disabled = true;
+      setFlightMsg("Flight search needs SERPAPI_KEY on the server", true);
+    }
+  }).catch(function () {});
+
+  document.getElementById("jumpFlights").addEventListener("click", function () {
+    document.getElementById("flights").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 
   // ---------- websocket + fallback polling ----------
 

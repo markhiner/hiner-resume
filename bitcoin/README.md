@@ -427,6 +427,55 @@ and is the only thing here that actually keeps strangers out.
 The Python lab's `kalshi_edge.py --live` is a separate path with its own
 credentials and guardrails; the two do not share state.
 
+## Flight search
+
+A one-way flight search lives at the bottom of the page, below everything
+BTC. The plane button at the right of the header scrolls straight to it.
+
+Set a key to enable it; without one the section renders but says so and the
+search button is disabled, and no request is ever made.
+
+```bash
+export SERPAPI_KEY="..."
+```
+
+**Two searches per query.** SerpApi's `travel_class` takes a single value per
+request, so every search runs twice — economy (`1`) and first (`4`) — and the
+two result sets are merged into one list sorted by price. That puts the
+cheapest fare of either cabin at the top rather than burying first class in a
+separate tab, and it is why the "lowest in cabin" flags exist. If one cabin
+errors and the other succeeds, the results still render and the message says
+one cabin was unavailable. Two searches means two API credits, so results are
+cached per route/date/cabin for `FLIGHT_CACHE_MS` (default 5 min).
+
+**Airports.** Free-text input plus shortcuts: `LGA`, `NYC` (LGA + JFK + EWR),
+`GSO`, `RDU`, `OC` (GSO + RDU). A shortcut fills the input with the actual
+codes, so what will be searched is always visible and still editable.
+
+**The date** defaults to today before noon and tomorrow after — by the
+afternoon, most of today's departures have gone. It reads back relatively:
+`Today`, `Tomorrow`, then a weekday name while that stays unambiguous, and
+`Eee mm/dd` beyond it. The native picker sits invisibly over the styled label
+so iOS opens its own date wheel while the page keeps the relative wording.
+
+**Each result** shows price, airline logo, departure and arrival time with
+airports, connection city, layover duration and aircraft, with four flags:
+
+| flag | meaning |
+| --- | --- |
+| `Lowest Coach` / `Lowest First` | cheapest in that cabin; ties all get it |
+| `Nonstop` | single leg |
+| `Widebody` | any leg on a twin-aisle aircraft |
+| `Long layover` | any connection over 90 minutes |
+
+Widebody detection is an explicit pattern list rather than a clever regex,
+because a loose one like `7[0-9]7` would sweep in the 737 and 757, which are
+single-aisle. Departure and arrival times are parsed by hand from SerpApi's
+`"YYYY-MM-DD HH:MM"` strings and never passed through `Date()`: they are
+local times at each airport, and parsing them would reinterpret them in the
+server's zone and shift the clock. A flight landing the next day is marked
+`+1` rather than silently showing an earlier-looking arrival.
+
 ## Python lab
 
 `lab/` holds the research/execution side — a lumibot strategy that trades
