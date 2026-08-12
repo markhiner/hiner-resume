@@ -335,6 +335,15 @@ minute hold, in case that parameter isn't honoured by a given API version.
 Either mechanism alone is enough; both are tested, including that a market
 which closed thirty seconds ago still shows its WON/LOST outcome.
 
+The hold for a decided row is anchored to the **market's own close time**,
+never to "now". `portfolioState.positions` already contains the rows the hold
+added on the previous poll, so deriving the expiry from the current time made
+every poll push it forward again — the row kept itself alive indefinitely and
+last hour's settled position never cleared. Anchored to close time the expiry
+is a fixed instant, re-setting it is a no-op, and it agrees with the
+close-time filter above: everything decided is visible until close +
+`RESOLVED_HOLD_MS`, then gone. Overridable with `KALSHI_RESOLVED_HOLD_MS`.
+
 ### Polling cadence
 
 | what | how often | why |

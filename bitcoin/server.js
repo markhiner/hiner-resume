@@ -1029,7 +1029,7 @@ function repricePortfolio(byTicker) {
 }
 
 const warnedFractional = new Set();
-const RESOLVED_HOLD_MS = 120_000;
+const RESOLVED_HOLD_MS = Number(process.env.KALSHI_RESOLVED_HOLD_MS) || 120_000;
 
 // ---------- fills: the ground truth for count and cost ----------
 // market_exposure is a derived figure. The fills are what actually happened,
@@ -1303,7 +1303,16 @@ async function pollPortfolio() {
     for (const prev of portfolioState.positions || []) {
       if (prev.won == null) continue;
       if (rows.some((r) => r.ticker === prev.ticker)) continue;
-      resolvedMemo.set(prev.ticker, { row: { ...prev, settledOut: true }, until: now + RESOLVED_HOLD_MS });
+      // Anchor the hold to the MARKET'S OWN CLOSE TIME, never to "now".
+      // portfolioState.positions already contains the rows this memo added on
+      // the previous poll, so deriving the expiry from the current time made
+      // every poll push it forward again: the row kept itself alive forever
+      // and last hour's settled position never cleared. Anchored to close
+      // time the expiry is a fixed instant, so re-setting it is a no-op and
+      // it agrees with the close-time filter above — everything decided is
+      // visible until close + RESOLVED_HOLD_MS, then gone.
+      const until = (prev.closeTime || now) + RESOLVED_HOLD_MS;
+      resolvedMemo.set(prev.ticker, { row: { ...prev, settledOut: true }, until });
     }
     for (const [ticker, entry] of resolvedMemo) {
       if (entry.until <= now) { resolvedMemo.delete(ticker); continue; }
