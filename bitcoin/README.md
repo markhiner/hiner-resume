@@ -218,6 +218,24 @@ BRTI-priced file will not load into a blend-mode run (or the reverse) — the
 chart resets once rather than showing a cliff at the restart point. Expect
 one empty chart the first time you start the server with credentials.
 
+### The 1h window is backfilled
+
+`secondTicks` is capped at a **count** (3600), not a duration. Across restarts
+and downtime those entries end up spanning many hours, so only a fraction land
+inside the hour the chart draws. Measured on a real history file: 3600 ticks
+covering 20 hours, of which 958 were in the window — 16 minutes of data on a
+60-minute axis, bunched into the right quarter.
+
+The fixed-width axis didn't cause that, it revealed it. Beforehand the chart
+normalised to whatever data was in hand, so 16 minutes was stretched across the
+full width and silently relabelled as an hour.
+
+`minuteBars` covers 24h and survives the same gaps, so the part of the window
+the tick buffer doesn't reach is filled from it — the left of the chart degrades
+to minute resolution instead of going blank, and a gap remains only where
+nothing was ever recorded. Ticks already outside the window are also dropped at
+load rather than occupying slots fresh ones need.
+
 ### The health light
 
 `CF BENCHMARK BRTI | ● LIVE` in the header is the page's honesty signal —
