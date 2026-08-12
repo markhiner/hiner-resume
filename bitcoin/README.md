@@ -455,6 +455,33 @@ search button is disabled, and no request is ever made.
 
 ```bash
 export SERPAPI_KEY="..."
+npm start
+```
+
+**Under launchd, `export` in a shell will not reach it.** The agent has its
+own environment, so the key belongs in the plist next to the Kalshi ones:
+
+```xml
+<key>EnvironmentVariables</key>
+<dict>
+  <key>KALSHI_API_KEY_ID</key><string>...</string>
+  <key>KALSHI_PRIVATE_KEY_PATH</key><string>/Users/YOUR_USER/.kalshi/kalshi_private_key</string>
+  <key>SERPAPI_KEY</key><string>...</string>
+</dict>
+```
+
+```bash
+launchctl kickstart -k gui/$(id -u)/nyc.hiner.btc-ticker
+```
+
+The key is read once at startup, so it needs a restart either way. To check
+whether the running process can see it without spending a search — the
+endpoint tests the key before it validates anything else:
+
+```bash
+curl -s localhost:3001/api/flights
+# {"enabled":false}                         -> not visible to the process
+# {"enabled":true,"error":"need both ..."}  -> loaded
 ```
 
 **Two searches per query.** SerpApi's `travel_class` takes a single value per
