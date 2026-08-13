@@ -1959,9 +1959,20 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .jump-flights:active { background: var(--panel); color: var(--text1); }
 
 .flights-section { margin-top: 16px; scroll-margin-top: 10px; }
-.flights-hdr { display: flex; align-items: baseline; gap: 8px; padding: 0 4px 8px; }
-.flights-title { font-size: 12px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: var(--text2); }
+.flights-hdr { display: flex; align-items: center; gap: 8px; padding: 0 4px 8px; }
+/* the section owns the blue the Search button uses, so that colour reads as
+   this feature's rather than as one stray accent */
+.flights-title { font-size: 12px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: #5ac8fa; }
 .flights-sub { font-size: 10px; color: var(--text3); }
+.fl-keybtn {
+  margin-left: auto; flex-shrink: 0;
+  width: 24px; height: 24px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text3);
+  display: flex; align-items: center; justify-content: center;
+}
+.fl-keybtn.set { color: var(--text2); }
+.fl-keybtn.needed { color: var(--yellow); border-color: rgba(245,197,24,0.4); }
+.fl-keybtn:active { background: var(--panel); }
 
 .fl-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 13px; }
 .fl-field { margin-bottom: 9px; }
@@ -2015,9 +2026,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   border: 1px solid rgba(90,200,250,0.5); background: rgba(90,200,250,0.14); color: #5ac8fa;
 }
 .fl-key-note { font-size: 9.5px; color: var(--text3); margin-top: 6px; line-height: 1.45; }
-.fl-key-saved { display: none; font-size: 10px; color: var(--text3); margin-top: 9px; text-align: center; }
-.fl-key-saved.on { display: block; }
-.fl-key-saved a { color: #5ac8fa; text-decoration: none; font-weight: 700; margin-left: 6px; }
 .fl-msg { font-size: 11.5px; color: var(--text3); margin-top: 9px; text-align: center; font-style: italic; }
 .fl-msg.err { color: var(--red); font-style: normal; }
 
@@ -2137,6 +2145,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     <div class="flights-hdr">
       <span class="flights-title">Flights</span>
       <span class="flights-sub">one way &middot; economy + first</span>
+      <button class="fl-keybtn" id="flKeyBtn" aria-label="SerpApi key">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round"><circle cx="7" cy="12" r="3.5"></circle><path d="M10.5 12H21M17 12v3.5M20.5 12v2.5"></path></svg>
+      </button>
     </div>
 
     <div class="fl-card">
@@ -2175,7 +2187,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         <div class="fl-key-note">Stored on this device only, never on the server. Sent as a
           header with each search so it stays out of request logs.</div>
       </div>
-      <div class="fl-key-saved" id="flKeySaved">Key saved on this device<a href="#" id="flKeyClear">change</a></div>
+
     </div>
 
     <div class="fl-results" id="flResults"></div>
@@ -3355,10 +3367,20 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     var k = flightKey();
     return k ? { "X-Serpapi-Key": k } : {};
   }
+  // The key lives behind the key button in the section header rather than as
+  // a standing line of link text — it is a once-a-year action and does not
+  // deserve to be the loudest thing in the panel.
   function showKeyBox(needed) {
-    document.getElementById("flKeyBox").classList.toggle("on", needed);
-    document.getElementById("flKeySaved").classList.toggle("on", !needed && !!flightKey());
+    var btn = document.getElementById("flKeyBtn");
+    if (needed) document.getElementById("flKeyBox").classList.add("on");
+    else document.getElementById("flKeyBox").classList.remove("on");
+    btn.classList.toggle("needed", needed);
+    btn.classList.toggle("set", !needed && !!flightKey());
   }
+  document.getElementById("flKeyBtn").addEventListener("click", function () {
+    var box = document.getElementById("flKeyBox");
+    if (box.classList.toggle("on")) document.getElementById("flKeyInput").focus();
+  });
   document.getElementById("flKeySave").addEventListener("click", function () {
     var v = document.getElementById("flKeyInput").value.trim();
     if (!v) return;
@@ -3369,12 +3391,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     showKeyBox(false);
     setFlightMsg("Key saved on this device");
     probeFlights();
-  });
-  document.getElementById("flKeyClear").addEventListener("click", function (e) {
-    e.preventDefault();
-    try { localStorage.removeItem("serpapiKey"); } catch (e2) {}
-    showKeyBox(true);
-    setFlightMsg("");
   });
 
   function setFlightMsg(text, isErr) {

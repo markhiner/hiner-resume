@@ -454,12 +454,14 @@ The key can come from **either side**, and the device is the easier one.
 
 ### Per device (no server config)
 
-Open the flight section, paste the key into the SerpApi field, Save. It lives
+Tap the key button in the section header, paste the key, Save. It lives
 in that browser's `localStorage` and rides along as an `X-Serpapi-Key` header
 on each search — a header rather than a query parameter so it stays out of
 request logs. It is never written to the server, never appears in the page
 source, and another phone hitting the same URL simply sees the prompt to add
-its own.
+its own. The button turns amber when no key is stored and the field opens by
+itself; once one is saved it collapses back behind the button, since changing
+a key is a once-a-year action and shouldn't be the loudest thing in the panel.
 
 The server still has to relay the call: SerpApi sends no CORS headers, so a
 browser cannot reach it directly. The request path is device to your Mac to
