@@ -3311,7 +3311,9 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
   function flagHTML(r) {
     var out = [];
-    if (r.cheapest) out.push('<span class="fl-flag cheap">Lowest ' + (r.cabin === "first" ? "First" : "Coach") + "</span>");
+    // just "Lowest" — the row is already badged Economy or First beside the
+    // price, so naming the cabin again in the flag says it twice
+    if (r.cheapest) out.push('<span class="fl-flag cheap">Lowest</span>');
     if (r.nonstop) out.push('<span class="fl-flag nonstop">Nonstop</span>');
     if (r.widebody) out.push('<span class="fl-flag wide">Widebody</span>');
     if (r.longLayover) out.push('<span class="fl-flag longlay">Long layover</span>');

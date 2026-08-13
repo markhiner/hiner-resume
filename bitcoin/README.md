@@ -528,7 +528,7 @@ airports, connection city, layover duration and aircraft, with four flags:
 
 | flag | meaning |
 | --- | --- |
-| `Lowest Coach` / `Lowest First` | cheapest in that cabin; ties all get it |
+| `Lowest` | cheapest in that row's cabin; ties all get it |
 | `Nonstop` | single leg |
 | `Widebody` | any leg on a twin-aisle aircraft |
 | `Long layover` | any connection over 90 minutes |
