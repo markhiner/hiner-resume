@@ -1447,7 +1447,18 @@ function normalizeItinerary(it, cabin) {
   };
 }
 
-async function serpFlights(from, to, date, cabin) {
+// The key may come from the server's environment OR from the device making
+// the request. The per-device path exists because this runs under launchd,
+// which never sees a shell export — and because a key held in one browser's
+// localStorage is not sitting on a public-facing box at all. It arrives as a
+// header rather than a query parameter so it stays out of request logs.
+function serpKeyFrom(req) {
+  const h = req && req.headers && req.headers["x-serpapi-key"];
+  if (typeof h === "string" && h.trim()) return h.trim();
+  return SERPAPI_KEY;
+}
+
+async function serpFlights(from, to, date, cabin, apiKey) {
   const key = [from, to, date, cabin].join("|");
   const hit = flightCache.get(key);
   if (hit && Date.now() - hit.at < FLIGHT_CACHE_MS) return hit.itineraries;
@@ -1461,7 +1472,7 @@ async function serpFlights(from, to, date, cabin) {
   url.searchParams.set("travel_class", String(SERP_CLASS[cabin]));
   url.searchParams.set("currency", "USD");
   url.searchParams.set("hl", "en");
-  url.searchParams.set("api_key", SERPAPI_KEY);
+  url.searchParams.set("api_key", apiKey);
 
   const res = await fetch(url, { headers: { Accept: "application/json" } });
   const json = await res.json().catch(() => ({}));
@@ -1486,10 +1497,10 @@ function flagItineraries(list) {
   return list;
 }
 
-async function searchFlights(from, to, date) {
+async function searchFlights(from, to, date, apiKey) {
   const settled = await Promise.allSettled([
-    serpFlights(from, to, date, "economy"),
-    serpFlights(from, to, date, "first"),
+    serpFlights(from, to, date, "economy", apiKey),
+    serpFlights(from, to, date, "first", apiKey),
   ]);
   const list = [];
   const errors = [];
@@ -1588,7 +1599,9 @@ const server = http.createServer((req, res) => {
       res.writeHead(code, { "Content-Type": "application/json" });
       res.end(JSON.stringify(obj));
     };
-    if (!SERPAPI_KEY) return send(200, { enabled: false });
+    const apiKey = serpKeyFrom(req);
+    // no key anywhere: tell the page so it can offer to store one per device
+    if (!apiKey) return send(200, { enabled: false, needsKey: true });
     // uppercase and de-space so "lga, jfk" and "LGA,JFK" are the same search
     const clean = (v) => String(v || "").toUpperCase().replace(/\s+/g, "").replace(/,+/g, ",").replace(/^,|,$/g, "");
     const from = clean(url.searchParams.get("from"));
@@ -1596,7 +1609,7 @@ const server = http.createServer((req, res) => {
     const date = String(url.searchParams.get("date") || "");
     if (!from || !to) return send(400, { enabled: true, error: "need both a departure and an arrival" });
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return send(400, { enabled: true, error: "need a date as YYYY-MM-DD" });
-    searchFlights(from, to, date)
+    searchFlights(from, to, date, apiKey)
       .then((r) => send(200, { enabled: true, from, to, date, ...r }))
       .catch((e) => send(200, { enabled: true, from, to, date, itineraries: [], error: e.message }));
     return;
@@ -1989,6 +2002,22 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 }
 .fl-go:active { background: rgba(90,200,250,0.24); }
 .fl-go:disabled { opacity: 0.5; }
+.fl-key { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.fl-key.on { display: block; }
+.fl-key-row { display: flex; gap: 7px; }
+.fl-key-row input {
+  flex: 1; min-width: 0; background: var(--panel2); border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text1); font-size: 13px; padding: 8px 10px; letter-spacing: 1px;
+}
+.fl-key-row input:focus { outline: none; border-color: rgba(90,200,250,0.55); }
+.fl-key-row button {
+  padding: 8px 14px; border-radius: 9px; font-size: 11px; font-weight: 800; letter-spacing: 1px;
+  border: 1px solid rgba(90,200,250,0.5); background: rgba(90,200,250,0.14); color: #5ac8fa;
+}
+.fl-key-note { font-size: 9.5px; color: var(--text3); margin-top: 6px; line-height: 1.45; }
+.fl-key-saved { display: none; font-size: 10px; color: var(--text3); margin-top: 9px; text-align: center; }
+.fl-key-saved.on { display: block; }
+.fl-key-saved a { color: #5ac8fa; text-decoration: none; font-weight: 700; margin-left: 6px; }
 .fl-msg { font-size: 11.5px; color: var(--text3); margin-top: 9px; text-align: center; font-style: italic; }
 .fl-msg.err { color: var(--red); font-style: normal; }
 
@@ -2135,6 +2164,18 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
       <button class="fl-go" id="flGo">Search</button>
       <div class="fl-msg" id="flMsg"></div>
+
+      <div class="fl-key" id="flKeyBox">
+        <div class="fl-label">SerpApi key</div>
+        <div class="fl-key-row">
+          <input type="password" id="flKeyInput" placeholder="paste key" autocomplete="off"
+                 autocapitalize="off" spellcheck="false">
+          <button id="flKeySave">Save</button>
+        </div>
+        <div class="fl-key-note">Stored on this device only, never on the server. Sent as a
+          header with each search so it stays out of request logs.</div>
+      </div>
+      <div class="fl-key-saved" id="flKeySaved">Key saved on this device<a href="#" id="flKeyClear">change</a></div>
     </div>
 
     <div class="fl-results" id="flResults"></div>
@@ -3303,6 +3344,39 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       "</div>";
   }
 
+  // ---- the key, held per device ----
+  // Kept in localStorage rather than on the server: this box runs under
+  // launchd, which never sees a shell export, and a key sitting in one
+  // browser is not on a public-facing machine at all.
+  function flightKey() {
+    try { return localStorage.getItem("serpapiKey") || ""; } catch (e) { return ""; }
+  }
+  function flightHeaders() {
+    var k = flightKey();
+    return k ? { "X-Serpapi-Key": k } : {};
+  }
+  function showKeyBox(needed) {
+    document.getElementById("flKeyBox").classList.toggle("on", needed);
+    document.getElementById("flKeySaved").classList.toggle("on", !needed && !!flightKey());
+  }
+  document.getElementById("flKeySave").addEventListener("click", function () {
+    var v = document.getElementById("flKeyInput").value.trim();
+    if (!v) return;
+    try { localStorage.setItem("serpapiKey", v); } catch (e) {}
+    document.getElementById("flKeyInput").value = "";
+    flightsEnabled = true;
+    elGo.disabled = false;
+    showKeyBox(false);
+    setFlightMsg("Key saved on this device");
+    probeFlights();
+  });
+  document.getElementById("flKeyClear").addEventListener("click", function (e) {
+    e.preventDefault();
+    try { localStorage.removeItem("serpapiKey"); } catch (e2) {}
+    showKeyBox(true);
+    setFlightMsg("");
+  });
+
   function setFlightMsg(text, isErr) {
     elMsg.textContent = text || "";
     elMsg.className = "fl-msg" + (isErr ? " err" : "");
@@ -3316,10 +3390,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     setFlightMsg("Searching economy and first\u2026");
     elResults.innerHTML = "";
     fetch("/api/flights?from=" + encodeURIComponent(from) + "&to=" + encodeURIComponent(to) +
-          "&date=" + encodeURIComponent(elDate.value))
+          "&date=" + encodeURIComponent(elDate.value), { headers: flightHeaders() })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d.enabled === false) { flightsEnabled = false; setFlightMsg("Flight search needs SERPAPI_KEY on the server", true); return; }
+        if (d.enabled === false) { flightsEnabled = false; showKeyBox(true); setFlightMsg("Add a SerpApi key to search", true); return; }
         if (d.error && (!d.itineraries || !d.itineraries.length)) { setFlightMsg(d.error, true); return; }
         var list = d.itineraries || [];
         if (!list.length) { setFlightMsg("No flights found for that route and date", true); return; }
@@ -3332,14 +3406,21 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   }
   elGo.addEventListener("click", searchFlights);
 
-  // is the key configured at all? cheap probe, no search burned
-  fetch("/api/flights").then(function (r) { return r.json(); }).then(function (d) {
-    if (d && d.enabled === false) {
-      flightsEnabled = false;
-      elGo.disabled = true;
-      setFlightMsg("Flight search needs SERPAPI_KEY on the server", true);
-    }
-  }).catch(function () {});
+  // is a key available from either side? cheap probe, no search burned
+  function probeFlights() {
+    fetch("/api/flights", { headers: flightHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var needsKey = !!(d && d.enabled === false);
+        flightsEnabled = !needsKey;
+        elGo.disabled = needsKey;
+        showKeyBox(needsKey);
+        if (needsKey) setFlightMsg("Add a SerpApi key to search", true);
+        else if (!elResults.children.length) setFlightMsg("");
+      })
+      .catch(function () {});
+  }
+  probeFlights();
 
   document.getElementById("jumpFlights").addEventListener("click", function () {
     document.getElementById("flights").scrollIntoView({ behavior: "smooth", block: "start" });

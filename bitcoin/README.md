@@ -450,8 +450,25 @@ credentials and guardrails; the two do not share state.
 A one-way flight search lives at the bottom of the page, below everything
 BTC. The plane button at the right of the header scrolls straight to it.
 
-Set a key to enable it; without one the section renders but says so and the
-search button is disabled, and no request is ever made.
+The key can come from **either side**, and the device is the easier one.
+
+### Per device (no server config)
+
+Open the flight section, paste the key into the SerpApi field, Save. It lives
+in that browser's `localStorage` and rides along as an `X-Serpapi-Key` header
+on each search — a header rather than a query parameter so it stays out of
+request logs. It is never written to the server, never appears in the page
+source, and another phone hitting the same URL simply sees the prompt to add
+its own.
+
+The server still has to relay the call: SerpApi sends no CORS headers, so a
+browser cannot reach it directly. The request path is device to your Mac to
+SerpApi. Note the server's `Access-Control-Allow-Origin: *` is deliberately
+*not* paired with `Access-Control-Allow-Headers`, so a custom header can only
+be sent from the page itself — no other site can preflight its way into
+proxying through your box.
+
+### Or on the server
 
 ```bash
 export SERPAPI_KEY="..."
@@ -474,13 +491,14 @@ own environment, so the key belongs in the plist next to the Kalshi ones:
 launchctl kickstart -k gui/$(id -u)/nyc.hiner.btc-ticker
 ```
 
-The key is read once at startup, so it needs a restart either way. To check
-whether the running process can see it without spending a search — the
-endpoint tests the key before it validates anything else:
+A device key wins over the environment when both are present. With neither,
+the section renders but says so, the button is disabled, and no request is
+ever made. To check what the running process sees — this endpoint tests the
+key before validating anything else, so it costs no search:
 
 ```bash
 curl -s localhost:3001/api/flights
-# {"enabled":false}                         -> not visible to the process
+# {"enabled":false,"needsKey":true}         -> no key on the server side
 # {"enabled":true,"error":"need both ..."}  -> loaded
 ```
 
