@@ -2055,7 +2055,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   0%, 22% { border-color: rgba(90,200,250,0.85); background-color: rgba(90,200,250,0.13); }
   100% { border-color: var(--border); background-color: transparent; }
 }
-.fl-item { background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px; }
+.fl-item { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px; }
 .fl-item.first-cabin { border-color: rgba(192,132,252,0.32); background: linear-gradient(180deg, rgba(192,132,252,0.055), rgba(0,0,0,0)); }
 .fl-top { display: flex; align-items: center; gap: 9px; }
 .fl-logo { width: 26px; height: 26px; border-radius: 7px; background: #fff; object-fit: contain; flex-shrink: 0; padding: 2px; }
@@ -2084,9 +2084,12 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .fl-flags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
 .fl-flag { font-size: 8.5px; font-weight: 900; letter-spacing: 0.9px; padding: 3px 7px; border-radius: 5px; text-transform: uppercase; }
 .fl-flag.cheap { background: var(--green); color: #042a12; }
-.fl-flag.nonstop { background: rgba(34,197,94,0.15); color: var(--green); }
 .fl-flag.wide { background: rgba(90,200,250,0.15); color: #5ac8fa; }
 .fl-flag.longlay { background: rgba(245,197,24,0.15); color: var(--yellow); }
+
+.fl-book { position: absolute; bottom: 10px; right: 10px; padding: 6px 12px; background: var(--blue); color: #fff; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: opacity 0.2s; }
+.fl-book:hover { opacity: 0.85; }
+.fl-book:active { opacity: 0.7; }
 
 /* ── footer ── */
 .footer { display: flex; flex-direction: column; gap: 2px; padding: 4px 4px 0; font-size: 10.5px; color: var(--text3); }
@@ -3339,7 +3342,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     // just "Lowest" — the row is already badged Economy or First beside the
     // price, so naming the cabin again in the flag says it twice
     if (r.cheapest) out.push('<span class="fl-flag cheap">Lowest</span>');
-    if (r.nonstop) out.push('<span class="fl-flag nonstop">Nonstop</span>');
     if (r.widebody) out.push('<span class="fl-flag wide">Widebody</span>');
     if (r.longLayover) out.push('<span class="fl-flag longlay">Long layover</span>');
     return out.length ? '<div class="fl-flags">' + out.join("") + "</div>" : "";
@@ -3380,6 +3382,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       "</div>" +
       (meta.length ? '<div class="fl-meta">' + meta.join(" &middot; ") + "</div>" : "") +
       flagHTML(r) +
+      '<button class="fl-book" data-airline="' + esc(r.airlines[0] || "") + '">Book</button>' +
       "</div>";
   }
 
@@ -3454,7 +3457,37 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     elResults.innerHTML = html;
   }
 
+  var airlineSchemes = {
+    "United": "united://",
+    "Delta": "delta://",
+    "Southwest": "southwest://",
+    "American": "aa://",
+    "JetBlue": "jetblue://",
+    "Alaska": "alaskaair://",
+    "Hawaiian": "hawaiianairlines://",
+    "Spirit": "spirit://",
+    "Frontier": "flyfrontier://",
+  };
+
+  function bookWithAirline(airline) {
+    var scheme = airlineSchemes[airline];
+    if (!scheme) {
+      window.location = "https://www.google.com/flights";
+      return;
+    }
+    window.location = scheme;
+    setTimeout(function () {
+      window.location = "https://" + airline.toLowerCase().replace(/\s+/g, "") + ".com";
+    }, 2000);
+  }
+
   elResults.addEventListener("click", function (e) {
+    var bookBtn = e.target.closest(".fl-book");
+    if (bookBtn) {
+      var airline = bookBtn.getAttribute("data-airline");
+      bookWithAirline(airline);
+      return;
+    }
     var tile = e.target.closest(".fl-tile[data-target]");
     if (!tile) return;
     var row = document.getElementById(tile.getAttribute("data-target"));
