@@ -1515,6 +1515,114 @@ async function searchFlights(from, to, date, apiKey) {
   return { itineraries: list, partialError: errors.length ? errors.join("; ") : null };
 }
 
+// ---------- hotels (SerpApi Google Hotels) ----------
+//
+// Same key as flights — serpKeyFrom() is shared, so a key stored on the device
+// for one search works for the other with nothing further to enter. One
+// request per search here rather than the flights' two, since there is no
+// cabin axis to sweep.
+
+const HOTEL_CACHE_MS = Number(process.env.HOTEL_CACHE_MS) || FLIGHT_CACHE_MS;
+const hotelCache = new Map(); // key -> { at, properties }
+const MAX_AMENITIES = 8;
+
+// Rate objects arrive as { lowest: "$189", extracted_lowest: 189 }. Only the
+// extracted number is trustworthy to compute with — the string carries a
+// currency symbol and thousands separators.
+function rateAmount(o) {
+  if (!o) return null;
+  const n = Number(o.extracted_lowest != null ? o.extracted_lowest : o.extracted_before_taxes_fees);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function normalizeProperty(p, nights) {
+  const name = p && p.name;
+  if (!name) return null;
+  const perNight = rateAmount(p.rate_per_night);
+  // Google omits the stay total on some properties; derive it so every row can
+  // answer "what does the whole trip cost" rather than only the nightly rate.
+  const total = rateAmount(p.total_rate) || (perNight != null && nights ? perNight * nights : null);
+  const img = Array.isArray(p.images) && p.images.length ? p.images[0] : null;
+  const rating = Number(p.overall_rating);
+  const reviews = Number(p.reviews);
+  const stars = Number(p.extracted_hotel_class);
+  return {
+    name,
+    kind: p.type === "vacation rental" ? "rental" : "hotel",
+    thumb: (img && (img.thumbnail || img.original_image)) || null,
+    perNight,
+    total,
+    rating: Number.isFinite(rating) ? rating : null,
+    reviews: Number.isFinite(reviews) ? reviews : null,
+    stars: Number.isFinite(stars) ? stars : null,
+    amenities: (Array.isArray(p.amenities) ? p.amenities : []).slice(0, MAX_AMENITIES),
+    deal: p.deal || null,
+    eco: !!p.eco_certified,
+    locationRating: Number(p.location_rating) || null,
+  };
+}
+
+async function serpHotels(q, checkIn, checkOut, adults, apiKey) {
+  const key = [q, checkIn, checkOut, adults].join("|");
+  const hit = hotelCache.get(key);
+  if (hit && Date.now() - hit.at < HOTEL_CACHE_MS) return hit.properties;
+
+  const nights = nightsBetween(checkIn, checkOut);
+  const url = new URL("https://serpapi.com/search.json");
+  url.searchParams.set("engine", "google_hotels");
+  url.searchParams.set("q", q);
+  url.searchParams.set("check_in_date", checkIn);
+  url.searchParams.set("check_out_date", checkOut);
+  url.searchParams.set("adults", String(adults));
+  url.searchParams.set("currency", "USD");
+  url.searchParams.set("gl", "us");
+  url.searchParams.set("hl", "en");
+  url.searchParams.set("api_key", apiKey);
+
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.error) {
+    throw new Error(json.error || `serpapi ${res.status}`);
+  }
+  const raw = Array.isArray(json.properties) ? json.properties : [];
+  const properties = raw.map((p) => normalizeProperty(p, nights)).filter(Boolean);
+  hotelCache.set(key, { at: Date.now(), properties });
+  return properties;
+}
+
+// Dates are plain YYYY-MM-DD with no zone, so they are compared as UTC noon —
+// that keeps a DST boundary inside the stay from turning 2 nights into 1.
+function nightsBetween(checkIn, checkOut) {
+  const a = Date.parse(checkIn + "T12:00:00Z");
+  const b = Date.parse(checkOut + "T12:00:00Z");
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+  return Math.round((b - a) / 86400000);
+}
+
+// Same idea as the flight flags: computed across the whole result set, ties
+// all flagged, so "lowest" is a fact about the search rather than about a row.
+function flagProperties(list) {
+  const priced = list.filter((p) => p.perNight != null);
+  if (priced.length) {
+    const min = Math.min(...priced.map((p) => p.perNight));
+    for (const p of priced) if (p.perNight === min) p.cheapest = true;
+  }
+  const rated = list.filter((p) => p.rating != null);
+  if (rated.length) {
+    const max = Math.max(...rated.map((p) => p.rating));
+    // a lone result is not "top rated", it is the only one
+    if (rated.length > 1) for (const p of rated) if (p.rating === max) p.topRated = true;
+  }
+  return list;
+}
+
+async function searchHotels(q, checkIn, checkOut, adults, apiKey) {
+  const properties = await serpHotels(q, checkIn, checkOut, adults, apiKey);
+  flagProperties(properties);
+  properties.sort((a, b) => (a.perNight || 1e9) - (b.perNight || 1e9));
+  return { properties, nights: nightsBetween(checkIn, checkOut) };
+}
+
 // ---------- HTTP + WebSocket server ----------
 
 const clients = new Set();
@@ -1612,6 +1720,31 @@ const server = http.createServer((req, res) => {
     searchFlights(from, to, date, apiKey)
       .then((r) => send(200, { enabled: true, from, to, date, ...r }))
       .catch((e) => send(200, { enabled: true, from, to, date, itineraries: [], error: e.message }));
+    return;
+  }
+  if (url.pathname === "/api/hotels") {
+    const send = (code, obj) => {
+      res.writeHead(code, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(obj));
+    };
+    // the very same key the flight search uses, from env or from the device
+    const apiKey = serpKeyFrom(req);
+    if (!apiKey) return send(200, { enabled: false, needsKey: true });
+    const q = String(url.searchParams.get("q") || "").trim().replace(/\s+/g, " ");
+    const checkIn = String(url.searchParams.get("checkIn") || "");
+    const checkOut = String(url.searchParams.get("checkOut") || "");
+    const adults = Math.min(Math.max(parseInt(url.searchParams.get("adults"), 10) || 2, 1), 8);
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    if (!q) return send(400, { enabled: true, error: "need somewhere to stay" });
+    if (!ymd.test(checkIn) || !ymd.test(checkOut)) {
+      return send(400, { enabled: true, error: "need both dates as YYYY-MM-DD" });
+    }
+    if (nightsBetween(checkIn, checkOut) < 1) {
+      return send(400, { enabled: true, error: "check-out must be after check-in" });
+    }
+    searchHotels(q, checkIn, checkOut, adults, apiKey)
+      .then((r) => send(200, { enabled: true, q, checkIn, checkOut, adults, ...r }))
+      .catch((e) => send(200, { enabled: true, q, checkIn, checkOut, adults, properties: [], error: e.message }));
     return;
   }
   if (url.pathname === "/api/portfolio") {
@@ -2092,6 +2225,47 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .fl-flag.wide { background: rgba(90,200,250,0.15); color: #5ac8fa; }
 .fl-flag.longlay { background: rgba(245,197,24,0.15); color: var(--yellow); }
 
+/* ── hotels ──
+   Its own accent rather than the flights blue, so the two travel panels read
+   as siblings instead of one long section. The key itself is shared. */
+.hotels-section { margin-top: 18px; scroll-margin-top: 10px; }
+.hotels-title { font-size: 12px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: #2dd4bf; }
+/* a place name, not an airport code — so no uppercasing or letter-spacing */
+.ht-where { text-transform: none; letter-spacing: 0.2px; font-size: 14.5px; }
+.ht-where::placeholder { letter-spacing: 0.2px; }
+.hotels-section .fl-input:focus { border-color: rgba(45,212,191,0.55); background: rgba(45,212,191,0.06); }
+.hotels-section .fl-chip.on { background: #2dd4bf; color: #04231f; border-color: #2dd4bf; }
+/* the date row zeroes its own bottom margin, so this label needs the gap */
+.ht-guests { margin-top: 11px; margin-bottom: 0; }
+.ht-guests .fl-chips { margin-top: 0; }
+.ht-go { border-color: rgba(45,212,191,0.5); background: rgba(45,212,191,0.14); color: #2dd4bf; }
+.ht-go:active { background: rgba(45,212,191,0.24); }
+.hotels-section .fl-sort:hover { border-color: #2dd4bf; color: #2dd4bf; }
+.hotels-section .fl-sort.active { background: #2dd4bf; border-color: #2dd4bf; color: #04231f; }
+
+.ht-item { background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px; }
+.ht-item.flash { animation: flItemFlash 1.8s ease-out; }
+.ht-top { display: flex; align-items: flex-start; gap: 10px; }
+.ht-thumb { width: 54px; height: 54px; border-radius: 9px; object-fit: cover; flex-shrink: 0; background: var(--panel2); }
+.ht-thumb.ph { display: flex; align-items: center; justify-content: center; font-size: 17px; color: var(--text3); }
+.ht-id { flex: 1; min-width: 0; }
+.ht-id .nm { font-size: 13px; font-weight: 700; color: var(--text1); line-height: 1.3; }
+.ht-id .cls { font-size: 9.5px; color: var(--text3); letter-spacing: 0.4px; margin-top: 2px; }
+.ht-stars { color: var(--yellow); letter-spacing: 1px; }
+.ht-rate { display: flex; align-items: baseline; gap: 5px; margin-top: 3px; }
+.ht-rate .sc { font-size: 12px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; }
+.ht-rate .rv { font-size: 9.5px; color: var(--text3); }
+.ht-price { text-align: right; flex-shrink: 0; }
+.ht-price .amt { font-size: 19px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
+.ht-price .per { font-size: 8.5px; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text3); }
+.ht-price .tot { font-size: 9.5px; color: var(--text2); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.ht-amen { font-size: 10px; color: var(--text3); margin-top: 8px; line-height: 1.45; }
+.fl-flag.rated { background: rgba(45,212,191,0.15); color: #2dd4bf; }
+.fl-flag.deal { background: rgba(249,115,22,0.16); color: var(--orange); }
+.fl-flag.eco { background: rgba(34,197,94,0.15); color: var(--green); }
+.fl-tile.ht-tile.best { border-color: rgba(45,212,191,0.32); background: linear-gradient(180deg, rgba(45,212,191,0.055), rgba(0,0,0,0)); }
+.fl-tile.ht-tile.best .lbl { color: #2dd4bf; }
+
 /* ── footer ── */
 .footer { display: flex; flex-direction: column; gap: 2px; padding: 4px 4px 0; font-size: 10.5px; color: var(--text3); }
 .footer-row { display: flex; justify-content: space-between; align-items: baseline; }
@@ -2220,6 +2394,49 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     </div>
 
     <div class="fl-results" id="flResults"></div>
+  </div>
+
+  <div class="hotels-section" id="hotels">
+    <div class="flights-hdr">
+      <span class="hotels-title">Hotels</span>
+      <span class="flights-sub">same SerpApi key as flights</span>
+    </div>
+
+    <div class="fl-card">
+      <div class="fl-field">
+        <div class="fl-label">Where</div>
+        <input class="fl-input ht-where" id="htWhere" placeholder="city, area or hotel"
+               autocomplete="off" autocapitalize="words" spellcheck="false">
+        <div class="fl-chips" id="htWhereChips"></div>
+      </div>
+
+      <div class="fl-row2">
+        <div class="fl-field">
+          <div class="fl-label">Check in</div>
+          <div class="fl-date-wrap">
+            <div class="fl-date-display" id="htInDisplay">&mdash;</div>
+            <input type="date" id="htIn">
+          </div>
+        </div>
+        <div class="fl-field">
+          <div class="fl-label">Check out</div>
+          <div class="fl-date-wrap">
+            <div class="fl-date-display" id="htOutDisplay">&mdash;</div>
+            <input type="date" id="htOut">
+          </div>
+        </div>
+      </div>
+
+      <div class="fl-field ht-guests">
+        <div class="fl-label">Guests</div>
+        <div class="fl-chips" id="htAdultChips"></div>
+      </div>
+
+      <button class="fl-go ht-go" id="htGo">Search</button>
+      <div class="fl-msg" id="htMsg"></div>
+    </div>
+
+    <div class="fl-results" id="htResults"></div>
   </div>
 
   <div class="footer">
@@ -3287,9 +3504,24 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   var elMsg = document.getElementById("flMsg");
   var elResults = document.getElementById("flResults");
   var flightsEnabled = true;
+  var hotelsEnabled = true;
+
+  // One key serves both panels, so one probe settles both. Looked up by id
+  // rather than through a variable because the hotel block is defined further
+  // down and this runs during the first probe.
+  function setSerpEnabled(enabled) {
+    flightsEnabled = enabled;
+    hotelsEnabled = enabled;
+    var f = document.getElementById("flGo"), h = document.getElementById("htGo");
+    if (f) f.disabled = !enabled;
+    if (h) h.disabled = !enabled;
+  }
 
   function normCodes(v) {
-    return String(v || "").toUpperCase().replace(/\s+/g, "").replace(/,+/g, ",").replace(/^,|,$/g, "");
+    // \\s, not \s: this whole script lives in a template literal, and an
+    // unrecognised escape there collapses to the bare letter — /\s+/ would
+    // reach the browser as /s+/ and start deleting the letter s.
+    return String(v || "").toUpperCase().replace(/\\s+/g, "").replace(/,+/g, ",").replace(/^,|,$/g, "");
   }
 
   function renderChips(host, input) {
@@ -3416,10 +3648,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     if (!v) return;
     try { localStorage.setItem("serpapiKey", v); } catch (e) {}
     document.getElementById("flKeyInput").value = "";
-    flightsEnabled = true;
-    elGo.disabled = false;
+    setSerpEnabled(true);
     showKeyBox(false);
     setFlightMsg("Key saved on this device");
+    setHotelMsg("");
     probeFlights();
   });
 
@@ -3537,14 +3769,260 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       .then(function (r) { return r.json(); })
       .then(function (d) {
         var needsKey = !!(d && d.enabled === false);
-        flightsEnabled = !needsKey;
-        elGo.disabled = needsKey;
+        setSerpEnabled(!needsKey);
         showKeyBox(needsKey);
-        if (needsKey) setFlightMsg("Add a SerpApi key to search", true);
-        else if (!elResults.children.length) setFlightMsg("");
+        if (needsKey) {
+          setFlightMsg("Add a SerpApi key to search", true);
+          setHotelMsg("Add a SerpApi key above to search", true);
+        } else {
+          if (!elResults.children.length) setFlightMsg("");
+          if (!elHtResults.children.length) setHotelMsg("");
+        }
       })
       .catch(function () {});
   }
+
+  // ---------- hotels ----------
+  // Shares the flights key, the date wording and the card styling; only the
+  // accent colour and the result shape differ.
+
+  var HOTEL_SPOTS = [
+    { label: "New York", q: "New York, NY" },
+    { label: "Greensboro", q: "Greensboro, NC" },
+    { label: "Raleigh", q: "Raleigh, NC" }
+  ];
+  var HOTEL_PARTY = [1, 2, 3, 4];
+
+  var elHtWhere = document.getElementById("htWhere");
+  var elHtIn = document.getElementById("htIn");
+  var elHtOut = document.getElementById("htOut");
+  var elHtInDisp = document.getElementById("htInDisplay");
+  var elHtOutDisp = document.getElementById("htOutDisplay");
+  var elHtGo = document.getElementById("htGo");
+  var elHtMsg = document.getElementById("htMsg");
+  var elHtResults = document.getElementById("htResults");
+  var htAdults = 2;
+
+  function setHotelMsg(text, isErr) {
+    elHtMsg.textContent = text || "";
+    elHtMsg.className = "fl-msg" + (isErr ? " err" : "");
+  }
+
+  function addDays(ymd, n) {
+    var p = String(ymd).split("-");
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    d.setDate(d.getDate() + n);
+    return toYMD(d);
+  }
+  function nightsBetween(a, b) {
+    var pa = String(a).split("-"), pb = String(b).split("-");
+    if (pa.length !== 3 || pb.length !== 3) return 0;
+    var da = new Date(+pa[0], +pa[1] - 1, +pa[2]), db = new Date(+pb[0], +pb[1] - 1, +pb[2]);
+    return Math.round((db - da) / 86400000);
+  }
+
+  function refreshHotelChips() {
+    document.getElementById("htWhereChips").innerHTML = HOTEL_SPOTS.map(function (s) {
+      var on = elHtWhere.value.trim().toLowerCase() === s.q.toLowerCase() ? " on" : "";
+      return '<button class="fl-chip' + on + '" data-q="' + esc(s.q) + '">' + esc(s.label) + "</button>";
+    }).join("");
+    document.getElementById("htAdultChips").innerHTML = HOTEL_PARTY.map(function (n) {
+      return '<button class="fl-chip' + (n === htAdults ? " on" : "") + '" data-adults="' + n + '">' +
+        n + (n === 1 ? " guest" : " guests") + "</button>";
+    }).join("");
+  }
+  document.getElementById("htWhereChips").addEventListener("click", function (e) {
+    var btn = e.target.closest(".fl-chip");
+    if (!btn) return;
+    elHtWhere.value = btn.getAttribute("data-q");
+    refreshHotelChips();
+    saveHotelPrefs();
+  });
+  document.getElementById("htAdultChips").addEventListener("click", function (e) {
+    var btn = e.target.closest(".fl-chip");
+    if (!btn) return;
+    htAdults = parseInt(btn.getAttribute("data-adults"), 10) || 2;
+    refreshHotelChips();
+    saveHotelPrefs();
+  });
+  elHtWhere.addEventListener("input", function () { refreshHotelChips(); });
+
+  // Check-out has to stay after check-in, so moving check-in drags it along
+  // rather than leaving an impossible stay on screen.
+  function syncHotelDates(fromCheckIn) {
+    if (fromCheckIn && nightsBetween(elHtIn.value, elHtOut.value) < 1) {
+      elHtOut.value = addDays(elHtIn.value, 1);
+    }
+    elHtOut.min = addDays(elHtIn.value, 1);
+    elHtInDisp.textContent = dayLabel(elHtIn.value);
+    elHtOutDisp.textContent = dayLabel(elHtOut.value);
+  }
+  elHtIn.addEventListener("change", function () { syncHotelDates(true); saveHotelPrefs(); });
+  elHtOut.addEventListener("change", function () { syncHotelDates(false); saveHotelPrefs(); });
+
+  function saveHotelPrefs() {
+    try {
+      localStorage.setItem("hotelPrefs", JSON.stringify({ q: elHtWhere.value, adults: htAdults }));
+    } catch (e) {}
+  }
+  function loadHotelPrefs() {
+    try {
+      var p = JSON.parse(localStorage.getItem("hotelPrefs") || "{}");
+      if (p.q) elHtWhere.value = p.q;
+      if (p.adults) htAdults = p.adults;
+    } catch (e) {}
+  }
+
+  elHtIn.value = defaultDepartDate();
+  elHtOut.value = addDays(elHtIn.value, 1);
+  elHtIn.min = toYMD(new Date());
+  loadHotelPrefs();
+  syncHotelDates(false);
+  refreshHotelChips();
+
+  function money(n) { return "$" + Number(n).toLocaleString("en-US"); }
+
+  function hotelFlagHTML(p) {
+    var out = [];
+    if (p.cheapest) out.push('<span class="fl-flag cheap">Lowest</span>');
+    if (p.topRated) out.push('<span class="fl-flag rated">Top rated</span>');
+    if (p.deal) out.push('<span class="fl-flag deal">' + esc(p.deal) + "</span>");
+    if (p.eco) out.push('<span class="fl-flag eco">Eco certified</span>');
+    return out.length ? '<div class="fl-flags">' + out.join("") + "</div>" : "";
+  }
+
+  function propertyHTML(p) {
+    var cls = [];
+    if (p.stars) cls.push('<span class="ht-stars">' + new Array(p.stars + 1).join("★") + "</span>");
+    if (p.kind === "rental") cls.push("Vacation rental");
+    if (p.locationRating != null) cls.push("Location " + p.locationRating.toFixed(1));
+
+    var rate = p.rating != null
+      ? '<div class="ht-rate"><span class="sc">' + p.rating.toFixed(1) + "</span>" +
+        (p.reviews != null ? '<span class="rv">' + p.reviews.toLocaleString("en-US") + " reviews</span>" : "") +
+        "</div>"
+      : "";
+
+    var price = p.perNight != null
+      ? '<div class="amt">' + money(p.perNight) + '</div><div class="per">/night</div>' +
+        (p.total != null ? '<div class="tot">' + money(p.total) + " total</div>" : "")
+      : '<div class="amt">–</div><div class="per">no rate</div>';
+
+    return '<div class="ht-item" id="' + p.domId + '">' +
+      '<div class="ht-top">' +
+        (p.thumb
+          ? '<img class="ht-thumb" src="' + esc(p.thumb) + '" alt="" loading="lazy">'
+          : '<div class="ht-thumb ph">⌂</div>') +
+        '<div class="ht-id">' +
+          '<div class="nm">' + esc(p.name) + "</div>" +
+          (cls.length ? '<div class="cls">' + cls.join(" &middot; ") + "</div>" : "") +
+          rate +
+        "</div>" +
+        '<div class="ht-price">' + price + "</div>" +
+      "</div>" +
+      (p.amenities.length ? '<div class="ht-amen">' + esc(p.amenities.slice(0, 4).join(" · ")) + "</div>" : "") +
+      hotelFlagHTML(p) +
+      "</div>";
+  }
+
+  function hotelTileHTML(label, p, extraCls) {
+    if (!p) {
+      return '<button class="fl-tile ht-tile ' + extraCls + '" disabled>' +
+        '<div class="lbl">' + label + '</div><div class="amt">–</div>' +
+        '<div class="sub">none found</div></button>';
+    }
+    var sub = [p.name, p.rating != null ? p.rating.toFixed(1) + "★" : null]
+      .filter(Boolean).join(" · ");
+    return '<button class="fl-tile ht-tile ' + extraCls + '" data-target="' + p.domId + '">' +
+      '<div class="lbl">' + label + '</div>' +
+      '<div class="amt">' + (p.perNight != null ? money(p.perNight) : "–") + "</div>" +
+      '<div class="sub">' + esc(sub) + "</div></button>";
+  }
+
+  var htSortBy = "price"; // "price" or "rating"
+  var htResults = [];
+
+  function compareHotels(a, b) {
+    if (htSortBy === "rating") {
+      // unrated properties sort last rather than to the top as 0
+      return (b.rating == null ? -1 : b.rating) - (a.rating == null ? -1 : a.rating);
+    }
+    return (a.perNight == null ? 1e9 : a.perNight) - (b.perNight == null ? 1e9 : b.perNight);
+  }
+
+  function renderHotels(list) {
+    if (list !== htResults) {
+      htResults = list.slice();
+      htSortBy = "price";
+    }
+    htResults.sort(compareHotels);
+    for (var i = 0; i < htResults.length; i++) htResults[i].domId = "ht-it-" + i;
+
+    var cheapest = htResults.filter(function (p) { return p.cheapest; })[0] || htResults[0];
+    var best = htResults.filter(function (p) { return p.topRated; })[0] || null;
+
+    var html = '<div class="fl-sorts">' +
+      '<button data-sort="price" class="fl-sort' + (htSortBy === "price" ? " active" : "") + '">Price</button>' +
+      '<button data-sort="rating" class="fl-sort' + (htSortBy === "rating" ? " active" : "") + '">Rating</button>' +
+      "</div>" +
+      '<div class="fl-tiles">' +
+      hotelTileHTML("Lowest nightly", cheapest, "") +
+      hotelTileHTML("Top rated", best, "best") +
+      "</div>";
+    html += htResults.map(propertyHTML).join("");
+    elHtResults.innerHTML = html;
+  }
+
+  elHtResults.addEventListener("click", function (e) {
+    var sortBtn = e.target.closest("[data-sort]");
+    if (sortBtn) {
+      htSortBy = sortBtn.getAttribute("data-sort");
+      renderHotels(htResults);
+      return;
+    }
+    var tile = e.target.closest(".fl-tile[data-target]");
+    if (!tile) return;
+    var row = document.getElementById(tile.getAttribute("data-target"));
+    if (!row) return;
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.classList.remove("flash");
+    void row.offsetWidth;
+    row.classList.add("flash");
+  });
+
+  function searchHotels() {
+    if (!hotelsEnabled) return;
+    var q = elHtWhere.value.trim().replace(/\\s+/g, " ");
+    if (!q) { setHotelMsg("Say where you want to stay", true); return; }
+    var nights = nightsBetween(elHtIn.value, elHtOut.value);
+    if (nights < 1) { setHotelMsg("Check-out has to be after check-in", true); return; }
+    elHtGo.disabled = true;
+    setHotelMsg("Searching stays…");
+    elHtResults.innerHTML = "";
+    fetch("/api/hotels?q=" + encodeURIComponent(q) +
+          "&checkIn=" + encodeURIComponent(elHtIn.value) +
+          "&checkOut=" + encodeURIComponent(elHtOut.value) +
+          "&adults=" + htAdults, { headers: flightHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.enabled === false) {
+          setSerpEnabled(false);
+          showKeyBox(true);
+          setHotelMsg("Add a SerpApi key above to search", true);
+          return;
+        }
+        if (d.error && (!d.properties || !d.properties.length)) { setHotelMsg(d.error, true); return; }
+        var list = d.properties || [];
+        if (!list.length) { setHotelMsg("No stays found for those dates", true); return; }
+        renderHotels(list);
+        setHotelMsg(list.length + " stays · " + q + " · " + dayLabel(d.checkIn) + " → " +
+          dayLabel(d.checkOut) + " · " + d.nights + (d.nights === 1 ? " night" : " nights"));
+      })
+      .catch(function (e) { setHotelMsg("Search failed: " + e.message, true); })
+      .then(function () { elHtGo.disabled = false; });
+  }
+  elHtGo.addEventListener("click", searchHotels);
+
   probeFlights();
 
   document.getElementById("jumpFlights").addEventListener("click", function () {
