@@ -2031,6 +2031,11 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
 .fl-results { display: flex; flex-direction: column; gap: 7px; margin-top: 9px; }
 
+.fl-sorts { display: flex; gap: 6px; margin-bottom: 8px; }
+.fl-sort { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--text2); font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.fl-sort:hover { border-color: var(--blue); color: var(--blue); }
+.fl-sort.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+
 /* the two headline fares, one per cabin, above the split lists */
 .fl-tiles { display: flex; gap: 8px; }
 .fl-tile {
@@ -2086,10 +2091,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .fl-flag.cheap { background: var(--green); color: #042a12; }
 .fl-flag.wide { background: rgba(90,200,250,0.15); color: #5ac8fa; }
 .fl-flag.longlay { background: rgba(245,197,24,0.15); color: var(--yellow); }
-
-.fl-book { position: absolute; bottom: 10px; right: 10px; padding: 6px 12px; background: var(--blue); color: #fff; border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; transition: opacity 0.2s; }
-.fl-book:hover { opacity: 0.85; }
-.fl-book:active { opacity: 0.7; }
 
 /* ── footer ── */
 .footer { display: flex; flex-direction: column; gap: 2px; padding: 4px 4px 0; font-size: 10.5px; color: var(--text3); }
@@ -3382,7 +3383,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       "</div>" +
       (meta.length ? '<div class="fl-meta">' + meta.join(" &middot; ") + "</div>" : "") +
       flagHTML(r) +
-      '<button class="fl-book" data-airline="' + esc(r.airlines[0] || "") + '">Book</button>' +
       "</div>";
   }
 
@@ -3441,14 +3441,27 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       '<div class="sub">' + esc(sub) + '</div></button>';
   }
 
+  var sortBy = "price"; // "price" or "arrival"
+  var results = [];
+
   function renderResults(list) {
-    for (var i = 0; i < list.length; i++) list[i].domId = "fl-it-" + i;
-    var econ = list.filter(function (r) { return r.cabin !== "first"; });
-    var first = list.filter(function (r) { return r.cabin === "first"; });
+    var isNew = list !== results;
+    if (isNew) {
+      results = list.slice();
+      sortBy = "price"; // reset to price when new results come in
+    }
+    results.sort(compareResults);
+    for (var i = 0; i < results.length; i++) results[i].domId = "fl-it-" + i;
+    var econ = results.filter(function (r) { return r.cabin !== "first"; });
+    var first = results.filter(function (r) { return r.cabin === "first"; });
     var cheapE = econ.filter(function (r) { return r.cheapest; })[0] || econ[0];
     var cheapF = first.filter(function (r) { return r.cheapest; })[0] || first[0];
 
-    var html = '<div class="fl-tiles">' +
+    var html = '<div class="fl-sorts">' +
+      '<button data-sort="price" class="fl-sort' + (sortBy === "price" ? " active" : "") + '">Price</button>' +
+      '<button data-sort="arrival" class="fl-sort' + (sortBy === "arrival" ? " active" : "") + '">Earliest arrival</button>' +
+      '</div>' +
+      '<div class="fl-tiles">' +
       tileHTML("Lowest coach", cheapE, "") +
       tileHTML("Lowest first", cheapF, "first-cabin") +
       "</div>";
@@ -3457,35 +3470,26 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     elResults.innerHTML = html;
   }
 
-  var airlineSchemes = {
-    "United": "united://",
-    "Delta": "delta://",
-    "Southwest": "southwest://",
-    "American": "aa://",
-    "JetBlue": "jetblue://",
-    "Alaska": "alaskaair://",
-    "Hawaiian": "hawaiianairlines://",
-    "Spirit": "spirit://",
-    "Frontier": "flyfrontier://",
-  };
-
-  function bookWithAirline(airline) {
-    var scheme = airlineSchemes[airline];
-    if (!scheme) {
-      window.location = "https://www.google.com/flights";
-      return;
+  function compareResults(a, b) {
+    if (sortBy === "price") {
+      return a.price - b.price;
+    } else if (sortBy === "arrival") {
+      var aMin = parseInt(a.arrTime.split(":")[0]);
+      var aMin2 = parseInt(a.arrTime.split(":")[1]);
+      var bMin = parseInt(b.arrTime.split(":")[0]);
+      var bMin2 = parseInt(b.arrTime.split(":")[1]);
+      var aTime = aMin * 60 + aMin2 + (a.dayOffset ? 1440 : 0);
+      var bTime = bMin * 60 + bMin2 + (b.dayOffset ? 1440 : 0);
+      return aTime - bTime;
     }
-    window.location = scheme;
-    setTimeout(function () {
-      window.location = "https://" + airline.toLowerCase().replace(/\s+/g, "") + ".com";
-    }, 2000);
+    return 0;
   }
 
   elResults.addEventListener("click", function (e) {
-    var bookBtn = e.target.closest(".fl-book");
-    if (bookBtn) {
-      var airline = bookBtn.getAttribute("data-airline");
-      bookWithAirline(airline);
+    var sortBtn = e.target.closest("[data-sort]");
+    if (sortBtn) {
+      sortBy = sortBtn.getAttribute("data-sort");
+      renderResults(results);
       return;
     }
     var tile = e.target.closest(".fl-tile[data-target]");
