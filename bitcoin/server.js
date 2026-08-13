@@ -2030,6 +2030,31 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .fl-msg.err { color: var(--red); font-style: normal; }
 
 .fl-results { display: flex; flex-direction: column; gap: 7px; margin-top: 9px; }
+
+/* the two headline fares, one per cabin, above the split lists */
+.fl-tiles { display: flex; gap: 8px; }
+.fl-tile {
+  flex: 1; min-width: 0; text-align: left;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px;
+}
+.fl-tile .lbl { font-size: 8.5px; letter-spacing: 1.2px; font-weight: 900; text-transform: uppercase; color: var(--text3); }
+.fl-tile .amt { font-size: 22px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; letter-spacing: -0.4px; margin-top: 1px; }
+.fl-tile .sub { font-size: 9.5px; color: var(--text3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-tile.first-cabin { border-color: rgba(192,132,252,0.3); background: linear-gradient(180deg, rgba(192,132,252,0.05), rgba(0,0,0,0)); }
+.fl-tile.first-cabin .lbl { color: #c084fc; }
+.fl-tile:disabled { opacity: 0.4; }
+.fl-tile:not(:disabled):active { border-color: rgba(90,200,250,0.6); }
+
+.fl-group { font-size: 9.5px; letter-spacing: 1.8px; font-weight: 900; text-transform: uppercase;
+  color: var(--text3); padding: 8px 4px 0; }
+.fl-group.first-cabin { color: #c084fc; }
+
+/* where a tile lands you */
+.fl-item.flash { animation: flItemFlash 1.8s ease-out; }
+@keyframes flItemFlash {
+  0%, 22% { border-color: rgba(90,200,250,0.85); background-color: rgba(90,200,250,0.13); }
+  100% { border-color: var(--border); background-color: transparent; }
+}
 .fl-item { background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px; }
 .fl-item.first-cabin { border-color: rgba(192,132,252,0.32); background: linear-gradient(180deg, rgba(192,132,252,0.055), rgba(0,0,0,0)); }
 .fl-top { display: flex; align-items: center; gap: 9px; }
@@ -3335,7 +3360,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       meta.push(r.aircraft.map(function (a) { return "<b>" + esc(a) + "</b>"; }).join(" &middot; "));
     }
 
-    return '<div class="fl-item' + (r.cabin === "first" ? " first-cabin" : "") + '">' +
+    return '<div class="fl-item' + (r.cabin === "first" ? " first-cabin" : "") + '" id="' + r.domId + '">' +
       '<div class="fl-top">' +
         (r.logo ? '<img class="fl-logo" src="' + esc(r.logo) + '" alt="" loading="lazy">' : '<div class="fl-logo"></div>') +
         '<div class="fl-carrier">' +
@@ -3395,6 +3420,51 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     probeFlights();
   });
 
+  // Two headline fares above the results, one per cabin, each a shortcut to
+  // the itinerary it names. Below them the cabins are listed separately —
+  // mixing them in one price-sorted column buried every first-class option
+  // under the entire economy list.
+  function tileHTML(label, r, cabinCls) {
+    if (!r) {
+      return '<button class="fl-tile ' + cabinCls + '" disabled>' +
+        '<div class="lbl">' + label + '</div><div class="amt">\u2013</div>' +
+        '<div class="sub">none found</div></button>';
+    }
+    var sub = [r.airlines.join(" / "), r.nonstop ? "nonstop" : r.stops + " stop" + (r.stops > 1 ? "s" : ""), r.depTime]
+      .filter(Boolean).join(" \u00b7 ");
+    return '<button class="fl-tile ' + cabinCls + '" data-target="' + r.domId + '">' +
+      '<div class="lbl">' + label + '</div>' +
+      '<div class="amt">$' + r.price.toLocaleString("en-US") + '</div>' +
+      '<div class="sub">' + esc(sub) + '</div></button>';
+  }
+
+  function renderResults(list) {
+    for (var i = 0; i < list.length; i++) list[i].domId = "fl-it-" + i;
+    var econ = list.filter(function (r) { return r.cabin !== "first"; });
+    var first = list.filter(function (r) { return r.cabin === "first"; });
+    var cheapE = econ.filter(function (r) { return r.cheapest; })[0] || econ[0];
+    var cheapF = first.filter(function (r) { return r.cheapest; })[0] || first[0];
+
+    var html = '<div class="fl-tiles">' +
+      tileHTML("Lowest coach", cheapE, "") +
+      tileHTML("Lowest first", cheapF, "first-cabin") +
+      "</div>";
+    if (econ.length) html += '<div class="fl-group">Economy</div>' + econ.map(itineraryHTML).join("");
+    if (first.length) html += '<div class="fl-group first-cabin">First</div>' + first.map(itineraryHTML).join("");
+    elResults.innerHTML = html;
+  }
+
+  elResults.addEventListener("click", function (e) {
+    var tile = e.target.closest(".fl-tile[data-target]");
+    if (!tile) return;
+    var row = document.getElementById(tile.getAttribute("data-target"));
+    if (!row) return;
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.classList.remove("flash");
+    void row.offsetWidth; // restart the animation on a repeat tap
+    row.classList.add("flash");
+  });
+
   function setFlightMsg(text, isErr) {
     elMsg.textContent = text || "";
     elMsg.className = "fl-msg" + (isErr ? " err" : "");
@@ -3415,7 +3485,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         if (d.error && (!d.itineraries || !d.itineraries.length)) { setFlightMsg(d.error, true); return; }
         var list = d.itineraries || [];
         if (!list.length) { setFlightMsg("No flights found for that route and date", true); return; }
-        elResults.innerHTML = list.map(itineraryHTML).join("");
+        renderResults(list);
         setFlightMsg(list.length + " itineraries \u00b7 " + from + " \u2192 " + to + " \u00b7 " + dayLabel(d.date) +
           (d.partialError ? " \u00b7 one cabin unavailable" : ""));
       })

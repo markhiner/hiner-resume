@@ -523,6 +523,12 @@ afternoon, most of today's departures have gone. It reads back relatively:
 `Eee mm/dd` beyond it. The native picker sits invisibly over the styled label
 so iOS opens its own date wheel while the page keeps the relative wording.
 
+**Results open with two headline tiles** — the lowest coach fare and the
+lowest first fare — and tapping either scrolls to that itinerary and
+highlights it. Below them the cabins are listed **separately**, economy then
+first. A single price-sorted column put every first-class option underneath
+the entire economy list, which made the expensive cabin effectively invisible.
+
 **Each result** shows price, airline logo, departure and arrival time with
 airports, connection city, layover duration and aircraft, with four flags:
 
