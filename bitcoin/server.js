@@ -2438,8 +2438,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .fl-tile.ht-tile.best .lbl { color: #2dd4bf; }
 .ht-item.tappable { cursor: pointer; }
 .ht-item.tappable:active { background: var(--panel2); }
-.ht-more { font-size: 9px; letter-spacing: 0.6px; color: var(--text3); margin-top: 8px;
-  padding-top: 7px; border-top: 1px solid var(--border); text-transform: uppercase; font-weight: 700; }
 
 /* ── the detail sheet ── */
 .ht-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
@@ -4188,7 +4186,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       "</div>" +
       (p.amenities.length ? '<div class="ht-amen">' + esc(p.amenities.slice(0, 4).join(" · ")) + "</div>" : "") +
       hotelFlagHTML(p) +
-      (p.token ? '<div class="ht-more">Tap for photos, map and reviews</div>' : "") +
       "</div>";
   }
 
