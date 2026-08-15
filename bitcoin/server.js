@@ -1576,6 +1576,7 @@ const AMENITY_BADGES = [
   { label: "Minibar", keys: ["minibar", "minibarinroom"] },
   { label: "Turndown", keys: ["turndownservice", "turndown"] },
   { label: "In-room dining", keys: ["roomservice", "inroomdining"] },
+  { label: "Casino", keys: ["casino"] },
 ];
 
 function amenityBadges(list) {
