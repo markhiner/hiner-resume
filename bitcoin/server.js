@@ -1535,6 +1535,65 @@ function rateAmount(o) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// ---------- amenities ----------
+//
+// Google's wording drifts ("Pet-friendly" / "Pet friendly" / "Pets allowed"),
+// so every comparison goes through a key with the punctuation and spacing
+// stripped out. Matching is on the WHOLE key, never a substring, because
+// "Accessible pool" must not read as a pool.
+function amenityKey(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// Things all but universal, plus payment methods, languages and the
+// per-facility accessibility entries. They crowd out what actually
+// distinguishes one stay from another.
+const AMENITY_HIDE = new Set([
+  "Kid friendly", "Elevator", "Parking", "Accessible", "Accessible parking",
+  "Accessible pool", "Air conditioning", "WiFi in public areas", "Credit cards",
+  "Debit cards", "Cash", "Checks", "Front desk", "Activities for kids",
+  "Accessible elevator", "Private bathroom", "English", "Bathtub in some rooms",
+  "Shower in some rooms", "Smoke-free property", "Currency exchange", "Spanish",
+].map(amenityKey));
+
+// "Parking" goes, "Valet parking" stays — whole-key matching is what keeps
+// those apart.
+function usefulAmenities(list) {
+  return (Array.isArray(list) ? list : []).filter((a) => a && !AMENITY_HIDE.has(amenityKey(a)));
+}
+
+// The few worth calling out on the card itself. Order here is the order they
+// render in.
+const AMENITY_BADGES = [
+  { label: "🐾", title: "Pet friendly", cls: "paw",
+    keys: ["petfriendly", "petsallowed", "dogsallowed", "petsallowedfree"] },
+  { label: "Indoor pool", keys: ["indoorpool"] },
+  { label: "Outdoor pool", keys: ["outdoorpool"] },
+  // only when neither of the specific ones matched, so a hotel with an indoor
+  // pool is not badged "Indoor pool · Pool"
+  { label: "Pool", keys: ["pool"], unless: ["indoorpool", "outdoorpool"] },
+  { label: "Spa", keys: ["spa"] },
+  { label: "Minibar", keys: ["minibar", "minibarinroom"] },
+  { label: "Turndown", keys: ["turndownservice", "turndown"] },
+  { label: "In-room dining", keys: ["roomservice", "inroomdining"] },
+];
+
+function amenityBadges(list) {
+  const have = new Set((Array.isArray(list) ? list : []).map(amenityKey));
+  const out = [];
+  for (const b of AMENITY_BADGES) {
+    if (!b.keys.some((k) => have.has(k))) continue;
+    if (b.unless && b.unless.some((k) => have.has(k))) continue;
+    out.push({ label: b.label, title: b.title || b.label, cls: b.cls || "amen" });
+  }
+  return out;
+}
+
+// Anything a badge can speak for is dropped from the card's text line, so the
+// row does not say "Pool · Spa" directly above badges reading POOL and SPA.
+// The full listing keeps them: it has no badges to defer to.
+const BADGE_KEYS = new Set(AMENITY_BADGES.reduce((a, b) => a.concat(b.keys), []));
+
 function normalizeProperty(p, nights) {
   const name = p && p.name;
   if (!name) return null;
@@ -1547,6 +1606,8 @@ function normalizeProperty(p, nights) {
   const reviews = Number(p.reviews);
   const stars = Number(p.extracted_hotel_class);
   const deal = p.deal || null;
+  // badges read the FULL list, before it is trimmed for display
+  const allAmenities = Array.isArray(p.amenities) ? p.amenities : [];
   return {
     name,
     kind: p.type === "vacation rental" ? "rental" : "hotel",
@@ -1559,7 +1620,10 @@ function normalizeProperty(p, nights) {
     rating: Number.isFinite(rating) ? rating : null,
     reviews: Number.isFinite(reviews) ? reviews : null,
     stars: Number.isFinite(stars) ? stars : null,
-    amenities: (Array.isArray(p.amenities) ? p.amenities : []).slice(0, MAX_AMENITIES),
+    amenities: usefulAmenities(allAmenities)
+      .filter((a) => !BADGE_KEYS.has(amenityKey(a)))
+      .slice(0, MAX_AMENITIES),
+    badges: amenityBadges(allAmenities),
     deal,
     dealPct: dealPercent(deal),
     eco: !!p.eco_certified,
@@ -1726,8 +1790,8 @@ function normalizeDetails(json, nights) {
       .sort((a, b) => b.mentioned - a.mentioned)
       .slice(0, 8),
     prices: priceRows(json),
-    amenities: Array.isArray(json.amenities) ? json.amenities : [],
-    excluded: Array.isArray(json.excluded_amenities) ? json.excluded_amenities : [],
+    amenities: usefulAmenities(json.amenities),
+    excluded: usefulAmenities(json.excluded_amenities),
     nearby: (Array.isArray(json.nearby_places) ? json.nearby_places : [])
       .map((n) => ({
         name: n.name || null,
@@ -2433,7 +2497,9 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .ht-amen { font-size: 10px; color: var(--text3); margin-top: 8px; line-height: 1.45; }
 .fl-flag.rated { background: rgba(45,212,191,0.15); color: #2dd4bf; }
 .fl-flag.deal { background: rgba(249,115,22,0.16); color: var(--orange); }
-.fl-flag.eco { background: rgba(34,197,94,0.15); color: var(--green); }
+/* amenity badges sit under the price flags in the hierarchy */
+.fl-flag.amen { background: var(--panel2); border: 1px solid var(--border); color: var(--text2); font-weight: 800; }
+.fl-flag.paw { background: var(--panel2); border: 1px solid var(--border); font-size: 13px; letter-spacing: 0; padding: 0 7px; line-height: 1.32; }
 .fl-tile.ht-tile.best { border-color: rgba(45,212,191,0.32); background: linear-gradient(180deg, rgba(45,212,191,0.055), rgba(0,0,0,0)); }
 .fl-tile.ht-tile.best .lbl { color: #2dd4bf; }
 .ht-item.tappable { cursor: pointer; }
@@ -4150,7 +4216,12 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     if (p.cheapest) out.push('<span class="fl-flag cheap">Lowest</span>');
     if (p.topRated) out.push('<span class="fl-flag rated">Top rated</span>');
     if (p.deal) out.push('<span class="fl-flag deal">' + esc(p.deal) + "</span>");
-    if (p.eco) out.push('<span class="fl-flag eco">Eco certified</span>');
+    // the amenities worth seeing without opening the listing, quieter than
+    // the price flags so they do not compete with them
+    (p.badges || []).forEach(function (b) {
+      out.push('<span class="fl-flag ' + esc(b.cls) + '" title="' + esc(b.title) +
+        '" aria-label="' + esc(b.title) + '">' + esc(b.label) + "</span>");
+    });
     return out.length ? '<div class="fl-flags">' + out.join("") + "</div>" : "";
   }
 
