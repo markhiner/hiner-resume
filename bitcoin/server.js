@@ -1546,9 +1546,13 @@ function normalizeProperty(p, nights) {
   const rating = Number(p.overall_rating);
   const reviews = Number(p.reviews);
   const stars = Number(p.extracted_hotel_class);
+  const deal = p.deal || null;
   return {
     name,
     kind: p.type === "vacation rental" ? "rental" : "hotel",
+    // the token is what the details endpoint is addressed by, so it has to
+    // survive normalising even though nothing in the list view shows it
+    token: p.property_token || null,
     thumb: (img && (img.thumbnail || img.original_image)) || null,
     perNight,
     total,
@@ -1556,10 +1560,19 @@ function normalizeProperty(p, nights) {
     reviews: Number.isFinite(reviews) ? reviews : null,
     stars: Number.isFinite(stars) ? stars : null,
     amenities: (Array.isArray(p.amenities) ? p.amenities : []).slice(0, MAX_AMENITIES),
-    deal: p.deal || null,
+    deal,
+    dealPct: dealPercent(deal),
     eco: !!p.eco_certified,
     locationRating: Number(p.location_rating) || null,
   };
+}
+
+// "23% less than usual" -> 23. Used to rank one deal above another; a deal
+// with no readable percentage still counts as a deal, it just ranks after
+// the ones that quantify themselves.
+function dealPercent(deal) {
+  const m = /(\d+(?:\.\d+)?)\s*%/.exec(String(deal || ""));
+  return m ? Number(m[1]) : null;
 }
 
 async function serpHotels(q, checkIn, checkOut, adults, apiKey) {
@@ -1621,6 +1634,140 @@ async function searchHotels(q, checkIn, checkOut, adults, apiKey) {
   flagProperties(properties);
   properties.sort((a, b) => (a.perNight || 1e9) - (b.perNight || 1e9));
   return { properties, nights: nightsBetween(checkIn, checkOut) };
+}
+
+// ---------- one hotel, in full ----------
+//
+// Same engine, addressed by property_token instead of a query. It answers
+// with far more than the list row carries: every photo, the address and
+// coordinates, the price at each booking site, the star histogram, what
+// reviewers talk about, the full amenity list and what is nearby.
+
+const detailCache = new Map(); // token|dates|adults -> { at, details }
+
+function ratingHistogram(ratings) {
+  const rows = (Array.isArray(ratings) ? ratings : [])
+    .map((r) => ({ stars: Number(r.stars), count: Number(r.count) }))
+    .filter((r) => Number.isFinite(r.stars) && Number.isFinite(r.count));
+  const total = rows.reduce((s, r) => s + r.count, 0);
+  // share is what the bar is drawn from, so compute it once here rather than
+  // making the page divide by a total it would have to re-derive
+  return rows
+    .sort((a, b) => b.stars - a.stars)
+    .map((r) => ({ ...r, share: total ? r.count / total : 0 }));
+}
+
+function priceRows(json) {
+  const raw = [].concat(
+    Array.isArray(json.featured_prices) ? json.featured_prices : [],
+    Array.isArray(json.prices) ? json.prices : []
+  );
+  const seen = new Set();
+  const out = [];
+  for (const p of raw) {
+    const source = p && p.source;
+    if (!source || seen.has(source)) continue;
+    seen.add(source);
+    out.push({
+      source,
+      logo: p.logo || null,
+      official: !!p.official,
+      perNight: rateAmount(p.rate_per_night),
+      total: rateAmount(p.total_rate),
+    });
+  }
+  out.sort((a, b) => (a.perNight == null ? 1e9 : a.perNight) - (b.perNight == null ? 1e9 : b.perNight));
+  return out;
+}
+
+function normalizeDetails(json, nights) {
+  const g = json.gps_coordinates || {};
+  const lat = Number(g.latitude), lon = Number(g.longitude);
+  const perNight = rateAmount(json.rate_per_night);
+  const rating = Number(json.overall_rating);
+  const reviews = Number(json.reviews);
+  const stars = Number(json.extracted_hotel_class);
+  const range = json.typical_price_range || null;
+  return {
+    name: json.name || null,
+    kind: json.type === "vacation rental" ? "rental" : "hotel",
+    description: json.description || null,
+    address: json.address || null,
+    phone: json.phone || null,
+    lat: Number.isFinite(lat) ? lat : null,
+    lon: Number.isFinite(lon) ? lon : null,
+    checkInTime: json.check_in_time || null,
+    checkOutTime: json.check_out_time || null,
+    perNight,
+    total: rateAmount(json.total_rate) || (perNight != null && nights ? perNight * nights : null),
+    typicalLow: range ? rateAmount({ extracted_lowest: range.extracted_lowest }) : null,
+    typicalHigh: range && Number.isFinite(Number(range.extracted_highest))
+      ? Number(range.extracted_highest) : null,
+    // full size where offered, thumbnail as the fallback — this is a gallery,
+    // not a 54px row icon
+    images: (Array.isArray(json.images) ? json.images : [])
+      .map((i) => i && (i.original_image || i.thumbnail))
+      .filter(Boolean)
+      .slice(0, 24),
+    rating: Number.isFinite(rating) ? rating : null,
+    reviews: Number.isFinite(reviews) ? reviews : null,
+    stars: Number.isFinite(stars) ? stars : null,
+    locationRating: Number(json.location_rating) || null,
+    histogram: ratingHistogram(json.ratings),
+    reviewTopics: (Array.isArray(json.reviews_breakdown) ? json.reviews_breakdown : [])
+      .map((r) => ({
+        name: r.name || null,
+        mentioned: Number(r.total_mentioned) || 0,
+        positive: Number(r.positive) || 0,
+        negative: Number(r.negative) || 0,
+        neutral: Number(r.neutral) || 0,
+      }))
+      .filter((r) => r.name)
+      .sort((a, b) => b.mentioned - a.mentioned)
+      .slice(0, 8),
+    prices: priceRows(json),
+    amenities: Array.isArray(json.amenities) ? json.amenities : [],
+    excluded: Array.isArray(json.excluded_amenities) ? json.excluded_amenities : [],
+    nearby: (Array.isArray(json.nearby_places) ? json.nearby_places : [])
+      .map((n) => ({
+        name: n.name || null,
+        transport: (Array.isArray(n.transportations) ? n.transportations : [])
+          .map((t) => [t.type, t.duration].filter(Boolean).join(" "))
+          .filter(Boolean),
+      }))
+      .filter((n) => n.name)
+      .slice(0, 10),
+    eco: !!json.eco_certified,
+  };
+}
+
+async function serpHotelDetails(token, checkIn, checkOut, adults, apiKey) {
+  const key = [token, checkIn, checkOut, adults].join("|");
+  const hit = detailCache.get(key);
+  if (hit && Date.now() - hit.at < HOTEL_CACHE_MS) return hit.details;
+
+  const url = new URL("https://serpapi.com/search.json");
+  url.searchParams.set("engine", "google_hotels");
+  url.searchParams.set("property_token", token);
+  // the engine still wants a query and the dates alongside the token,
+  // because the rates it quotes are for that stay
+  url.searchParams.set("q", "hotel");
+  url.searchParams.set("check_in_date", checkIn);
+  url.searchParams.set("check_out_date", checkOut);
+  url.searchParams.set("adults", String(adults));
+  url.searchParams.set("currency", "USD");
+  url.searchParams.set("gl", "us");
+  url.searchParams.set("hl", "en");
+  url.searchParams.set("api_key", apiKey);
+
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.error) {
+    throw new Error(json.error || `serpapi ${res.status}`);
+  }
+  const details = normalizeDetails(json, nightsBetween(checkIn, checkOut));
+  detailCache.set(key, { at: Date.now(), details });
+  return details;
 }
 
 // ---------- HTTP + WebSocket server ----------
@@ -1745,6 +1892,30 @@ const server = http.createServer((req, res) => {
     searchHotels(q, checkIn, checkOut, adults, apiKey)
       .then((r) => send(200, { enabled: true, q, checkIn, checkOut, adults, ...r }))
       .catch((e) => send(200, { enabled: true, q, checkIn, checkOut, adults, properties: [], error: e.message }));
+    return;
+  }
+  if (url.pathname === "/api/hotel") {
+    const send = (code, obj) => {
+      res.writeHead(code, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(obj));
+    };
+    const apiKey = serpKeyFrom(req);
+    if (!apiKey) return send(200, { enabled: false, needsKey: true });
+    const token = String(url.searchParams.get("token") || "").trim();
+    const checkIn = String(url.searchParams.get("checkIn") || "");
+    const checkOut = String(url.searchParams.get("checkOut") || "");
+    const adults = Math.min(Math.max(parseInt(url.searchParams.get("adults"), 10) || 2, 1), 8);
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    if (!token) return send(400, { enabled: true, error: "need a property token" });
+    if (!ymd.test(checkIn) || !ymd.test(checkOut)) {
+      return send(400, { enabled: true, error: "need both dates as YYYY-MM-DD" });
+    }
+    if (nightsBetween(checkIn, checkOut) < 1) {
+      return send(400, { enabled: true, error: "check-out must be after check-in" });
+    }
+    serpHotelDetails(token, checkIn, checkOut, adults, apiKey)
+      .then((details) => send(200, { enabled: true, details }))
+      .catch((e) => send(200, { enabled: true, details: null, error: e.message }));
     return;
   }
   if (url.pathname === "/api/portfolio") {
@@ -2265,6 +2436,91 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .fl-flag.eco { background: rgba(34,197,94,0.15); color: var(--green); }
 .fl-tile.ht-tile.best { border-color: rgba(45,212,191,0.32); background: linear-gradient(180deg, rgba(45,212,191,0.055), rgba(0,0,0,0)); }
 .fl-tile.ht-tile.best .lbl { color: #2dd4bf; }
+.ht-item.tappable { cursor: pointer; }
+.ht-item.tappable:active { background: var(--panel2); }
+.ht-more { font-size: 9px; letter-spacing: 0.6px; color: var(--text3); margin-top: 8px;
+  padding-top: 7px; border-top: 1px solid var(--border); text-transform: uppercase; font-weight: 700; }
+
+/* ── the detail sheet ── */
+.ht-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
+.ht-sheet.on { display: block; }
+.ht-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
+.ht-panel {
+  position: absolute; left: 0; right: 0; bottom: 0; top: 24px;
+  background: var(--bg); border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0; overflow: hidden;
+  animation: htUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+@keyframes htUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
+.ht-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 8px auto 0; }
+.ht-close {
+  position: absolute; top: 8px; right: 10px; z-index: 2;
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
+  font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.ht-close:active { background: var(--panel); color: var(--text1); }
+.ht-body {
+  position: absolute; inset: 20px 0 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: 4px 13px calc(26px + env(safe-area-inset-bottom));
+}
+.ht-load { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 40px 0; }
+.ht-load.err { color: var(--red); font-style: normal; }
+
+/* gallery: a snapping filmstrip rather than a grid, so one photo reads big */
+.ht-gal { display: flex; gap: 7px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 -13px; padding: 0 13px 2px; }
+.ht-gal::-webkit-scrollbar { display: none; }
+.ht-gal img { width: 82%; height: 190px; flex: 0 0 auto; object-fit: cover; border-radius: 12px; scroll-snap-align: center; background: var(--panel2); }
+.ht-count { font-size: 9.5px; color: var(--text3); text-align: right; margin-top: 4px; letter-spacing: 0.5px; }
+
+.ht-d-name { font-size: 19px; font-weight: 800; color: var(--text1); line-height: 1.25; margin-top: 10px; letter-spacing: -0.2px; }
+.ht-d-sub { font-size: 10.5px; color: var(--text3); margin-top: 3px; }
+.ht-d-rate { display: flex; align-items: baseline; gap: 6px; margin-top: 6px; }
+.ht-d-rate .big { font-size: 17px; font-weight: 800; color: var(--text1); }
+.ht-d-rate .of { font-size: 10px; color: var(--text3); }
+
+.ht-sec { margin-top: 18px; }
+.ht-sec-h { font-size: 9.5px; letter-spacing: 1.5px; font-weight: 800; text-transform: uppercase; color: #2dd4bf; margin-bottom: 8px; }
+.ht-kv { display: flex; gap: 10px; font-size: 11.5px; color: var(--text2); padding: 6px 0; border-bottom: 1px solid var(--border); line-height: 1.45; }
+.ht-kv:last-child { border-bottom: 0; }
+.ht-kv .k { flex: 0 0 84px; color: var(--text3); font-weight: 700; }
+.ht-kv .v { flex: 1; min-width: 0; }
+/* place names need the room a field label does not */
+.ht-kv.ht-near .k { flex: 1 1 auto; color: var(--text1); font-weight: 600; }
+.ht-kv.ht-near .v { flex: 0 0 auto; text-align: right; color: var(--text3); }
+
+.ht-map { width: 100%; height: 190px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel2); display: block; }
+.ht-coord { font-size: 9.5px; color: var(--text3); margin-top: 5px; font-variant-numeric: tabular-nums; }
+
+.ht-src { display: flex; align-items: center; gap: 9px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.ht-src:last-child { border-bottom: 0; }
+.ht-src img { width: 20px; height: 20px; border-radius: 5px; background: #fff; object-fit: contain; padding: 1px; flex-shrink: 0; }
+.ht-src .nm { flex: 1; min-width: 0; font-size: 12px; color: var(--text1); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-src .off { font-size: 8px; font-weight: 900; letter-spacing: 0.8px; color: #2dd4bf; text-transform: uppercase; }
+.ht-src .pr { font-size: 13px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.ht-src .pr small { display: block; font-size: 9px; font-weight: 600; color: var(--text3); text-align: right; }
+
+.ht-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.ht-bar .st { font-size: 10px; color: var(--text3); width: 26px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.ht-bar .track { flex: 1; height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; }
+.ht-bar .fill { height: 100%; background: var(--yellow); border-radius: 3px; }
+.ht-bar .ct { font-size: 9.5px; color: var(--text3); width: 44px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+.ht-topic { padding: 7px 0; border-bottom: 1px solid var(--border); }
+.ht-topic:last-child { border-bottom: 0; }
+.ht-topic .th { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.ht-topic .nm { font-size: 11.5px; font-weight: 700; color: var(--text1); }
+.ht-topic .mn { font-size: 9.5px; color: var(--text3); }
+.ht-split { display: flex; height: 5px; border-radius: 3px; overflow: hidden; margin-top: 5px; background: var(--panel2); }
+.ht-split i { display: block; height: 100%; }
+.ht-split .pos { background: var(--green); }
+.ht-split .neu { background: var(--text3); }
+.ht-split .neg { background: var(--red); }
+
+.ht-chiplist { display: flex; flex-wrap: wrap; gap: 5px; }
+.ht-chiplist span { font-size: 10.5px; padding: 5px 9px; border-radius: 7px; background: var(--panel2); border: 1px solid var(--border); color: var(--text2); }
+.ht-chiplist.no span { color: var(--text3); text-decoration: line-through; opacity: 0.75; }
+.ht-desc { font-size: 12px; color: var(--text2); line-height: 1.55; }
 
 /* ── footer ── */
 .footer { display: flex; flex-direction: column; gap: 2px; padding: 4px 4px 0; font-size: 10.5px; color: var(--text3); }
@@ -2437,6 +2693,15 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     </div>
 
     <div class="fl-results" id="htResults"></div>
+  </div>
+
+  <div class="ht-sheet" id="htSheet" role="dialog" aria-modal="true" aria-label="Hotel details">
+    <div class="ht-scrim" id="htScrim"></div>
+    <div class="ht-panel">
+      <div class="ht-grip"></div>
+      <button class="ht-close" id="htClose" aria-label="Close">&times;</button>
+      <div class="ht-body" id="htBody"></div>
+    </div>
   </div>
 
   <div class="footer">
@@ -3908,7 +4173,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         (p.total != null ? '<div class="tot">' + money(p.total) + " total</div>" : "")
       : '<div class="amt">–</div><div class="per">no rate</div>';
 
-    return '<div class="ht-item" id="' + p.domId + '">' +
+    return '<div class="ht-item' + (p.token ? " tappable" : "") + '" id="' + p.domId + '"' +
+        (p.token ? ' data-token="' + esc(p.token) + '" role="button" tabindex="0"' : "") + ">" +
       '<div class="ht-top">' +
         (p.thumb
           ? '<img class="ht-thumb" src="' + esc(p.thumb) + '" alt="" loading="lazy">'
@@ -3922,6 +4188,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       "</div>" +
       (p.amenities.length ? '<div class="ht-amen">' + esc(p.amenities.slice(0, 4).join(" · ")) + "</div>" : "") +
       hotelFlagHTML(p) +
+      (p.token ? '<div class="ht-more">Tap for photos, map and reviews</div>' : "") +
       "</div>";
   }
 
@@ -3939,21 +4206,42 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       '<div class="sub">' + esc(sub) + "</div></button>";
   }
 
-  var htSortBy = "price"; // "price" or "rating"
+  var HT_SORTS = [
+    { id: "deals", label: "Deals" },
+    { id: "price", label: "Price" },
+    { id: "rating", label: "Rating" }
+  ];
+  var htSortBy = "deals"; // deals lead by default
   var htResults = [];
+
+  function byPrice(a, b) {
+    return (a.perNight == null ? 1e9 : a.perNight) - (b.perNight == null ? 1e9 : b.perNight);
+  }
 
   function compareHotels(a, b) {
     if (htSortBy === "rating") {
       // unrated properties sort last rather than to the top as 0
-      return (b.rating == null ? -1 : b.rating) - (a.rating == null ? -1 : a.rating);
+      return (b.rating == null ? -1 : b.rating) - (a.rating == null ? -1 : a.rating) || byPrice(a, b);
     }
-    return (a.perNight == null ? 1e9 : a.perNight) - (b.perNight == null ? 1e9 : b.perNight);
+    if (htSortBy === "deals") {
+      // anything Google marks as under its usual price leads, steepest
+      // discount first; a deal that does not say how much still beats a
+      // full-price room. Everything else falls back to price.
+      var ad = a.deal ? 1 : 0, bd = b.deal ? 1 : 0;
+      if (ad !== bd) return bd - ad;
+      if (ad === 1) {
+        var ap = a.dealPct == null ? -1 : a.dealPct, bp = b.dealPct == null ? -1 : b.dealPct;
+        if (ap !== bp) return bp - ap;
+      }
+      return byPrice(a, b);
+    }
+    return byPrice(a, b);
   }
 
   function renderHotels(list) {
     if (list !== htResults) {
       htResults = list.slice();
-      htSortBy = "price";
+      htSortBy = "deals";
     }
     htResults.sort(compareHotels);
     for (var i = 0; i < htResults.length; i++) htResults[i].domId = "ht-it-" + i;
@@ -3962,8 +4250,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     var best = htResults.filter(function (p) { return p.topRated; })[0] || null;
 
     var html = '<div class="fl-sorts">' +
-      '<button data-sort="price" class="fl-sort' + (htSortBy === "price" ? " active" : "") + '">Price</button>' +
-      '<button data-sort="rating" class="fl-sort' + (htSortBy === "rating" ? " active" : "") + '">Rating</button>' +
+      HT_SORTS.map(function (s) {
+        return '<button data-sort="' + s.id + '" class="fl-sort' +
+          (htSortBy === s.id ? " active" : "") + '">' + s.label + "</button>";
+      }).join("") +
       "</div>" +
       '<div class="fl-tiles">' +
       hotelTileHTML("Lowest nightly", cheapest, "") +
@@ -3981,14 +4271,184 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       return;
     }
     var tile = e.target.closest(".fl-tile[data-target]");
-    if (!tile) return;
-    var row = document.getElementById(tile.getAttribute("data-target"));
-    if (!row) return;
-    row.scrollIntoView({ behavior: "smooth", block: "center" });
-    row.classList.remove("flash");
-    void row.offsetWidth;
-    row.classList.add("flash");
+    if (tile) {
+      var row = document.getElementById(tile.getAttribute("data-target"));
+      if (!row) return;
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      row.classList.remove("flash");
+      void row.offsetWidth;
+      row.classList.add("flash");
+      return;
+    }
+    var card = e.target.closest(".ht-item[data-token]");
+    if (card) openHotel(card.getAttribute("data-token"));
   });
+  // the card carries role=button, so the keyboard has to reach it too
+  elHtResults.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    var card = e.target.closest(".ht-item[data-token]");
+    if (!card) return;
+    e.preventDefault();
+    openHotel(card.getAttribute("data-token"));
+  });
+
+  // ---- the detail sheet ----
+
+  var elSheet = document.getElementById("htSheet");
+  var elSheetBody = document.getElementById("htBody");
+  var htDetailSeq = 0; // so a slow response cannot overwrite a newer one
+
+  function closeHotel() {
+    elSheet.classList.remove("on");
+    document.body.style.overflow = "";
+    htDetailSeq++;
+  }
+  document.getElementById("htClose").addEventListener("click", closeHotel);
+  document.getElementById("htScrim").addEventListener("click", closeHotel);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && elSheet.classList.contains("on")) closeHotel();
+  });
+
+  function openHotel(token) {
+    var mine = ++htDetailSeq;
+    elSheet.classList.add("on");
+    document.body.style.overflow = "hidden";
+    elSheetBody.scrollTop = 0;
+    elSheetBody.innerHTML = '<div class="ht-load">Loading the full listing…</div>';
+    fetch("/api/hotel?token=" + encodeURIComponent(token) +
+          "&checkIn=" + encodeURIComponent(elHtIn.value) +
+          "&checkOut=" + encodeURIComponent(elHtOut.value) +
+          "&adults=" + htAdults, { headers: flightHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (mine !== htDetailSeq) return; // closed, or another card was tapped
+        if (d.error || !d.details) {
+          elSheetBody.innerHTML = '<div class="ht-load err">' + esc(d.error || "No details available") + "</div>";
+          return;
+        }
+        elSheetBody.innerHTML = detailHTML(d.details);
+      })
+      .catch(function (err) {
+        if (mine !== htDetailSeq) return;
+        elSheetBody.innerHTML = '<div class="ht-load err">Could not load: ' + esc(err.message) + "</div>";
+      });
+  }
+
+  function section(title, inner) {
+    if (!inner) return "";
+    return '<div class="ht-sec"><div class="ht-sec-h">' + title + "</div>" + inner + "</div>";
+  }
+  function kv(k, v) {
+    if (!v) return "";
+    return '<div class="ht-kv"><div class="k">' + k + '</div><div class="v">' + esc(v) + "</div></div>";
+  }
+
+  // OpenStreetMap's embed needs no key of its own — the SerpApi key is the
+  // only credential this page asks anyone for.
+  function mapHTML(d) {
+    if (d.lat == null || d.lon == null) return "";
+    var dx = 0.005, dy = 0.004;
+    var bbox = [d.lon - dx, d.lat - dy, d.lon + dx, d.lat + dy].join(",");
+    var src = "https://www.openstreetmap.org/export/embed.html?bbox=" + encodeURIComponent(bbox) +
+      "&layer=mapnik&marker=" + encodeURIComponent(d.lat + "," + d.lon);
+    return '<iframe class="ht-map" src="' + esc(src) + '" loading="lazy" title="Map"></iframe>' +
+      '<div class="ht-coord">' + d.lat.toFixed(5) + ", " + d.lon.toFixed(5) + "</div>";
+  }
+
+  function detailHTML(d) {
+    var out = "";
+
+    if (d.images.length) {
+      out += '<div class="ht-gal">' + d.images.map(function (src) {
+        return '<img src="' + esc(src) + '" alt="" loading="lazy">';
+      }).join("") + "</div>" +
+      '<div class="ht-count">' + d.images.length + (d.images.length === 1 ? " photo" : " photos") + "</div>";
+    }
+
+    var sub = [];
+    if (d.stars) sub.push('<span class="ht-stars">' + new Array(d.stars + 1).join("★") + "</span>");
+    if (d.kind === "rental") sub.push("Vacation rental");
+    if (d.eco) sub.push("Eco certified");
+    out += '<div class="ht-d-name">' + esc(d.name || "This stay") + "</div>";
+    if (sub.length) out += '<div class="ht-d-sub">' + sub.join(" &middot; ") + "</div>";
+    if (d.rating != null) {
+      out += '<div class="ht-d-rate"><span class="big">' + d.rating.toFixed(1) + "</span>" +
+        '<span class="of">out of 5' + (d.reviews != null ? " · " + d.reviews.toLocaleString("en-US") + " reviews" : "") +
+        "</span></div>";
+    }
+
+    // what the stay costs
+    var priceRows = "";
+    if (d.perNight != null) priceRows += kv("Per night", money(d.perNight));
+    if (d.total != null) priceRows += kv("Stay total", money(d.total));
+    if (d.typicalLow != null && d.typicalHigh != null) {
+      priceRows += kv("Usual range", money(d.typicalLow) + " – " + money(d.typicalHigh));
+    }
+    out += section("Rates", priceRows);
+
+    // the same room at each site that sells it
+    if (d.prices.length) {
+      out += section("Where it is listed", d.prices.map(function (p) {
+        return '<div class="ht-src">' +
+          (p.logo ? '<img src="' + esc(p.logo) + '" alt="" loading="lazy">' : "") +
+          '<div class="nm">' + esc(p.source) + (p.official ? ' <span class="off">Official</span>' : "") + "</div>" +
+          '<div class="pr">' + (p.perNight != null ? money(p.perNight) : "–") +
+          (p.total != null ? "<small>" + money(p.total) + " total</small>" : "") +
+          "</div></div>";
+      }).join(""));
+    }
+
+    out += section("Where it is",
+      kv("Address", d.address) + kv("Phone", d.phone) +
+      kv("Check in", d.checkInTime) + kv("Check out", d.checkOutTime) +
+      (d.locationRating != null ? kv("Location", d.locationRating.toFixed(1) + " out of 5") : ""));
+
+    out += section("On the map", mapHTML(d));
+
+    if (d.histogram.length) {
+      out += section("How it is rated", d.histogram.map(function (r) {
+        return '<div class="ht-bar"><div class="st">' + r.stars + "★</div>" +
+          '<div class="track"><div class="fill" style="width:' + (r.share * 100).toFixed(1) + '%"></div></div>' +
+          '<div class="ct">' + r.count.toLocaleString("en-US") + "</div></div>";
+      }).join(""));
+    }
+
+    if (d.reviewTopics.length) {
+      out += section("What reviewers mention", d.reviewTopics.map(function (t) {
+        var tot = t.positive + t.negative + t.neutral;
+        var pct = function (n) { return tot ? (n / tot * 100).toFixed(1) + "%" : "0%"; };
+        return '<div class="ht-topic"><div class="th">' +
+          '<span class="nm">' + esc(t.name) + "</span>" +
+          '<span class="mn">' + t.mentioned.toLocaleString("en-US") + " mentions</span></div>" +
+          (tot ? '<div class="ht-split">' +
+            '<i class="pos" style="width:' + pct(t.positive) + '"></i>' +
+            '<i class="neu" style="width:' + pct(t.neutral) + '"></i>' +
+            '<i class="neg" style="width:' + pct(t.negative) + '"></i></div>' : "") +
+          "</div>";
+      }).join(""));
+    }
+
+    if (d.amenities.length) {
+      out += section("Amenities", '<div class="ht-chiplist">' +
+        d.amenities.map(function (a) { return "<span>" + esc(a) + "</span>"; }).join("") + "</div>");
+    }
+    if (d.excluded.length) {
+      out += section("Not available", '<div class="ht-chiplist no">' +
+        d.excluded.map(function (a) { return "<span>" + esc(a) + "</span>"; }).join("") + "</div>");
+    }
+
+    if (d.nearby.length) {
+      out += section("Nearby", d.nearby.map(function (n) {
+        return '<div class="ht-kv ht-near"><div class="k">' + esc(n.name) + "</div>" +
+          '<div class="v">' + esc(n.transport.join(" · ") || "—") + "</div></div>";
+      }).join(""));
+    }
+
+    if (d.description) {
+      out += section("About", '<div class="ht-desc">' + esc(d.description) + "</div>");
+    }
+    return out;
+  }
 
   function searchHotels() {
     if (!hotelsEnabled) return;
