@@ -1564,19 +1564,21 @@ function usefulAmenities(list) {
 
 // The few worth calling out on the card itself. Order here is the order they
 // render in.
+// Each carries its own colour so the row can be read by hue at a glance.
+// Pets are an icon rather than a word: it is the one people scan for.
 const AMENITY_BADGES = [
-  { label: "🐾", title: "Pet friendly", cls: "paw",
+  { label: "Pet friendly", icon: "paw", cls: "b-paw",
     keys: ["petfriendly", "petsallowed", "dogsallowed", "petsallowedfree"] },
-  { label: "Indoor pool", keys: ["indoorpool"] },
-  { label: "Outdoor pool", keys: ["outdoorpool"] },
+  { label: "Indoor pool", cls: "b-pool", keys: ["indoorpool"] },
+  { label: "Outdoor pool", cls: "b-pool", keys: ["outdoorpool"] },
   // only when neither of the specific ones matched, so a hotel with an indoor
   // pool is not badged "Indoor pool · Pool"
-  { label: "Pool", keys: ["pool"], unless: ["indoorpool", "outdoorpool"] },
-  { label: "Spa", keys: ["spa"] },
-  { label: "Minibar", keys: ["minibar", "minibarinroom"] },
-  { label: "Turndown", keys: ["turndownservice", "turndown"] },
-  { label: "In-room dining", keys: ["roomservice", "inroomdining"] },
-  { label: "Casino", keys: ["casino"] },
+  { label: "Pool", cls: "b-pool", keys: ["pool"], unless: ["indoorpool", "outdoorpool"] },
+  { label: "Spa", cls: "b-spa", keys: ["spa"] },
+  { label: "Minibar", cls: "b-bar", keys: ["minibar", "minibarinroom"] },
+  { label: "Turndown", cls: "b-turn", keys: ["turndownservice", "turndown"] },
+  { label: "In-room dining", cls: "b-dine", keys: ["roomservice", "inroomdining"] },
+  { label: "Casino", cls: "b-casino", keys: ["casino"] },
 ];
 
 function amenityBadges(list) {
@@ -1585,7 +1587,9 @@ function amenityBadges(list) {
   for (const b of AMENITY_BADGES) {
     if (!b.keys.some((k) => have.has(k))) continue;
     if (b.unless && b.unless.some((k) => have.has(k))) continue;
-    out.push({ label: b.label, title: b.title || b.label, cls: b.cls || "amen" });
+    const badge = { label: b.label, title: b.label, cls: b.cls };
+    if (b.icon) badge.icon = b.icon;
+    out.push(badge);
   }
   return out;
 }
@@ -1698,7 +1702,20 @@ async function searchHotels(q, checkIn, checkOut, adults, apiKey) {
   const properties = await serpHotels(q, checkIn, checkOut, adults, apiKey);
   flagProperties(properties);
   properties.sort((a, b) => (a.perNight || 1e9) - (b.perNight || 1e9));
-  return { properties, nights: nightsBetween(checkIn, checkOut) };
+  const nights = nightsBetween(checkIn, checkOut);
+  logHotelSearch(q, checkIn, checkOut, adults, nights, properties);
+  return { properties, nights };
+}
+
+// Every search, and the name of everything it turned up — nothing else, so
+// the terminal stays readable when several searches run back to back.
+function logHotelSearch(q, checkIn, checkOut, adults, nights, properties) {
+  console.log(
+    `\nHotels: "${q}"  ${checkIn} -> ${checkOut}  ${nights} night${nights === 1 ? "" : "s"}` +
+    `, ${adults} guest${adults === 1 ? "" : "s"}  —  ${properties.length} result` +
+    `${properties.length === 1 ? "" : "s"}`
+  );
+  for (const p of properties) console.log(`  ${p.name}`);
 }
 
 // ---------- one hotel, in full ----------
@@ -2498,9 +2515,15 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .ht-amen { font-size: 10px; color: var(--text3); margin-top: 8px; line-height: 1.45; }
 .fl-flag.rated { background: rgba(45,212,191,0.15); color: #2dd4bf; }
 .fl-flag.deal { background: rgba(249,115,22,0.16); color: var(--orange); }
-/* amenity badges sit under the price flags in the hierarchy */
-.fl-flag.amen { background: var(--panel2); border: 1px solid var(--border); color: var(--text2); font-weight: 800; }
-.fl-flag.paw { background: var(--panel2); border: 1px solid var(--border); font-size: 13px; letter-spacing: 0; padding: 0 7px; line-height: 1.32; }
+/* amenity badges, each its own hue so the row reads by colour at a glance */
+.fl-flag.b-paw    { background: rgba(245,197,24,0.16);  color: var(--yellow); padding: 3px 8px; }
+.fl-flag.b-pool   { background: rgba(56,189,248,0.16);  color: #38bdf8; }
+.fl-flag.b-spa    { background: rgba(244,114,182,0.16); color: #f472b6; }
+.fl-flag.b-bar    { background: rgba(167,139,250,0.16); color: #a78bfa; }
+.fl-flag.b-turn   { background: rgba(148,163,184,0.18); color: #94a3b8; }
+.fl-flag.b-dine   { background: rgba(163,230,53,0.15);  color: #a3e635; }
+.fl-flag.b-casino { background: rgba(232,121,249,0.16); color: #e879f9; }
+.paw-svg { width: 13px; height: 13px; display: block; }
 .fl-tile.ht-tile.best { border-color: rgba(45,212,191,0.32); background: linear-gradient(180deg, rgba(45,212,191,0.055), rgba(0,0,0,0)); }
 .fl-tile.ht-tile.best .lbl { color: #2dd4bf; }
 .ht-item.tappable { cursor: pointer; }
@@ -4212,16 +4235,27 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
   function money(n) { return "$" + Number(n).toLocaleString("en-US"); }
 
+  // Drawn rather than the 🐾 emoji: an emoji glyph carries its own colour and
+  // cannot be tinted, and it renders differently on every platform.
+  var PAW_SVG =
+    '<svg class="paw-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    '<ellipse cx="5.6" cy="11.2" rx="2.5" ry="3.1"/>' +
+    '<ellipse cx="10" cy="7.4" rx="2.6" ry="3.4"/>' +
+    '<ellipse cx="15.2" cy="7.4" rx="2.6" ry="3.4"/>' +
+    '<ellipse cx="19.5" cy="11.2" rx="2.5" ry="3.1"/>' +
+    '<path d="M12.5 12.6c3.1 0 5.9 2.6 5.9 5.1 0 1.9-1.6 2.9-3.4 2.9-1.1 0-1.8-.4-2.5-.4s-1.4.4-2.5.4c-1.8 0-3.4-1-3.4-2.9 0-2.5 2.8-5.1 5.9-5.1z"/>' +
+    "</svg>";
+
   function hotelFlagHTML(p) {
     var out = [];
     if (p.cheapest) out.push('<span class="fl-flag cheap">Lowest</span>');
     if (p.topRated) out.push('<span class="fl-flag rated">Top rated</span>');
     if (p.deal) out.push('<span class="fl-flag deal">' + esc(p.deal) + "</span>");
-    // the amenities worth seeing without opening the listing, quieter than
-    // the price flags so they do not compete with them
+    // the amenities worth seeing without opening the listing
     (p.badges || []).forEach(function (b) {
       out.push('<span class="fl-flag ' + esc(b.cls) + '" title="' + esc(b.title) +
-        '" aria-label="' + esc(b.title) + '">' + esc(b.label) + "</span>");
+        '" aria-label="' + esc(b.title) + '">' +
+        (b.icon === "paw" ? PAW_SVG : esc(b.label)) + "</span>");
     });
     return out.length ? '<div class="fl-flags">' + out.join("") + "</div>" : "";
   }
