@@ -1599,6 +1599,17 @@ function amenityBadges(list) {
 // The full listing keeps them: it has no badges to defer to.
 const BADGE_KEYS = new Set(AMENITY_BADGES.reduce((a, b) => a.concat(b.keys), []));
 
+// Card-only. Not junk — you want to know a place does breakfast — but so
+// nearly universal that four cards in a row read the same four things and the
+// line stops telling you anything. The full listing still shows them.
+const CARD_AMENITY_HIDE = new Set([
+  "Free breakfast", "Breakfast", "Breakfast included",
+  "Free Wi-Fi", "Wi-Fi",
+  "Free parking",
+  "Fitness center", "Fitness centre", "Gym",
+  "Restaurant",
+].map(amenityKey));
+
 function normalizeProperty(p, nights) {
   const name = p && p.name;
   if (!name) return null;
@@ -1626,7 +1637,7 @@ function normalizeProperty(p, nights) {
     reviews: Number.isFinite(reviews) ? reviews : null,
     stars: Number.isFinite(stars) ? stars : null,
     amenities: usefulAmenities(allAmenities)
-      .filter((a) => !BADGE_KEYS.has(amenityKey(a)))
+      .filter((a) => !BADGE_KEYS.has(amenityKey(a)) && !CARD_AMENITY_HIDE.has(amenityKey(a)))
       .slice(0, MAX_AMENITIES),
     badges: amenityBadges(allAmenities),
     deal,
