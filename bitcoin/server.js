@@ -1936,6 +1936,28 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Decoy thumbnails, dropped in beside this file as pica.png … picz.png.
+  // Read fresh each time rather than listed at boot, so adding one is a matter
+  // of copying the file in — no restart.
+  if (url.pathname === "/api/decoy") {
+    let pics = [];
+    try {
+      pics = fs.readdirSync(__dirname).filter((f) => /^pic[a-z]\.png$/i.test(f)).sort();
+    } catch (e) { pics = []; }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ pics }));
+    return;
+  }
+  // Whitelisted by shape and reduced to a basename, so nothing outside this
+  // directory is reachable through it.
+  if (/^\/pic[a-z]\.png$/i.test(url.pathname)) {
+    fs.readFile(path.join(__dirname, path.basename(url.pathname)), (err, buf) => {
+      if (err) { res.writeHead(404); res.end(); return; }
+      res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=3600" });
+      res.end(buf);
+    });
+    return;
+  }
   if (url.pathname === "/api/latest") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(snapshot()));
@@ -4814,16 +4836,27 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
   var elStealth = document.getElementById("stealth");
   var elHud = document.getElementById("stHud");
-  var decoyDrawn = false;
+  var decoyPics = [];
 
   function setStealth(on) {
     elStealth.classList.toggle("on", on);
     document.body.style.overflow = on ? "hidden" : "";
     try { localStorage.setItem("btcStealth", on ? "1" : "0"); } catch (e) {}
     if (!on) return;
-    if (!decoyDrawn) { renderDecoy(); decoyDrawn = true; }
+    renderDecoy(); // redrawn every time, so it is never the same page twice
     paintHud();
   }
+
+  // Which thumbnails are actually on disk. Until this answers — or if nothing
+  // is there — the decoy uses its drawn blocks, so it is never showing a
+  // broken image.
+  fetch("/api/decoy")
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      decoyPics = (d && d.pics) || [];
+      if (decoyPics.length && elStealth.classList.contains("on")) renderDecoy();
+    })
+    .catch(function () {});
   document.getElementById("stealthBtn").addEventListener("click", function () { setStealth(true); });
 
   // Held, not tapped: a stray thumb on the strip should not blow the cover.
@@ -4886,11 +4919,20 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     ["10-YR", "4.218%", 0.03], ["DOLLAR IDX", "104.61", -0.11],
     ["CRUDE", "$78.44", 1.27], ["GOLD", "$2,388.10", 0.35]
   ];
-  var DK_LEAD = {
-    h: "Central Bankers Signal a Slower Path as Inflation Cools",
-    d: "Policymakers left the door open to a longer pause, saying they want more evidence that price pressures have durably eased before moving again.",
-    by: "By the Economics Staff"
-  };
+  var DK_LEADS = [
+    { h: "Central Bankers Signal a Slower Path as Inflation Cools",
+      d: "Policymakers left the door open to a longer pause, saying they want more evidence that price pressures have durably eased before moving again.",
+      by: "By the Economics Staff" },
+    { h: "Investors Look Past a Soft Quarter to the Year Ahead",
+      d: "Positioning suggests the market has already written off the current period and is trading on what comes after it.",
+      by: "By the Markets Desk" },
+    { h: "The Long Wait for Capacity Reshapes Industrial Planning",
+      d: "Firms that once ordered to demand are now ordering to the calendar, booking years ahead of what they can forecast.",
+      by: "By the Industry Desk" },
+    { h: "A Quiet Rotation Is Under Way Beneath the Headline Index",
+      d: "Breadth has narrowed and then widened twice this quarter, a churn that the top-line number has almost entirely concealed.",
+      by: "By the Markets Desk" }
+  ];
   var DK_ITEMS = [
     { s: "Markets", h: "Treasury Yields Ease as Traders Weigh the Rate Path",
       p: "The long end retraced much of last week's move, with the curve steepening modestly through the afternoon session." },
@@ -4947,9 +4989,40 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     ["Silver", "28.44", "+0.19", "+0.67"], ["Copper", "4.512", "-0.028", "-0.62"]
   ];
 
-  function dkItemHTML(it, i) {
+  function shuffled(a) {
+    var out = a.slice();
+    for (var i = out.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = out[i]; out[i] = out[j]; out[j] = t;
+    }
+    return out;
+  }
+
+  // Enough thumbnails to go round, reshuffled on each pass through the short
+  // list so it does not read as a repeating cycle, and never repeating one
+  // directly beneath itself.
+  function picRun(n) {
+    if (!decoyPics.length) return [];
+    var out = [];
+    while (out.length < n) {
+      var batch = shuffled(decoyPics);
+      if (out.length && batch.length > 1 && batch[0] === out[out.length - 1]) {
+        var t = batch[0]; batch[0] = batch[1]; batch[1] = t;
+      }
+      out = out.concat(batch);
+    }
+    return out.slice(0, n);
+  }
+
+  function dkBox(pic, i) {
+    return pic
+      ? "background-image:url(/" + esc(pic) + ");background-size:cover;background-position:center"
+      : "background:" + DK_TINTS[i % DK_TINTS.length];
+  }
+
+  function dkItemHTML(it, i, pic) {
     return '<div class="dk-item"><div class="tx"><h2>' + esc(it.h) + "</h2><p>" + esc(it.p) +
-      '</p></div><div class="th" style="background:' + DK_TINTS[i % DK_TINTS.length] + '"></div></div>';
+      '</p></div><div class="th" style="' + dkBox(pic, i) + '"></div></div>';
   }
 
   function renderDecoy() {
@@ -4968,15 +5041,37 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     html += '<div class="dk-mast">The Market Ledger</div>' +
       '<div class="dk-sub">' + esc(dateLine) + " &middot; Late Edition</div>";
 
-    html += '<div class="dk-lead"><div class="dk-photo" style="background:' + DK_TINTS[0] + '"></div>' +
-      "<h1>" + esc(DK_LEAD.h) + '</h1><div class="dk-dek">' + esc(DK_LEAD.d) + "</div>" +
-      '<div class="dk-by">' + esc(DK_LEAD.by) + "</div></div>";
+    // Shuffled within each section and the sections themselves reordered, so
+    // the page is laid out afresh every time rather than being the same front
+    // page on Tuesday that it was on Monday. Grouping survives the shuffle —
+    // a paper does not scatter its sections.
+    var groups = {}, order = [];
+    DK_ITEMS.forEach(function (it) {
+      if (!groups[it.s]) { groups[it.s] = []; order.push(it.s); }
+      groups[it.s].push(it);
+    });
+    var laid = [];
+    shuffled(order).forEach(function (s) {
+      laid.push({ sec: s });
+      shuffled(groups[s]).forEach(function (it) { laid.push(it); });
+    });
 
-    var sec = null;
-    DK_ITEMS.forEach(function (it, i) {
-      if (it.s !== sec) { html += '<div class="dk-sec">' + esc(it.s) + "</div>"; sec = it.s; }
-      html += dkItemHTML(it, i);
-      if (i === 3) {
+    // one for the lead, then one per story. Counted in stories rather than in
+    // laid-out rows: section headings take no picture, and indexing past them
+    // would let the same one land twice in a row.
+    var pics = picRun(DK_ITEMS.length + 1);
+    var lead = shuffled(DK_LEADS)[0];
+
+    html += '<div class="dk-lead"><div class="dk-photo" style="' + dkBox(pics[0], 0) + '"></div>' +
+      "<h1>" + esc(lead.h) + '</h1><div class="dk-dek">' + esc(lead.d) + "</div>" +
+      '<div class="dk-by">' + esc(lead.by) + "</div></div>";
+
+    var placed = 0;
+    laid.forEach(function (row) {
+      if (row.sec) { html += '<div class="dk-sec">' + esc(row.sec) + "</div>"; return; }
+      html += dkItemHTML(row, placed, pics[placed + 1]);
+      placed++;
+      if (placed === 4) {
         html += '<div class="dk-quote">"The data have been kind to us lately, but we have been ' +
           'wrong-footed by a single quarter before."</div>';
       }
