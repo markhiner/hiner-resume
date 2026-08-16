@@ -177,6 +177,25 @@ function ingestTick() {
 }
 setInterval(ingestTick, 1000);
 
+// How long the price has been going the way it is going. Walks back through
+// the minute bars while the sign of each step holds; a flat minute neither
+// breaks the run nor counts toward it. Rides the snapshot so the discreet
+// readout in stealth mode needs no extra request.
+function priceTrend() {
+  const live = benchmarkPrice();
+  const closes = minuteBars.map((b) => b.close).filter((n) => Number.isFinite(n));
+  if (live != null) closes.push(live);
+  let dir = 0, minutes = 0;
+  for (let i = closes.length - 1; i > 0; i--) {
+    const step = Math.sign(closes[i] - closes[i - 1]);
+    if (step === 0) continue;
+    if (dir === 0) dir = step;
+    else if (step !== dir) break;
+    minutes++;
+  }
+  return { dir, minutes };
+}
+
 function snapshot() {
   const avg = benchmarkPrice();
   const prevAvg = secondTicks.length > 1 ? secondTicks[secondTicks.length - 2].avg : avg;
@@ -199,6 +218,7 @@ function snapshot() {
     // than only the Kalshi market poll (which returns early when there are no
     // markets to quote, and would leave the price stranded).
     brti: brtiPublic(),
+    trend: priceTrend(),
   };
 }
 
@@ -2354,6 +2374,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
 .jump-flights:active { background: var(--panel); color: var(--text1); }
+.stealth-btn { right: 32px; font-size: 14px; }
 
 .flights-section { margin-top: 16px; scroll-margin-top: 10px; }
 .flights-hdr { display: flex; align-items: center; gap: 8px; padding: 0 4px 8px; }
@@ -2621,6 +2642,104 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .ht-chiplist.no span { color: var(--text3); text-decoration: line-through; opacity: 0.75; }
 .ht-desc { font-size: 12px; color: var(--text2); line-height: 1.55; }
 
+/* ── passcode ──
+   A privacy screen, not access control: it keeps the dashboard off the glass
+   when someone else is holding the phone. The data behind it is still served
+   by the same open endpoints. */
+/* shown at first paint, removed once unlocked — the other way round would
+   flash the dashboard before the script ran */
+.pin { position: fixed; inset: 0; z-index: 200; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; }
+.pin.off { display: none; }
+.pin-inner { width: 100%; max-width: 300px; padding: 0 20px calc(20px + env(safe-area-inset-bottom)); }
+.pin-title { text-align: center; font-size: 13px; letter-spacing: 0.6px; color: var(--text2); margin-bottom: 18px; }
+.pin-dots { display: flex; gap: 16px; justify-content: center; margin-bottom: 34px; }
+.pin-dots i {
+  width: 11px; height: 11px; border-radius: 50%;
+  border: 1px solid var(--text3); background: transparent; transition: background 0.12s, border-color 0.12s;
+}
+.pin-dots i.on { background: var(--text1); border-color: var(--text1); }
+.pin.bad .pin-dots { animation: pinShake 0.4s; }
+.pin.bad .pin-dots i { border-color: var(--red); background: var(--red); }
+@keyframes pinShake {
+  0%,100% { transform: none; } 20% { transform: translateX(-9px); }
+  40% { transform: translateX(9px); } 60% { transform: translateX(-6px); } 80% { transform: translateX(6px); }
+}
+.pin-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; justify-items: center; }
+.pin-key {
+  width: 72px; height: 72px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text1);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  -webkit-tap-highlight-color: transparent;
+}
+.pin-key:active { background: var(--panel); }
+.pin-key .n { font-size: 27px; font-weight: 400; line-height: 1; }
+.pin-key .l { font-size: 9px; font-weight: 700; letter-spacing: 1.6px; color: var(--text3); height: 10px; }
+.pin-key.blank { border: 0; background: none; }
+.pin-key.act { border: 0; background: none; }
+.pin-key.act .n { font-size: 14px; color: var(--text2); font-weight: 600; letter-spacing: 0.4px; }
+
+/* ── stealth ──
+   A decoy front page over the whole screen with the real numbers reduced to a
+   ticker strip along the bottom, where a page like this would carry one. */
+.stealth { position: fixed; inset: 0; z-index: 150; background: #f6f4ef; display: none; }
+.stealth.on { display: block; }
+.dk {
+  position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: calc(8px + env(safe-area-inset-top)) 16px 74px;
+  background: #f6f4ef; color: #14110c;
+  font-family: Georgia, "Times New Roman", serif;
+}
+.dk-rail { display: flex; gap: 14px; overflow-x: auto; font-family: -apple-system, sans-serif;
+  font-size: 9.5px; letter-spacing: 0.4px; color: #6b6559; padding-bottom: 7px; border-bottom: 1px solid #d9d3c6; }
+.dk-rail > span { white-space: nowrap; flex: 0 0 auto; }
+.dk-rail::-webkit-scrollbar { display: none; }
+.dk-rail b { color: #14110c; font-weight: 700; }
+.dk-rail .up { color: #0a7a35; } .dk-rail .dn { color: #b3261e; }
+.dk-mast { text-align: center; font-size: 33px; font-weight: 700; letter-spacing: -0.5px; margin: 13px 0 3px; }
+.dk-sub { text-align: center; font-family: -apple-system, sans-serif; font-size: 9px; letter-spacing: 1.6px;
+  text-transform: uppercase; color: #6b6559; border-bottom: 2px solid #14110c; padding-bottom: 9px; }
+.dk-lead { padding: 15px 0 14px; border-bottom: 1px solid #d9d3c6; }
+.dk-photo { width: 100%; height: 176px; border-radius: 2px; margin-bottom: 11px; }
+.dk-lead h1 { font-size: 27px; line-height: 1.16; font-weight: 700; letter-spacing: -0.4px; }
+.dk-dek { font-size: 14px; line-height: 1.5; color: #4a4438; margin-top: 7px; }
+.dk-by { font-family: -apple-system, sans-serif; font-size: 8.5px; letter-spacing: 1.4px;
+  text-transform: uppercase; color: #8a8375; margin-top: 9px; }
+.dk-sec { font-family: -apple-system, sans-serif; font-size: 9.5px; font-weight: 800; letter-spacing: 2px;
+  text-transform: uppercase; color: #b3261e; margin: 19px 0 9px; }
+.dk-item { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid #e4dfd3; }
+.dk-item .tx { flex: 1; min-width: 0; }
+.dk-item h2 { font-size: 16.5px; line-height: 1.25; font-weight: 700; }
+.dk-item p { font-size: 12.5px; line-height: 1.45; color: #4a4438; margin-top: 4px; }
+.dk-item .th { width: 74px; height: 60px; border-radius: 2px; flex-shrink: 0; }
+.dk-quote { border-left: 3px solid #14110c; padding: 3px 0 3px 13px; margin: 17px 0; font-size: 17px; line-height: 1.35; font-style: italic; }
+.dk-tbl { width: 100%; border-collapse: collapse; font-family: -apple-system, sans-serif; font-size: 11.5px; }
+.dk-tbl th { text-align: left; font-size: 8.5px; letter-spacing: 1.2px; text-transform: uppercase;
+  color: #8a8375; border-bottom: 1px solid #14110c; padding: 5px 0; }
+.dk-tbl td { padding: 6px 0; border-bottom: 1px solid #e4dfd3; font-variant-numeric: tabular-nums; }
+.dk-tbl td.r { text-align: right; }
+.dk-tbl .up { color: #0a7a35; } .dk-tbl .dn { color: #b3261e; }
+.dk-end { text-align: center; font-family: -apple-system, sans-serif; font-size: 9px; letter-spacing: 1.5px;
+  text-transform: uppercase; color: #8a8375; padding: 26px 0 8px; }
+
+.st-hud {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 13px calc(6px + env(safe-area-inset-bottom));
+  background: #14110c; color: #cfc9bb;
+  font-family: -apple-system, sans-serif; font-size: 10px; font-variant-numeric: tabular-nums;
+  overflow-x: auto; white-space: nowrap; -webkit-tap-highlight-color: transparent;
+}
+.st-hud::-webkit-scrollbar { display: none; }
+.st-hud .px { font-weight: 800; color: #fff; font-size: 11px; }
+.st-hud .tr { font-weight: 700; }
+.st-hud .tr.up { color: #4ade80; } .st-hud .tr.dn { color: #f87171; } .st-hud .tr.fl { color: #8a8375; }
+.st-hud .sep { color: #4a4438; }
+.st-hud .pos { color: #cfc9bb; }
+.st-hud .gain { font-weight: 700; } .st-hud .gain.up { color: #4ade80; } .st-hud .gain.dn { color: #f87171; }
+.st-hud .tot { margin-left: auto; padding-left: 10px; font-weight: 800; }
+.st-hud .tot.up { color: #4ade80; } .st-hud .tot.dn { color: #f87171; }
+
 /* ── footer ── */
 .footer { display: flex; flex-direction: column; gap: 2px; padding: 4px 4px 0; font-size: 10.5px; color: var(--text3); }
 .footer-row { display: flex; justify-content: space-between; align-items: baseline; }
@@ -2631,6 +2750,25 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 </style>
 </head>
 <body>
+
+<div class="pin" id="pinGate">
+  <div class="pin-inner">
+    <div class="pin-title">Enter Passcode</div>
+    <div class="pin-dots" id="pinDots"><i></i><i></i><i></i><i></i></div>
+    <div class="pin-pad" id="pinPad"></div>
+  </div>
+</div>
+<script>
+  // synchronous, and before the dashboard markup is parsed: an already
+  // unlocked session must never see the keypad flash past
+  try { if (sessionStorage.getItem("btcUnlocked") === "1") document.getElementById("pinGate").classList.add("off"); } catch (e) {}
+</script>
+
+<div class="stealth" id="stealth">
+  <div class="dk" id="decoy"></div>
+  <div class="st-hud" id="stHud"></div>
+</div>
+
 <div class="screen-flash" id="screenFlash"></div>
 <div id="app">
 
@@ -2640,6 +2778,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     <span class="status-dot" id="statusDot"></span>
     <span class="status-word" id="statusWord">LIVE</span>
     <button class="jump-flights" id="jumpFlights" aria-label="Jump to flight search">&#9992;</button>
+    <button class="jump-flights stealth-btn" id="stealthBtn" aria-label="Stealth mode">&#9680;</button>
   </div>
 
   <div class="price-flash-wrap" id="priceFlashWrap">
@@ -2830,6 +2969,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     lastSnapshotAvg: null,
     brti: null,
     brtiSeenAt: 0, // local arrival time of the newest BRTI print
+    trend: null,     // { dir, minutes } — how long the price has run this way
+    portfolio: null, // last portfolio payload, for the stealth readout
   };
 
   var BIG_MOVE_THRESHOLD = 10; // dollars of blended-price change within one snapshot tick (~1s)
@@ -2964,6 +3105,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   }
 
   function refreshHeaderAndRows() {
+    paintHud();
     var px = headlinePrice();
     var deltaEl = document.getElementById("priceDelta");
 
@@ -3580,6 +3722,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   // ---------- my kalshi portfolio ----------
 
   function renderPortfolio(p) {
+    state.portfolio = p;      // the stealth readout reads it from here
+    paintHud();
     var card = document.getElementById("portfolioCard");
     if (!p || !p.enabled || p.error || p.positions == null) {
       card.style.display = "none";
@@ -4603,6 +4747,258 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     document.getElementById("flights").scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
+  // ---------- passcode ----------
+  //
+  // This is a privacy screen, not access control. It keeps the dashboard off
+  // the glass when the phone is in someone else's hand; it does not protect
+  // the data, which the same endpoints still serve to anyone who asks.
+
+  var PIN = "1123";
+  var elPin = document.getElementById("pinGate");
+  var pinBuf = "";
+
+  // a telephone pad, letters and all
+  var PIN_KEYS = [
+    ["1", ""], ["2", "ABC"], ["3", "DEF"],
+    ["4", "GHI"], ["5", "JKL"], ["6", "MNO"],
+    ["7", "PQRS"], ["8", "TUV"], ["9", "WXYZ"],
+    ["", ""], ["0", "+"], ["del", ""]
+  ];
+  document.getElementById("pinPad").innerHTML = PIN_KEYS.map(function (k) {
+    if (k[0] === "") return '<div class="pin-key blank"></div>';
+    if (k[0] === "del") return '<button class="pin-key act" data-k="del"><span class="n">Delete</span></button>';
+    return '<button class="pin-key" data-k="' + k[0] + '">' +
+      '<span class="n">' + k[0] + '</span><span class="l">' + k[1] + "</span></button>";
+  }).join("");
+
+  function paintDots() {
+    var dots = elPin.querySelectorAll(".pin-dots i");
+    for (var i = 0; i < dots.length; i++) dots[i].classList.toggle("on", i < pinBuf.length);
+  }
+  function pinPush(k) {
+    if (k === "del") { pinBuf = pinBuf.slice(0, -1); paintDots(); return; }
+    if (pinBuf.length >= 4) return;
+    pinBuf += k;
+    paintDots();
+    if (pinBuf.length < 4) return;
+    if (pinBuf === PIN) {
+      pinBuf = "";
+      paintDots();
+      try { sessionStorage.setItem("btcUnlocked", "1"); } catch (e) {}
+      elPin.classList.add("off");
+    } else {
+      elPin.classList.add("bad");
+      setTimeout(function () {
+        elPin.classList.remove("bad");
+        pinBuf = "";
+        paintDots();
+      }, 450);
+    }
+  }
+  document.getElementById("pinPad").addEventListener("click", function (e) {
+    var b = e.target.closest(".pin-key[data-k]");
+    if (b) pinPush(b.getAttribute("data-k"));
+  });
+  document.addEventListener("keydown", function (e) {
+    if (elPin.classList.contains("off")) return;
+    if (e.key >= "0" && e.key <= "9") pinPush(e.key);
+    else if (e.key === "Backspace") pinPush("del");
+  });
+
+  // ---------- stealth ----------
+  //
+  // A decoy front page over the whole screen, with the real numbers reduced to
+  // the ticker strip a paper like this would carry along the bottom. Every
+  // pixel is drawn here — no outside requests, so nothing to load, nothing to
+  // fail, and no third party told what is on the screen.
+
+  var elStealth = document.getElementById("stealth");
+  var elHud = document.getElementById("stHud");
+  var decoyDrawn = false;
+
+  function setStealth(on) {
+    elStealth.classList.toggle("on", on);
+    document.body.style.overflow = on ? "hidden" : "";
+    try { localStorage.setItem("btcStealth", on ? "1" : "0"); } catch (e) {}
+    if (!on) return;
+    if (!decoyDrawn) { renderDecoy(); decoyDrawn = true; }
+    paintHud();
+  }
+  document.getElementById("stealthBtn").addEventListener("click", function () { setStealth(true); });
+
+  // Held, not tapped: a stray thumb on the strip should not blow the cover.
+  var holdTimer = null;
+  elHud.addEventListener("pointerdown", function () {
+    holdTimer = setTimeout(function () { setStealth(false); }, 700);
+  });
+  ["pointerup", "pointercancel", "pointerleave"].forEach(function (ev) {
+    elHud.addEventListener(ev, function () { clearTimeout(holdTimer); });
+  });
+
+  function signed(n) {
+    return (n >= 0 ? "+" : "−") + "$" + Math.abs(n).toFixed(2);
+  }
+
+  function paintHud() {
+    // refreshHeaderAndRows can fire before this block has run
+    if (!elStealth || !elStealth.classList.contains("on")) return;
+    var bits = [];
+
+    var px = headlinePrice();
+    bits.push('<span class="px">' +
+      (px != null ? "$" + Math.round(px).toLocaleString("en-US") : "—") + "</span>");
+
+    var t = state.trend || { dir: 0, minutes: 0 };
+    var tc = t.dir > 0 ? "up" : t.dir < 0 ? "dn" : "fl";
+    var tri = t.dir > 0 ? "▲" : t.dir < 0 ? "▼" : "▬";
+    bits.push('<span class="tr ' + tc + '">' + tri + " " + (t.minutes || 0) + "m</span>");
+
+    var pf = state.portfolio;
+    if (pf && pf.enabled && pf.positions && pf.positions.length) {
+      pf.positions.forEach(function (r) {
+        var strike = r.strike != null ? (Math.round(r.strike / 100) / 10) + "k" : "?";
+        var side = (r.side || "").charAt(0).toUpperCase();
+        var g = r.pnl;
+        var gc = g > 0 ? "up" : g < 0 ? "dn" : "";
+        bits.push('<span class="sep">·</span><span class="pos">' + esc(strike) + " " + esc(side) +
+          (isFinite(r.count) ? " ×" + r.count : "") + " " +
+          '<span class="gain ' + gc + '">' + (g == null ? "—" : signed(g)) + "</span></span>");
+      });
+    }
+    if (pf && pf.unrealizedPnl != null) {
+      bits.push('<span class="tot ' + (pf.unrealizedPnl >= 0 ? "up" : "dn") + '">' +
+        signed(pf.unrealizedPnl) + "</span>");
+    }
+    elHud.innerHTML = bits.join("");
+  }
+
+  // The decoy's own content. Invented masthead and evergreen copy: it has to
+  // read as a newspaper at arm's length without passing itself off as a real
+  // publication or inventing news about anyone.
+  var DK_TINTS = [
+    "linear-gradient(135deg,#3d4a5c,#1c232d)", "linear-gradient(135deg,#6b5a45,#2e261c)",
+    "linear-gradient(135deg,#4a5c4e,#1e2a20)", "linear-gradient(135deg,#5c4a52,#2a1e23)",
+    "linear-gradient(135deg,#45566b,#1c2531)", "linear-gradient(135deg,#6b6145,#2e291c)"
+  ];
+  var DK_RAIL = [
+    ["BROAD 500", "5,412.08", 0.42], ["TECH 100", "18,940.22", 0.88],
+    ["INDUSTRIALS", "39,118.40", -0.19], ["SMALL CAP", "2,104.55", -0.63],
+    ["10-YR", "4.218%", 0.03], ["DOLLAR IDX", "104.61", -0.11],
+    ["CRUDE", "$78.44", 1.27], ["GOLD", "$2,388.10", 0.35]
+  ];
+  var DK_LEAD = {
+    h: "Central Bankers Signal a Slower Path as Inflation Cools",
+    d: "Policymakers left the door open to a longer pause, saying they want more evidence that price pressures have durably eased before moving again.",
+    by: "By the Economics Staff"
+  };
+  var DK_ITEMS = [
+    { s: "Markets", h: "Treasury Yields Ease as Traders Weigh the Rate Path",
+      p: "The long end retraced much of last week's move, with the curve steepening modestly through the afternoon session." },
+    { s: "Markets", h: "Earnings Season Opens to a Cautious Reception",
+      p: "Guidance, not results, is doing the work this quarter, and companies are being unusually careful with their language." },
+    { s: "Markets", h: "Volatility Gauge Slips to a Three-Month Low",
+      p: "Options desks report thinner demand for downside protection heading into the end of the month." },
+    { s: "Business", h: "Freight Rates Soften on Improving Port Throughput",
+      p: "Container volumes normalized after a congested spring, easing one of the more stubborn cost pressures for importers." },
+    { s: "Business", h: "Commercial Landlords Test the Conversion Math",
+      p: "Owners of older office stock are running the numbers on residential conversions, with mixed results across submarkets." },
+    { s: "Business", h: "Regional Lenders Rebuild Deposit Bases",
+      p: "Funding costs remain elevated, but the outflows that defined last year have largely stopped." },
+    { s: "Technology", h: "Data-Center Buildout Runs Into the Power Grid",
+      p: "Utilities are fielding interconnection requests years ahead of the capacity they can actually deliver." },
+    { s: "Technology", h: "Chip Equipment Orders Point to a Measured Recovery",
+      p: "Lead times have shortened, though customers are still spreading commitments across a longer horizon." },
+    { s: "Economy", h: "Job Openings Drift Lower Without a Rise in Layoffs",
+      p: "The labor market is cooling through reduced hiring rather than separations, an unusual pattern by past standards." },
+    { s: "Economy", h: "Households Trade Down Without Cutting Back",
+      p: "Spending volumes are holding up even as shoppers move toward private label and smaller pack sizes." },
+    { s: "Economy", h: "Wage Growth Settles Into a Narrower Band",
+      p: "Average hourly earnings have moved sideways for three months, a pace policymakers have called consistent with the target." },
+    { s: "World", h: "Export Orders Stabilize Across the Euro Area",
+      p: "New orders returned to expansion for the first time since the winter, led by capital goods." },
+    { s: "World", h: "Shipping Insurers Reprice Long-Haul Routes",
+      p: "Premiums on certain corridors have doubled, a cost that is beginning to appear in landed prices." },
+    { s: "World", h: "Commodity Exporters Weigh Currency Interventions",
+      p: "Several central banks have signaled discomfort with the pace, if not the direction, of recent moves." },
+    { s: "Real Estate", h: "Mortgage Applications Rise on a Modest Rate Retreat",
+      p: "Refinancing led the increase, though volumes remain far below the levels of three years ago." },
+    { s: "Real Estate", h: "Industrial Rents Flatten After a Long Climb",
+      p: "Warehouse completions finally caught up with demand in several of the largest logistics markets." },
+    { s: "Personal Finance", h: "Cash Yields Slip but Still Beat the Alternatives",
+      p: "Money-market funds continue to attract balances even as the highest quoted rates come down." },
+    { s: "Personal Finance", h: "A Closer Look at Target-Date Glide Paths",
+      p: "Two funds with the same year on the label can hold strikingly different mixes a decade out." },
+    { s: "Opinion", h: "The Case for Patience in Monetary Policy",
+      p: "Acting too quickly on a single quarter of data has a poor track record. The committee is right to wait." },
+    { s: "Opinion", h: "What the Productivity Numbers Do and Do Not Show",
+      p: "A strong print is welcome, but one quarter tells you very little about the underlying trend." },
+    { s: "Opinion", h: "Regulation Written for the Last Crisis",
+      p: "Rules built around a decade-old failure mode leave the newer one almost entirely unaddressed." },
+    { s: "Opinion", h: "In Defense of Boring Infrastructure",
+      p: "The projects that never make the front page are the ones that determine what everything else costs." }
+  ];
+  var DK_TABLE = [
+    ["Broad 500", "5,412.08", "+22.61", "+0.42"], ["Tech 100", "18,940.22", "+165.30", "+0.88"],
+    ["Industrials", "39,118.40", "-74.12", "-0.19"], ["Small Cap", "2,104.55", "-13.29", "-0.63"],
+    ["World ex-US", "2,388.77", "+9.04", "+0.38"], ["Emerging", "1,061.42", "+4.11", "+0.39"],
+    ["10-Yr Note", "4.218%", "+0.03", "+0.72"], ["2-Yr Note", "4.611%", "-0.02", "-0.43"],
+    ["Dollar Index", "104.61", "-0.12", "-0.11"], ["Crude Oil", "78.44", "+0.98", "+1.27"],
+    ["Natural Gas", "2.614", "-0.041", "-1.54"], ["Gold", "2,388.10", "+8.32", "+0.35"],
+    ["Silver", "28.44", "+0.19", "+0.67"], ["Copper", "4.512", "-0.028", "-0.62"]
+  ];
+
+  function dkItemHTML(it, i) {
+    return '<div class="dk-item"><div class="tx"><h2>' + esc(it.h) + "</h2><p>" + esc(it.p) +
+      '</p></div><div class="th" style="background:' + DK_TINTS[i % DK_TINTS.length] + '"></div></div>';
+  }
+
+  function renderDecoy() {
+    var d = new Date();
+    var days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    var mons = ["January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"];
+    var dateLine = days[d.getDay()] + ", " + mons[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear();
+
+    var html = '<div class="dk-rail">' + DK_RAIL.map(function (r) {
+      return "<span><b>" + esc(r[0]) + "</b> " + esc(r[1]) +
+        ' <span class="' + (r[2] >= 0 ? "up" : "dn") + '">' +
+        (r[2] >= 0 ? "+" : "") + r[2].toFixed(2) + "%</span></span>";
+    }).join("") + "</div>";
+
+    html += '<div class="dk-mast">The Market Ledger</div>' +
+      '<div class="dk-sub">' + esc(dateLine) + " &middot; Late Edition</div>";
+
+    html += '<div class="dk-lead"><div class="dk-photo" style="background:' + DK_TINTS[0] + '"></div>' +
+      "<h1>" + esc(DK_LEAD.h) + '</h1><div class="dk-dek">' + esc(DK_LEAD.d) + "</div>" +
+      '<div class="dk-by">' + esc(DK_LEAD.by) + "</div></div>";
+
+    var sec = null;
+    DK_ITEMS.forEach(function (it, i) {
+      if (it.s !== sec) { html += '<div class="dk-sec">' + esc(it.s) + "</div>"; sec = it.s; }
+      html += dkItemHTML(it, i);
+      if (i === 3) {
+        html += '<div class="dk-quote">"The data have been kind to us lately, but we have been ' +
+          'wrong-footed by a single quarter before."</div>';
+      }
+    });
+
+    html += '<div class="dk-sec">Market Data</div><table class="dk-tbl"><tr>' +
+      "<th>Instrument</th><th>Last</th><th>Chg</th><th>%</th></tr>" +
+      DK_TABLE.map(function (r) {
+        var up = r[3].charAt(0) !== "-";
+        return "<tr><td>" + esc(r[0]) + '</td><td class="r">' + esc(r[1]) +
+          '</td><td class="r ' + (up ? "up" : "dn") + '">' + esc(r[2]) +
+          '</td><td class="r ' + (up ? "up" : "dn") + '">' + esc(r[3]) + "%</td></tr>";
+      }).join("") + "</table>";
+
+    html += '<div class="dk-end">&#9632;</div>';
+    document.getElementById("decoy").innerHTML = html;
+  }
+
+  try {
+    if (localStorage.getItem("btcStealth") === "1") setStealth(true);
+  } catch (e) {}
+
   // ---------- websocket + fallback polling ----------
 
   var ws = null, wsReconnectDelay = 1000, pollTimer = null;
@@ -4616,6 +5012,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         state.connCoinbase = snap.coinbaseConnected;
         state.connBitstamp = snap.bitstampConnected;
         applyBrti(snap.brti);
+        if (snap.trend) state.trend = snap.trend;
         state.high24 = snap.high24;
         state.low24 = snap.low24;
         state.lastMsgAt = Date.now();
@@ -4648,6 +5045,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     state.connBitstamp = snap.bitstampConnected;
     state.wCoinbase = snap.coinbaseWeight;
     state.wBitstamp = snap.bitstampWeight;
+    if (snap.trend) state.trend = snap.trend;
     applyBrti(snap.brti);
     state.high24 = snap.high24;
     state.low24 = snap.low24;
