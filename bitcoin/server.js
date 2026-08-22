@@ -2349,6 +2349,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .port-sell-msg.ok { color: var(--green); }
 .port-sell-msg.err { color: var(--red); }
 .port-empty { font-size: 11.5px; color: var(--text3); font-style: italic; }
+.port-empty.err { color: var(--yellow); font-style: normal; }
 /* a decided position: won rows carry a green field, lost ones step back */
 .port-row.won { background: linear-gradient(90deg, rgba(34,197,94,0.18), rgba(34,197,94,0.02)); border-radius: 8px; }
 .port-row.lost { opacity: 0.6; }
@@ -3752,7 +3753,21 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     state.portfolio = p;      // the stealth readout reads it from here
     paintHud();
     var card = document.getElementById("portfolioCard");
-    if (!p || !p.enabled || p.error || p.positions == null) {
+    // No credentials on the server means the feature is off, and staying
+    // hidden is right. An ERROR is different: the positions are meant to be
+    // here and are not, and vanishing without a word is how this reads as
+    // "the tracker broke" rather than "Kalshi did not answer".
+    if (!p || !p.enabled) {
+      card.style.display = "none";
+      return;
+    }
+    if (p.error) {
+      card.style.display = "";
+      card.innerHTML = '<div class="kalshi-hdr"><span class="kalshi-title">Open Positions</span></div>' +
+        '<div class="port-empty err">Kalshi: ' + esc(p.error) + "</div>";
+      return;
+    }
+    if (p.positions == null) {
       card.style.display = "none";
       return;
     }
