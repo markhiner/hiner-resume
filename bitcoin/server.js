@@ -756,17 +756,33 @@ const SELL_PIN = process.env.SELL_PIN || null;
 const PORTFOLIO_POLL_MS = Number(process.env.KALSHI_PORTFOLIO_MS) || 15_000;
 
 let kalshiPrivateKey = null;
+let kalshiKeyLoadError = null;
 if (KALSHI_KEY_ID && KALSHI_KEY_PATH) {
   try {
     kalshiPrivateKey = crypto.createPrivateKey(fs.readFileSync(KALSHI_KEY_PATH));
     console.log("Kalshi portfolio: credentials loaded");
   } catch (e) {
+    kalshiKeyLoadError = e.message;
     console.error("Kalshi portfolio: could not load private key:", e.message);
   }
 }
 
+// Why the feature is off, safe to hand to the page — never key material,
+// only whether the pieces were present and what happened loading them. This
+// is a personal dashboard, not a shared product with a legitimate "off"
+// state: when it is off, that is always something to fix, not something to
+// stay quiet about the way a genuinely optional feature would.
+function portfolioDisabledReason() {
+  if (KALSHI_KEY_ID && kalshiPrivateKey) return null; // enabled — nothing to explain
+  if (!KALSHI_KEY_ID) return "KALSHI_API_KEY_ID is not set on the server";
+  if (!KALSHI_KEY_PATH) return "KALSHI_PRIVATE_KEY_PATH is not set on the server";
+  if (kalshiKeyLoadError) return "private key at " + KALSHI_KEY_PATH + " failed to load: " + kalshiKeyLoadError;
+  return "Kalshi credentials were not loaded";
+}
+
 let portfolioState = {
   enabled: !!(KALSHI_KEY_ID && kalshiPrivateKey),
+  disabledReason: portfolioDisabledReason(),
   sellEnabled: !!(KALSHI_KEY_ID && kalshiPrivateKey && SELL_PIN),
   updatedAt: 0,
   error: null,
@@ -3769,12 +3785,19 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     state.portfolio = p;      // the stealth readout reads it from here
     paintHud();
     var card = document.getElementById("portfolioCard");
-    // No credentials on the server means the feature is off, and staying
-    // hidden is right. An ERROR is different: the positions are meant to be
-    // here and are not, and vanishing without a word is how this reads as
-    // "the tracker broke" rather than "Kalshi did not answer".
-    if (!p || !p.enabled) {
-      card.style.display = "none";
+    if (!p) { card.style.display = "none"; return; }
+    // Not enabled is not a silent "feature off" on this page the way it might
+    // be on a shared product — this dashboard has exactly one owner and the
+    // feature is always meant to be on, so a missing credential should read
+    // as a missing credential on screen, not as the card having vanished.
+    if (!p.enabled) {
+      if (p.disabledReason) {
+        card.style.display = "";
+        card.innerHTML = '<div class="kalshi-hdr"><span class="kalshi-title">Open Positions</span></div>' +
+          '<div class="port-empty err">Kalshi is off: ' + esc(p.disabledReason) + "</div>";
+      } else {
+        card.style.display = "none";
+      }
       return;
     }
     if (p.error) {
