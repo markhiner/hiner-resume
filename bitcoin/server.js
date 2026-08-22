@@ -1371,6 +1371,21 @@ function bucketize(data, bucketCount) {
 
 function getHistory(range) {
   const now = Date.now();
+  if (range === "5m") {
+    const cutoff = now - 5 * 60 * 1000;
+    const ticks = secondTicks.filter((p) => p.t >= cutoff);
+    // Same backfill as "1h" below, scaled down: secondTicks covers a full
+    // hour under normal operation, so this only matters in the few minutes
+    // right after a restart, when the tick buffer has not caught up yet.
+    const from = ticks.length ? ticks[0].t : now;
+    const bars = minuteBars
+      .concat(currentBar ? [currentBar] : [])
+      .filter((b) => b.t >= cutoff && b.t < from);
+    // 300 seconds of data at 1 tick/sec is <=300 points, so bucketize
+    // returns it untouched — full second resolution, which is the point of
+    // a zoomed-in range rather than a cropped view of the same coarse line.
+    return bucketize(bars.concat(ticks), 300);
+  }
   if (range === "1h") {
     const cutoff = now - 60 * 60 * 1000;
     const ticks = secondTicks.filter((p) => p.t >= cutoff);
@@ -2857,6 +2872,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   </div>
 
   <div class="range-row-sm">
+    <button class="range-btn-sm" data-range="5m">5m</button>
     <button class="range-btn-sm active" data-range="1h">1</button>
     <button class="range-btn-sm" data-range="3h">3</button>
     <button class="range-btn-sm" data-range="24h">24</button>
@@ -3504,7 +3520,11 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     return ticks;
   }
 
-  var RANGE_MS = { "1h": 3600000, "3h": 3 * 3600000, "24h": 24 * 3600000 };
+  var RANGE_MS = { "5m": 300000, "1h": 3600000, "3h": 3 * 3600000, "24h": 24 * 3600000 };
+  // ranges fed by the live websocket feed, second by second, rather than by
+  // the 30s poll — both are windows short enough that a 30s-stale chart
+  // would visibly lag behind the price ticking by on the header above it
+  var LIVE_RANGES = { "5m": true, "1h": true };
 
   function drawChart() {
     var rect = canvas.getBoundingClientRect();
@@ -3646,7 +3666,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   var autoRefreshTimer = null;
   function armAutoRefresh() {
     if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-    if (state.range !== "1h") autoRefreshTimer = setInterval(fetchHistory, 30000);
+    if (!LIVE_RANGES[state.range]) autoRefreshTimer = setInterval(fetchHistory, 30000);
   }
 
   document.querySelectorAll(".range-btn-sm").forEach(function (btn) {
@@ -3660,7 +3680,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   });
 
   function appendLivePoint(avg, vol) {
-    if (state.range !== "1h") return;
+    if (!LIVE_RANGES[state.range]) return;
     if (avg == null || !isFinite(avg)) return; // benchmark has no price right now
     var now = Date.now();
     // Coalesce into one point per second, matching the server's own tick
