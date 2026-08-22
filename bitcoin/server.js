@@ -2751,6 +2751,11 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   background: #14110c; color: #cfc9bb;
   font-family: -apple-system, sans-serif; font-size: 10px; font-variant-numeric: tabular-nums;
   overflow-x: auto; white-space: nowrap; -webkit-tap-highlight-color: transparent;
+  /* iOS answers a long press on text with the selection loupe and a
+     pointercancel, which would kill the hold before it ever completed —
+     leaving no way out of stealth on an actual phone. */
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
+  touch-action: manipulation;
 }
 .st-hud::-webkit-scrollbar { display: none; }
 .st-hud .px { font-weight: 800; color: #fff; font-size: 11px; }
@@ -5090,9 +5095,20 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     document.getElementById("decoy").innerHTML = html;
   }
 
-  try {
-    if (localStorage.getItem("btcStealth") === "1") setStealth(true);
-  } catch (e) {}
+  // A way back that needs no gesture at all: btc.hiner.nyc/?normal drops
+  // stealth and forgets it. If the hold ever fails on a device, this is the
+  // door out that cannot itself break.
+  // plain indexOf rather than a regex: this script lives in a template
+  // literal, where \b in a pattern would reach the browser as a bare "b"
+  var wantsNormal = (location.search + location.hash).indexOf("normal") >= 0;
+  if (wantsNormal) {
+    try { localStorage.setItem("btcStealth", "0"); } catch (e) {}
+    setStealth(false);
+  } else {
+    try {
+      if (localStorage.getItem("btcStealth") === "1") setStealth(true);
+    } catch (e) {}
+  }
 
   // ---------- websocket + fallback polling ----------
 
