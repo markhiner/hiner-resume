@@ -4346,16 +4346,24 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     elResults.innerHTML = html;
   }
 
+  // arrTime is a 12-hour label like "2:30 PM" — the leading number alone
+  // isn't a sortable hour (2 PM and 2 AM both start with "2"), so AM/PM
+  // has to be folded in to get real minutes-since-midnight.
+  function minutesOfDay(label) {
+    if (!label) return Infinity;
+    var parts = label.split(" ");
+    var hm = parts[0].split(":");
+    var h = parseInt(hm[0], 10) % 12;
+    if (parts[1] === "PM") h += 12;
+    return h * 60 + parseInt(hm[1], 10);
+  }
+
   function compareResults(a, b) {
     if (sortBy === "price") {
       return a.price - b.price;
     } else if (sortBy === "arrival") {
-      var aMin = parseInt(a.arrTime.split(":")[0]);
-      var aMin2 = parseInt(a.arrTime.split(":")[1]);
-      var bMin = parseInt(b.arrTime.split(":")[0]);
-      var bMin2 = parseInt(b.arrTime.split(":")[1]);
-      var aTime = aMin * 60 + aMin2 + (a.dayOffset ? 1440 : 0);
-      var bTime = bMin * 60 + bMin2 + (b.dayOffset ? 1440 : 0);
+      var aTime = minutesOfDay(a.arrTime) + (a.dayOffset ? 1440 : 0);
+      var bTime = minutesOfDay(b.arrTime) + (b.dayOffset ? 1440 : 0);
       return aTime - bTime;
     }
     return 0;
