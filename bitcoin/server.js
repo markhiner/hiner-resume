@@ -147,11 +147,19 @@ function recordTrade(exchange, price, size, side) {
   broadcast({ type: "trade", ...trade });
 }
 
-function ingestTick() {
-  const avg = benchmarkPrice();
+// Records one price tick. Called either the instant a real BRTI print
+// arrives (event-driven — see the brtiSocket message handler) or, as a
+// safety net, by the 1s interval below when nothing has ticked recently
+// (BRTI disabled/stalled). Driving this off real print arrival instead of
+// a fixed clock is what avoids aliasing: a fixed poll can silently repeat
+// a stale value between prints or miss a print that lands off-beat, which
+// is exactly what corrupted the settlement-minute average before.
+let lastTickAt = 0;
+function recordTick(avg) {
   if (avg == null) { volSinceLastTick = 0; return; }
 
   const t = Date.now();
+  lastTickAt = t;
   const vol = volSinceLastTick;
   volSinceLastTick = 0;
 
@@ -174,6 +182,12 @@ function ingestTick() {
   }
 
   broadcast({ type: "snapshot", ...snapshot() });
+}
+function ingestTick() {
+  // Real BRTI prints already drive recordTick() as they arrive; only fall
+  // back to this fixed-clock poll when nothing has ticked in a while.
+  if (Date.now() - lastTickAt < 900) return;
+  recordTick(benchmarkPrice());
 }
 setInterval(ingestTick, 1000);
 
@@ -1317,6 +1331,7 @@ function connectBRTI() {
       brtiState.value = v;
       brtiState.ts = Date.now();
       brtiState.error = null;
+      recordTick(v);
     }
     const a = msg.avg_60s_data;
     if (a) {
@@ -3355,6 +3370,9 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     elMinuteAvgSub.textContent = sub;
   }
 
+  var freezeTimer = null;
+  var FREEZE_GRACE_MS = 500; // let the true final print of the window land
+
   function updateSettleMinute() {
     var now = new Date();
     var min = now.getMinutes();
@@ -3364,12 +3382,29 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
     if (settle.phase === "collecting") {
       if (min === 59) {
-        settleCapture(now, headlinePrice());
+        // When BRTI is live, applyBrti() captures on genuine print arrival —
+        // event-driven, so it can't alias a stale value or miss an off-beat
+        // print. This poll only captures as a fallback when BRTI isn't
+        // configured, in which case there's no print event to hook.
+        var b = state.brti;
+        if (!b || !b.enabled) settleCapture(now, headlinePrice());
         renderMinuteAvg();
-        if (sec === 59) { settleFreeze(); renderMinuteAvg(); settleShow(true, true); }
+        // The wall clock ticking over to :59:59 doesn't mean the 60th real
+        // BRTI print has landed yet — it can arrive a beat later, same as
+        // any other second in the window. Give it a short grace period
+        // before locking the average, instead of freezing on 59 samples.
+        if (sec === 59 && !freezeTimer) {
+          freezeTimer = setTimeout(function () {
+            freezeTimer = null;
+            settleFreeze();
+            renderMinuteAvg();
+            settleShow(true, true);
+          }, FREEZE_GRACE_MS);
+        }
       } else {
         // the tab was backgrounded or the clock jumped straight past :59:59 —
         // close the window out rather than leaving it collecting forever
+        if (freezeTimer) { clearTimeout(freezeTimer); freezeTimer = null; }
         settleFreeze();
         renderMinuteAvg();
         settleShow(true, true);
@@ -5247,8 +5282,19 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   function applyBrti(b) {
     if (!b) return;
     var prev = state.brti;
-    if (b.value != null && (!prev || prev.ts !== b.ts || prev.value !== b.value)) {
+    var isNew = b.value != null && (!prev || prev.ts !== b.ts || prev.value !== b.value);
+    if (isNew) {
       state.brtiSeenAt = Date.now();
+      // Capture on the real print the instant it lands, rather than on the
+      // next 250ms poll tick — that's what makes the settlement-minute
+      // average match Kalshi's own BRTI-based figure instead of a resample.
+      // The extra :59 check guards the freeze's short grace period below —
+      // without it, a print arriving after the window has genuinely rolled
+      // over to the new hour could still slip into the old average.
+      if (b.enabled && settle.phase === "collecting" && new Date().getMinutes() === 59) {
+        settleCapture(new Date(), b.value);
+        renderMinuteAvg(); // keep the on-screen count/average in step with the capture, not lagging behind the next poll tick
+      }
     }
     state.brti = b;
   }
