@@ -592,8 +592,16 @@ let kalshiLadder = []; // full strike ladder for the live event, quotes patched 
 let kalshiEvent = null; // { ticker, close }
 const kalshiCloseCache = new Map(); // event_ticker -> close_time ms
 
+// Without a timeout, one slow/stuck Kalshi response leaves the fetch pending
+// indefinitely — and since the fast quote loop (refreshQuotes) won't start a
+// second request while one is in flight, a single hung call freezes position
+// repricing until it finally resolves, sometimes minutes later. Bound it so
+// a bad request just aborts and the next tick gets a clean shot instead.
+const KALSHI_TIMEOUT_MS = 6000;
+
 async function kalshiGET(pathname) {
-  const res = await fetch(KALSHI_API + pathname, { headers: { Accept: "application/json" } });
+  const res = await fetch(KALSHI_API + pathname,
+    { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(KALSHI_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`kalshi ${pathname} → ${res.status}`);
   return res.json();
 }
@@ -825,6 +833,7 @@ async function kalshiAuthGET(pathname) {
   const signPath = "/trade-api/v2" + pathname.split("?")[0];
   const res = await fetch(KALSHI_API + pathname, {
     headers: { Accept: "application/json", ...kalshiSignHeaders("GET", signPath) },
+    signal: AbortSignal.timeout(KALSHI_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`kalshi auth ${pathname.split("?")[0]} → ${res.status}`);
   return res.json();
