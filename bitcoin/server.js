@@ -2428,6 +2428,11 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .port-sell-msg.err { color: var(--red); }
 .port-empty { font-size: 11.5px; color: var(--text3); font-style: italic; }
 .port-empty.err { color: var(--yellow); font-style: normal; }
+.port-total { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08); font-size: 12px; font-weight: 700; color: var(--text2); }
+.port-total span { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.port-total.up span { color: var(--green); }
+.port-total.down span { color: var(--red); }
+.port-total.flat span { color: var(--text3); }
 /* a decided position: won rows carry a green field, lost ones step back */
 .port-row.won { background: linear-gradient(90deg, rgba(34,197,94,0.18), rgba(34,197,94,0.02)); border-radius: 8px; }
 .port-row.lost { opacity: 0.6; }
@@ -3942,6 +3947,19 @@ canvas#chart { width: 100%; height: 158px; display: block; }
           pnlHtml + sellBtn +
           "</div>";
       }).join("");
+      // A settled contract's P&L is realized, not unrealized — only sum
+      // the ones still in play, and only bother with a total once there's
+      // more than one to add up.
+      var openRows = p.positions.filter(function (r) {
+        return r.won !== true && r.won !== false && r.pnl != null && isFinite(r.pnl);
+      });
+      if (openRows.length > 1) {
+        var totalOpenPnl = Math.round(openRows.reduce(function (s, r) { return s + r.pnl; }, 0) * 100) / 100;
+        var tc = totalOpenPnl > 0.004 ? "up" : totalOpenPnl < -0.004 ? "down" : "flat";
+        var tsign = totalOpenPnl > 0 ? "+" : totalOpenPnl < 0 ? "\\u2212" : "";
+        html += '<div class="port-total ' + tc + '">Open P&amp;L \\u00b7 ' + openRows.length + ' positions' +
+          '<span>' + tsign + "$" + Math.abs(totalOpenPnl).toFixed(2) + "</span></div>";
+      }
     }
     html += '<div class="port-sell-msg" id="sellMsg"></div>';
     card.innerHTML = html;
@@ -3975,12 +3993,19 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   var winToastTimer = null;
 
   function announceWins(rows) {
+    // Multiple positions from the same hour settle together, in the same
+    // batch — collect all of them first so a shared hour's wins land in one
+    // toast with a combined total, rather than one flashing over the last.
+    var newlyWon = [];
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       if (r.won !== true || celebrated[r.ticker]) continue;
       celebrated[r.ticker] = true;
-      showWinToast(r);
+      newlyWon.push(r);
     }
+    if (!newlyWon.length) return;
+    if (newlyWon.length === 1) showWinToast(newlyWon[0]);
+    else showWinToastBatch(newlyWon);
   }
 
   function showWinToast(r) {
@@ -3998,6 +4023,28 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       '<div class="wt-top">Position won \u00b7 ' + what + "</div>" +
       '<div class="wt-amt">' + (profit != null ? (profit >= 0 ? "+" : "\u2212") + "$" + Math.abs(profit).toFixed(2) : "$" + (r.value != null ? r.value.toFixed(2) : "\u2013")) + "</div>" +
       '<div class="wt-sub">' + sub.join(" \u00b7 ") + "</div>";
+    showToastEl(el);
+  }
+
+  // Several positions can settle in the very same batch when they share an
+  // hour, one toast per position would just overwrite itself before you
+  // could read it, so show the combined total instead.
+  function showWinToastBatch(rows) {
+    var el = document.getElementById("winToast");
+    var anyProfit = false, totalProfit = 0;
+    rows.forEach(function (r) {
+      if (r.value != null && r.costBasis != null) { totalProfit += r.value - r.costBasis; anyProfit = true; }
+    });
+    var pendingCount = rows.filter(function (r) { return r.pending; }).length;
+    var sub = rows.length + " positions" + (pendingCount ? " \u00b7 " + pendingCount + " unofficial" : "");
+    el.innerHTML =
+      '<div class="wt-top">' + rows.length + " positions won</div>" +
+      '<div class="wt-amt">' + (anyProfit ? (totalProfit >= 0 ? "+" : "\u2212") + "$" + Math.abs(totalProfit).toFixed(2) : "\u2013") + "</div>" +
+      '<div class="wt-sub">' + sub + "</div>";
+    showToastEl(el);
+  }
+
+  function showToastEl(el) {
     el.classList.add("on");
     clearTimeout(winToastTimer);
     winToastTimer = setTimeout(function () { el.classList.remove("on"); }, 20000);
