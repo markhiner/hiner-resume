@@ -1395,6 +1395,18 @@ function bucketize(data, bucketCount) {
 
 function getHistory(range) {
   const now = Date.now();
+  if (range === "2m") {
+    const cutoff = now - 2 * 60 * 1000;
+    const ticks = secondTicks.filter((p) => p.t >= cutoff);
+    // Same backfill as "5m"/"1h" below, scaled down further.
+    const from = ticks.length ? ticks[0].t : now;
+    const bars = minuteBars
+      .concat(currentBar ? [currentBar] : [])
+      .filter((b) => b.t >= cutoff && b.t < from);
+    // 120 seconds of data at 1 tick/sec is <=120 points, so bucketize
+    // returns it untouched — full second resolution.
+    return bucketize(bars.concat(ticks), 120);
+  }
   if (range === "5m") {
     const cutoff = now - 5 * 60 * 1000;
     const ticks = secondTicks.filter((p) => p.t >= cutoff);
@@ -2896,6 +2908,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   </div>
 
   <div class="range-row-sm">
+    <button class="range-btn-sm" data-range="2m">2m</button>
     <button class="range-btn-sm" data-range="5m">5m</button>
     <button class="range-btn-sm active" data-range="1h">1</button>
     <button class="range-btn-sm" data-range="3h">3</button>
@@ -3564,11 +3577,11 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     return ticks;
   }
 
-  var RANGE_MS = { "5m": 300000, "1h": 3600000, "3h": 3 * 3600000, "24h": 24 * 3600000 };
+  var RANGE_MS = { "2m": 120000, "5m": 300000, "1h": 3600000, "3h": 3 * 3600000, "24h": 24 * 3600000 };
   // ranges fed by the live websocket feed, second by second, rather than by
   // the 30s poll — both are windows short enough that a 30s-stale chart
   // would visibly lag behind the price ticking by on the header above it
-  var LIVE_RANGES = { "5m": true, "1h": true };
+  var LIVE_RANGES = { "2m": true, "5m": true, "1h": true };
 
   function drawChart() {
     var rect = canvas.getBoundingClientRect();
