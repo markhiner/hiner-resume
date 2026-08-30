@@ -564,6 +564,109 @@ function computeForecast() {
   };
 }
 
+// ---------- Forecast calibration ----------
+// Does "70% chance" actually resolve above 70% of the time? The model above
+// is only useful if its stated probabilities are honest, not just directionally
+// right — this logs one prediction per hourly close (at a fixed lead time, so
+// they're comparable to each other) and grades it once the real settlement
+// average is known, using the exact same 60-second window Kalshi itself uses.
+const CALIB_FILE = path.join(__dirname, "calibration.json");
+const CALIB_LEAD_MIN = 10; // log with ~10 minutes left on the clock
+const CALIB_MAX_RECORDS = 2000; // ~83 days at one prediction/hour
+
+let calibRecords = [];
+try {
+  const loaded = JSON.parse(fs.readFileSync(CALIB_FILE, "utf8"));
+  if (Array.isArray(loaded)) calibRecords = loaded;
+} catch {}
+
+function saveCalibration() {
+  try { fs.writeFileSync(CALIB_FILE, JSON.stringify(calibRecords)); }
+  catch (e) { console.error("calibration save failed:", e.message); }
+}
+
+function maybeLogPrediction(forecast) {
+  if (!forecast || forecast.insufficient || !forecast.model) return;
+  const m = forecast.model;
+  if (m.minutesRemaining == null) return;
+  // a narrow window around the target lead time — this runs on a 10s
+  // interval, so it will land inside a 1-minute-wide window exactly once
+  if (m.minutesRemaining > CALIB_LEAD_MIN || m.minutesRemaining < CALIB_LEAD_MIN - 1) return;
+  if (calibRecords.some((r) => r.settleTs === m.settleTs)) return; // already logged this hour
+  calibRecords.push({
+    settleTs: m.settleTs,
+    predictedAt: Date.now(),
+    probAbove: m.probAbove,
+    threshold: m.threshold,
+    price: forecast.currentPrice,
+    minutesRemaining: m.minutesRemaining,
+    actualAvg: null,
+    wasAbove: null,
+    resolvedAt: null,
+  });
+  if (calibRecords.length > CALIB_MAX_RECORDS) calibRecords = calibRecords.slice(-CALIB_MAX_RECORDS);
+  saveCalibration();
+}
+
+function resolveCalibration() {
+  const now = Date.now();
+  let changed = false;
+  for (const r of calibRecords) {
+    if (r.actualAvg != null) continue;
+    if (now < r.settleTs + 5000) continue; // give the last capture a moment to land
+    const avg = settlementAverage(r.settleTs);
+    if (avg == null) continue; // not enough of the window recorded — retry next tick
+    r.actualAvg = Math.round(avg * 100) / 100;
+    r.wasAbove = avg >= r.threshold;
+    r.resolvedAt = now;
+    changed = true;
+  }
+  if (changed) saveCalibration();
+}
+
+function computeCalibrationStats() {
+  const resolved = calibRecords.filter((r) => r.actualAvg != null);
+  const n = resolved.length;
+  if (!n) return { n: 0, pending: calibRecords.length, brier: null, buckets: [], tiers: [] };
+
+  let brierSum = 0;
+  const buckets = [];
+  for (let i = 0; i < 10; i++) buckets.push({ lo: i / 10, hi: (i + 1) / 10, n: 0, sumP: 0, sumOutcome: 0 });
+  const tiers = { strong: { n: 0, correct: 0 }, leaning: { n: 0, correct: 0 }, tossup: { n: 0, correct: 0 } };
+
+  for (const r of resolved) {
+    const outcome = r.wasAbove ? 1 : 0;
+    brierSum += (r.probAbove - outcome) ** 2;
+    const bi = Math.min(9, Math.floor(r.probAbove * 10));
+    buckets[bi].n++;
+    buckets[bi].sumP += r.probAbove;
+    buckets[bi].sumOutcome += outcome;
+    const edge = Math.abs(r.probAbove - 0.5);
+    const tier = edge > 0.25 ? "strong" : edge > 0.1 ? "leaning" : "tossup";
+    tiers[tier].n++;
+    if ((r.probAbove >= 0.5) === r.wasAbove) tiers[tier].correct++;
+  }
+
+  return {
+    n,
+    pending: calibRecords.length - n,
+    brier: Math.round((brierSum / n) * 1000) / 1000,
+    buckets: buckets.filter((b) => b.n > 0).map((b) => ({
+      range: Math.round(b.lo * 100) + "-" + Math.round(b.hi * 100) + "%",
+      n: b.n,
+      predictedAvg: Math.round((b.sumP / b.n) * 1000) / 10,
+      actualRate: Math.round((b.sumOutcome / b.n) * 1000) / 10,
+    })),
+    tiers: Object.keys(tiers).map((k) => ({
+      tier: k,
+      n: tiers[k].n,
+      accuracy: tiers[k].n ? Math.round((tiers[k].correct / tiers[k].n) * 1000) / 10 : null,
+    })),
+  };
+}
+
+setInterval(resolveCalibration, 30_000);
+
 // ---------- Kalshi hourly market (public data, no auth) ----------
 // KXBTCD is Kalshi's "Bitcoin price above/below at {hour} ET" series — it
 // settles at the top of the hour, the exact question the Next Hour Outlook
@@ -1964,7 +2067,11 @@ function broadcast(msg) {
   const data = JSON.stringify(msg);
   for (const c of clients) if (c.readyState === WebSocket.OPEN) c.send(data);
 }
-setInterval(() => broadcast({ type: "trend", ...computeForecast() }), 10000);
+setInterval(() => {
+  const forecast = computeForecast();
+  maybeLogPrediction(forecast);
+  broadcast({ type: "trend", ...forecast });
+}, 10000);
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -2046,6 +2153,16 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/api/trend") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(computeForecast()));
+    return;
+  }
+  if (url.pathname === "/api/calibration") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(computeCalibrationStats()));
+    return;
+  }
+  if (url.pathname === "/calibration") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(calibrationPage);
     return;
   }
   if (url.pathname === "/api/brti") {
@@ -2168,6 +2285,92 @@ process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
 // ---------- frontend ----------
+
+// A small standalone diagnostic page — not part of the mobile ticker's own
+// template literal, so no double-escaping is needed here. Read-only, no
+// credentials or positions on it, so it doesn't need the passcode gate.
+const calibrationPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forecast Calibration</title>
+<style>
+  :root { --bg:#0a0a0c; --panel:#141418; --border:#26262c; --text1:#f2f2f4; --text2:#9a9aa2; --text3:#6a6a72;
+    --green:#2fe36a; --red:#ef4444; --yellow:#f5c518; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text1); font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; padding:20px; max-width:720px; margin:0 auto; }
+  h1 { font-size:20px; margin:6px 0 2px; }
+  .sub { color:var(--text3); font-size:12.5px; margin-bottom:20px; }
+  .stat-row { display:flex; gap:12px; margin-bottom:22px; flex-wrap:wrap; }
+  .stat { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px 16px; flex:1; min-width:120px; }
+  .stat .k { font-size:10.5px; color:var(--text3); text-transform:uppercase; letter-spacing:0.5px; }
+  .stat .v { font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; margin-top:2px; }
+  table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-bottom:20px; }
+  th, td { padding:8px 10px; text-align:right; font-variant-numeric:tabular-nums; font-size:13px; border-bottom:1px solid var(--border); }
+  th:first-child, td:first-child { text-align:left; }
+  th { color:var(--text3); font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:0.4px; }
+  tr:last-child td { border-bottom:none; }
+  .good { color:var(--green); } .bad { color:var(--red); } .mid { color:var(--yellow); }
+  .empty { color:var(--text3); font-style:italic; padding:20px; text-align:center; }
+  .note { color:var(--text3); font-size:12px; margin-top:-10px; margin-bottom:20px; }
+</style>
+</head>
+<body>
+  <h1>Forecast Calibration</h1>
+  <div class="sub">Does "70% chance" actually resolve above 70% of the time? One prediction logged per hourly close, graded against the real 60-second BRTI settlement average.</div>
+  <div id="body">Loading…</div>
+
+<script>
+function fmtPct(x) { return x == null ? "—" : x.toFixed(1) + "%"; }
+function esc(s) { return String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+function render(d) {
+  var el = document.getElementById("body");
+  if (!d.n) {
+    el.innerHTML = '<div class="stat-row"><div class="stat"><div class="k">Resolved</div><div class="v">0</div></div>' +
+      '<div class="stat"><div class="k">Pending</div><div class="v">' + d.pending + '</div></div></div>' +
+      '<div class="empty">No resolved predictions yet — one gets logged near the :50 mark of each hour and graded about a minute after the close. Check back in a bit.</div>';
+    return;
+  }
+  var brierCls = d.brier < 0.15 ? "good" : d.brier < 0.25 ? "mid" : "bad";
+  var html = '<div class="stat-row">' +
+    '<div class="stat"><div class="k">Resolved</div><div class="v">' + d.n + '</div></div>' +
+    '<div class="stat"><div class="k">Pending</div><div class="v">' + d.pending + '</div></div>' +
+    '<div class="stat"><div class="k">Brier score</div><div class="v ' + brierCls + '">' + d.brier.toFixed(3) + '</div></div>' +
+    '</div>' +
+    '<div class="note">Brier score: mean squared error of the stated probability vs. the actual outcome. 0 is a perfect forecaster, 0.25 is what guessing "50%" every time scores, 1 is perfectly wrong. Lower is better.</div>';
+
+  html += '<table><thead><tr><th>Predicted range</th><th>N</th><th>Avg predicted</th><th>Actual win rate</th><th>Gap</th></tr></thead><tbody>';
+  d.buckets.forEach(function (b) {
+    var gap = b.actualRate - b.predictedAvg;
+    var gapCls = Math.abs(gap) < 8 ? "good" : Math.abs(gap) < 18 ? "mid" : "bad";
+    html += '<tr><td>' + b.range + '</td><td>' + b.n + '</td><td>' + fmtPct(b.predictedAvg) + '</td><td>' + fmtPct(b.actualRate) + '</td>' +
+      '<td class="' + gapCls + '">' + (gap >= 0 ? "+" : "−") + Math.abs(gap).toFixed(1) + '</td></tr>';
+  });
+  html += '</tbody></table>';
+
+  html += '<table><thead><tr><th>Confidence tier</th><th>N</th><th>Directional accuracy</th></tr></thead><tbody>';
+  var tierLabel = { strong: "Strong (edge > 25pt)", leaning: "Leaning (edge 10-25pt)", tossup: "Toss-up (edge < 10pt)" };
+  d.tiers.forEach(function (t) {
+    if (!t.n) return;
+    var accCls = t.accuracy == null ? "" : t.accuracy >= 60 ? "good" : t.accuracy >= 45 ? "mid" : "bad";
+    html += '<tr><td>' + tierLabel[t.tier] + '</td><td>' + t.n + '</td><td class="' + accCls + '">' + fmtPct(t.accuracy) + '</td></tr>';
+  });
+  html += '</tbody></table>';
+
+  el.innerHTML = html;
+}
+
+function load() {
+  fetch("/api/calibration").then(function (r) { return r.json(); }).then(render)
+    .catch(function (e) { document.getElementById("body").innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; });
+}
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>`;
 
 const htmlPage = `<!DOCTYPE html>
 <html lang="en">
