@@ -4,3 +4,7 @@
 *.idlk
 video/
 saved-index.html
+__pycache__/
+*.pyc
+.env
+venv/
