@@ -57,7 +57,24 @@ In Safari, open the app, tap the **Share** button, then **Add to Home
 Screen**. It'll launch full-screen with no browser chrome, like a native
 app.
 
-## 5. (Optional) Expose it outside your home network
+## 5. (Optional) Find devices on your local network
+
+If you just want to see what Tuya devices are reachable on your Wi-Fi right
+now — no Tuya Cloud credentials needed — run this on a machine that's on
+the same network as your lights:
+
+```bash
+pip install tinytuya
+python3 discover_local.py
+```
+
+It listens for the UDP broadcasts Tuya devices send on the local network
+and prints each one's IP, device ID, and protocol version, and saves the
+full results to `discovered_devices.json`. It can't show friendly names
+(those only exist in your Tuya app's cloud account) — for a named list,
+finish the Cloud setup above and use the running app's device list.
+
+## 6. (Optional) Expose it outside your home network
 
 This repo's `trains/` tool uses a [Cloudflare
 Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
