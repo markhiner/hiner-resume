@@ -1,0 +1,42 @@
+{
+  "location": {
+    "_comment": "Replace lat/lon with your actual home coordinates (right-click your house on Google Maps, the numbers it shows you ARE lat,lon) so sunset/sunrise rules fire at the right time.",
+    "lat": 0.0,
+    "lon": 0.0,
+    "timezone": "America/New_York"
+  },
+  "rules": [
+    {
+      "name": "Front Porch on at dusk",
+      "time": "sunset",
+      "offset_minutes": 0,
+      "devices": ["Front Porch"],
+      "action": "on"
+    },
+    {
+      "name": "Front Porch off late",
+      "time": "23:30",
+      "devices": ["Front Porch"],
+      "action": "off"
+    },
+    {
+      "name": "Parlor evening lighting",
+      "time": "18:00",
+      "devices": [
+        "Parlor Ceiling 1",
+        "Parlor Ceiling 2",
+        "Parlor Ceiling 3",
+        "Parlor Ceiling 4",
+        "Parlor Ceiling 5"
+      ],
+      "action": "on",
+      "brightness_pct": 70
+    },
+    {
+      "name": "All lights off overnight",
+      "time": "00:30",
+      "devices": "all",
+      "action": "off"
+    }
+  ]
+}
