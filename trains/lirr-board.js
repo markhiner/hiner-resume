@@ -331,17 +331,24 @@ const htmlPage = `<!DOCTYPE html>
   body {
     background: #0a1420; color: #e8edf2; min-height: 100vh;
     font-family: "Helvetica Neue", Arial, -apple-system, BlinkMacSystemFont, sans-serif;
-    padding: 14px 14px 90px;
+    padding: 10px 12px 84px;
   }
-  .board-hdr { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; flex-wrap: wrap; gap: 6px; }
-  .board-title { font-size: 20px; font-weight: 800; letter-spacing: 0.3px; }
-  .board-sub { font-size: 11px; color: #6d8299; }
-  .legend { font-size: 10.5px; color: #7f93a8; margin: 8px 0 16px; line-height: 1.6; }
+  .board-hdr { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 2px; flex-wrap: wrap; gap: 6px; }
+  .board-title { font-size: 18px; font-weight: 800; letter-spacing: 0.3px; }
+  .board-sub { font-size: 10.5px; color: #6d8299; }
+  .legend { font-size: 10px; color: #7f93a8; margin: 4px 0 10px; line-height: 1.4; }
   .legend b { color: #cfe0f0; }
-  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 22px; }
-  .letter-group { margin-bottom: 14px; break-inside: avoid; }
-  .letter-hdr { font-size: 12px; font-weight: 800; color: #4d90c4; border-bottom: 1px solid #1c2f42; padding-bottom: 2px; margin-bottom: 3px; letter-spacing: 1px; }
-  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; font-size: 13.5px; }
+  /* Multi-column TEXT FLOW, not a grid — content packs top-to-bottom within
+     each column and only starts a new one when it runs out of room, so a
+     short column never sits stretched to match its tallest neighbor (the
+     blank-space problem a grid has). column-width lets the browser pick the
+     column count from the available width with no media query: one column
+     on an iPhone (which is the point — the real board is one dense list),
+     several side by side on anything wider. */
+  .cols { column-width: 300px; column-gap: 20px; }
+  .letter-group { margin-bottom: 8px; break-inside: avoid; }
+  .letter-hdr { font-size: 12px; font-weight: 800; color: #4d90c4; border-bottom: 1px solid #1c2f42; padding-bottom: 1px; margin-bottom: 1px; letter-spacing: 1px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 1.5px 0; font-size: 13.5px; }
   .row .name { color: #dfe8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
   .row .info { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
   .xfer { font-size: 10.5px; font-weight: 800; color: #9fb4c8; }
