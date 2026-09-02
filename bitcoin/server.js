@@ -2070,8 +2070,11 @@ async function serpHotelDetails(token, checkIn, checkOut, adults, apiKey) {
 
 const LIRR_STATIC_GTFS_URL = "https://rrgtfsfeeds.s3.amazonaws.com/gtfslirr.zip";
 const LIRR_API_KEY = process.env.LIRR_API_KEY || null;
-const LIRR_RT_JSON_URL = LIRR_API_KEY
-  ? `https://mnorth.prod.acquia-sites.com/wse/LIRR/gtfsrt/realtime/${LIRR_API_KEY}/json`
+// The JSON variant of this feed silently drops MTA's LIRR-specific track
+// extension (JSON has no extension mechanism) — only the raw protobuf
+// carries it, hence decoding it by hand below instead of using /json.
+const LIRR_RT_PROTO_URL = LIRR_API_KEY
+  ? `https://mnorth.prod.acquia-sites.com/wse/LIRR/gtfsrt/realtime/${LIRR_API_KEY}/proto`
   : null;
 const LIRR_CACHE_DIR = path.join(__dirname, ".lirr-gtfs-cache");
 const LIRR_STATIC_REFRESH_MS = 20 * 60 * 60 * 1000; // schedules don't change intraday
@@ -2291,47 +2294,144 @@ function computeLirrBoard(model, candidates, now) {
   return results;
 }
 
-// Merges live delay seconds from the GTFS-realtime feed onto the trip a
-// board row is actually using, so a delayed train's shown time reflects
-// reality instead of the static schedule. Pure (delay map in, board out).
-function applyLirrRealtimeDelays(board, delayByTrip) {
-  if (!delayByTrip || !delayByTrip.size) return board;
+// ---------- minimal protobuf wire-format reader (no dependency) ----------
+// Just enough to walk a GTFS-realtime FeedMessage by hand. The JSON variant
+// of this feed silently drops MTA's per-agency track extension (JSON has no
+// extension mechanism), so getting track numbers means reading the raw
+// protobuf — not worth a whole library dependency for this one feed.
+
+function pbReadVarint(buf, pos) {
+  let result = 0n, shift = 0n, b;
+  do {
+    b = buf[pos++];
+    result |= BigInt(b & 0x7f) << shift;
+    shift += 7n;
+  } while (b & 0x80);
+  return { value: result, pos };
+}
+// proto2 plain (non-zigzag) signed ints are varint-encoded as their 64-bit
+// two's complement, so a negative value takes the full 10-byte form.
+function pbVarintToSignedInt(v) {
+  if (v > 0x7fffffffn) v -= 1n << 64n;
+  return Number(v);
+}
+// Walks the top-level fields of one message, returning
+// { [fieldNumber]: Array<{ wireType, raw }> } — raw is a BigInt for
+// varints, a Buffer slice for length-delimited fields (submessages/strings).
+function pbParseFields(buf, start, end) {
+  const fields = {};
+  let pos = start;
+  while (pos < end) {
+    const tag = pbReadVarint(buf, pos);
+    pos = tag.pos;
+    const fieldNum = Number(tag.value >> 3n);
+    const wireType = Number(tag.value & 7n);
+    let raw;
+    if (wireType === 0) {
+      const v = pbReadVarint(buf, pos); pos = v.pos; raw = v.value;
+    } else if (wireType === 1) {
+      raw = buf.subarray(pos, pos + 8); pos += 8;
+    } else if (wireType === 2) {
+      const len = pbReadVarint(buf, pos); pos = len.pos;
+      const l = Number(len.value);
+      raw = buf.subarray(pos, pos + l); pos += l;
+    } else if (wireType === 5) {
+      raw = buf.subarray(pos, pos + 4); pos += 4;
+    } else {
+      break; // unsupported wire type (groups) — bail out of this message
+    }
+    if (!fields[fieldNum]) fields[fieldNum] = [];
+    fields[fieldNum].push({ wireType, raw });
+  }
+  return fields;
+}
+function pbString(entry) {
+  return entry && entry.raw instanceof Uint8Array ? Buffer.from(entry.raw).toString("utf8") : null;
+}
+function pbInt(entry) {
+  return entry && typeof entry.raw === "bigint" ? pbVarintToSignedInt(entry.raw) : null;
+}
+
+// Decodes one FeedMessage into tripId -> { delaySec, tracks: Map(stopId ->
+// track) }. MTA's LIRR track extension (a StopTimeUpdate submessage holding
+// one string field, following the same pattern documented for Metro-North)
+// isn't published at a confirmed field number, so rather than hardcode a
+// guess, every extension field in StopTimeUpdate's reserved [1000,1999]
+// range is opportunistically decoded and kept only if it looks like a real
+// track label (short alphanumeric) — best-effort, matching how every other
+// gap in this feed already degrades to "don't show it" rather than guess.
+function decodeLirrRealtimeProto(buf) {
+  const result = new Map();
+  const top = pbParseFields(buf, 0, buf.length);
+  const entities = top[2] || []; // FeedMessage.entity = 2
+  for (const ent of entities) {
+    const entFields = pbParseFields(ent.raw, 0, ent.raw.length);
+    const tuEntries = entFields[3] || []; // FeedEntity.trip_update = 3
+    if (!tuEntries.length) continue;
+    const tuFields = pbParseFields(tuEntries[0].raw, 0, tuEntries[0].raw.length);
+    const tripEntries = tuFields[1] || []; // TripUpdate.trip = 1
+    if (!tripEntries.length) continue;
+    const tripFields = pbParseFields(tripEntries[0].raw, 0, tripEntries[0].raw.length);
+    const tripId = pbString((tripFields[1] || [])[0]); // TripDescriptor.trip_id = 1
+    if (!tripId) continue;
+
+    const stopUpdates = tuFields[2] || []; // TripUpdate.stop_time_update = 2
+    let delaySec = null;
+    const tracks = new Map();
+    for (const su of stopUpdates) {
+      const suFields = pbParseFields(su.raw, 0, su.raw.length);
+      const stopId = pbString((suFields[4] || [])[0]); // StopTimeUpdate.stop_id = 4
+      const depEntries = suFields[3] || suFields[2] || []; // departure = 3, arrival = 2
+      if (depEntries.length) {
+        const depFields = pbParseFields(depEntries[0].raw, 0, depEntries[0].raw.length);
+        const d = pbInt((depFields[1] || [])[0]); // StopTimeEvent.delay = 1
+        if (d != null && delaySec == null) delaySec = d;
+      }
+      if (stopId) {
+        for (let fn = 1000; fn <= 1010; fn++) {
+          const ext = (suFields[fn] || [])[0];
+          if (!ext || ext.wireType !== 2) continue;
+          const extFields = pbParseFields(ext.raw, 0, ext.raw.length);
+          const track = pbString((extFields[1] || [])[0]);
+          if (track && /^[A-Za-z0-9]{1,4}$/.test(track.trim())) {
+            tracks.set(stopId, track.trim());
+            break;
+          }
+        }
+      }
+    }
+    result.set(tripId, { delaySec, tracks });
+  }
+  return result;
+}
+
+// Merges live delay + track from the realtime feed onto the trip a board
+// row is actually using. Pure (realtime map in, board out).
+function applyLirrRealtime(board, realtimeByTrip) {
+  if (!realtimeByTrip || !realtimeByTrip.size) return board;
   return board.map((row) => {
-    if (row.depMs == null || !row.tripId) return row;
-    const delaySec = delayByTrip.get(row.tripId);
-    if (!delaySec) return row;
-    return { ...row, depMs: row.depMs + delaySec * 1000, delayed: true };
+    if (!row.tripId) return row;
+    const rt = realtimeByTrip.get(row.tripId);
+    if (!rt) return row;
+    let next = row;
+    if (rt.delaySec) next = { ...next, depMs: next.depMs + rt.delaySec * 1000, delayed: true };
+    // row.tripId always refers to the leg departing FROM Penn (direct, or
+    // the Penn->Jamaica leg for a jamaica-transfer row) — track is only
+    // meaningful, and only ever posted, at that boarding point.
+    const track = rt.tracks.get(PENN_STOP_ID);
+    if (track) next = { ...next, track };
+    return next;
   });
 }
 
-// GTFS-realtime JSON shape (per the spec): { entity: [ { trip_update: {
-//   trip: { trip_id }, stop_time_update: [ { stop_id, departure: { delay } } ] } } ] }
-function parseLirrDelayFeed(json) {
-  const map = new Map();
-  const entities = (json && json.entity) || [];
-  for (const e of entities) {
-    const tu = e.trip_update;
-    if (!tu || !tu.trip || !tu.trip.trip_id) continue;
-    const updates = tu.stop_time_update || [];
-    for (const u of updates) {
-      const dep = u.departure || u.arrival;
-      if (dep && typeof dep.delay === "number" && dep.delay !== 0) {
-        map.set(tu.trip.trip_id, dep.delay);
-        break;
-      }
-    }
-  }
-  return map;
-}
-
-let lirrDelayByTrip = new Map();
+let lirrRealtimeByTrip = new Map();
 async function refreshLirrRealtime() {
-  if (!LIRR_RT_JSON_URL) return;
+  if (!LIRR_RT_PROTO_URL) return;
   try {
-    const res = await fetch(LIRR_RT_JSON_URL);
+    const res = await fetch(LIRR_RT_PROTO_URL);
     if (!res.ok) throw new Error(`RT fetch ${res.status}`);
-    const json = await res.json();
-    lirrDelayByTrip = parseLirrDelayFeed(json);
+    const buf = Buffer.from(await res.arrayBuffer());
+    lirrRealtimeByTrip = decodeLirrRealtimeProto(buf);
   } catch (e) {
     console.error("LIRR realtime feed error (falling back to schedule only):", e.message);
   }
@@ -2343,7 +2443,7 @@ function refreshLirrBoard() {
   const now = new Date();
   const candidates = buildLirrCandidates(now, lirrModel.stByTrip, lirrModel.tripById, lirrModel.servicesByDate);
   let rows = computeLirrBoard(lirrModel, candidates, now);
-  rows = applyLirrRealtimeDelays(rows, lirrDelayByTrip);
+  rows = applyLirrRealtime(rows, lirrRealtimeByTrip);
   lirrBoardCache = { rows, updatedAt: Date.now() };
 }
 
@@ -2353,7 +2453,7 @@ async function startLirrBoard() {
     loadLirrModel();
     refreshLirrBoard();
     setInterval(refreshLirrBoard, LIRR_BOARD_REFRESH_MS);
-    if (LIRR_RT_JSON_URL) {
+    if (LIRR_RT_PROTO_URL) {
       await refreshLirrRealtime();
       setInterval(refreshLirrRealtime, LIRR_RT_REFRESH_MS);
       console.log("LIRR: realtime delay feed enabled");
@@ -3279,6 +3379,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .tr-xfer { font-size: 10px; font-weight: 800; color: var(--text2); }
 .tr-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 3px; font-weight: 700; font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .tr-pill.delayed::after { content: "LATE"; font-size: 8px; font-weight: 900; opacity: 0.85; margin-left: 2px; }
+.tr-track { font-size: 9px; font-weight: 900; letter-spacing: 0.4px; color: #04231f; background: var(--green); border-radius: 3px; padding: 2px 5px; white-space: nowrap; }
 .tr-flat { color: var(--text3); font-style: italic; font-size: 11.5px; }
 .tr-empty { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 20px 0; }
 
@@ -5551,8 +5652,13 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     } else {
       var xfer = r.kind === "jamaica" ? '<span class="tr-xfer">J</span>' : "";
       var route = r.route || { name: "", color: "3b3b3b", textColor: "ffffff" };
+      // A track only ever shows up in the feed once LIRR has actually posted
+      // it, which in practice means the train is at the platform boarding —
+      // no separate "close to departure" heuristic needed, the data already
+      // encodes exactly that.
+      var track = r.track ? '<span class="tr-track" title="Boarding on track ' + esc(r.track) + '">TRACK ' + esc(r.track) + "</span>" : "";
       info = xfer + '<span class="tr-pill' + (r.delayed ? " delayed" : "") + '" style="background:#' + route.color + ";color:#" + route.textColor + '">' +
-        trFmtTime(r.depMs) + " " + esc(route.name.replace(/ Branch$/, "")) + "</span>";
+        trFmtTime(r.depMs) + " " + esc(route.name.replace(/ Branch$/, "")) + "</span>" + track;
     }
     return '<div class="tr-row"><span class="nm">' + esc(r.name) + '</span><span class="in">' + info + "</span></div>";
   }
