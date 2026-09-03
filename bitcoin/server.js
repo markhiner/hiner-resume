@@ -2550,7 +2550,12 @@ const AMTRAK_STATIONS_REFRESH_MS = 20 * 60 * 60 * 1000; // station locations don
 const AMTRAK_STATIC_GTFS_URL = "https://content.amtrak.com/content/gtfs/GTFS.zip";
 const AMTRAK_CACHE_DIR = path.join(__dirname, ".amtrak-gtfs-cache");
 const AMTRAK_STATIC_REFRESH_MS = 20 * 60 * 60 * 1000; // schedules don't change intraday
-const NYP_CODE = "NYP";
+// The boards can be pointed at any of these three stations (dropdown on the
+// page) — a small allowlist rather than the whole 955-station network, since
+// each one adds trips to the static model below that have to be parsed and
+// held in memory for the life of the process.
+const AMTRAK_BOARD_STATIONS = { NYP: "New York", PHL: "Philadelphia", WAS: "Washington" };
+const AMTRAK_DEFAULT_STATION = "NYP";
 const AMTRAK_DEP_GRACE_MS = 3 * 60 * 1000; // stays listed as "Departed" this long, then drops off
 const AMTRAK_ARR_GRACE_MS = 5 * 60 * 1000; // stays listed as "Arrived" this long, then drops off
 const AMTRAK_DELAY_THRESHOLD_MS = 60 * 1000; // how far off schedule counts as "delayed" rather than noise
@@ -2591,6 +2596,10 @@ async function refreshAmtrakStations() {
 const AMTRAK_CITY_OVERRIDES = {
   BOS: "Boston South", BBY: "Boston Back Bay",
   BAL: "Baltimore Penn", BWI: "Baltimore Airport",
+  // NYP's GTFS name ("Ny Moynihan Train Hall At Penn Station") only ever
+  // needed shortening because it can now show up as a to/from city too,
+  // once a board is pointed at Philadelphia or DC instead of Penn itself.
+  NYP: "New York",
 };
 // Everywhere else, Amtrak's own station names are the city name plus a
 // generic suffix ("Washington Union Station", "Trenton Transit Center") that
@@ -2631,18 +2640,20 @@ function amtrakNormalizeStations(stations) {
 }
 
 // Pure: one train's raw /v3/trains entry in, the board entries it
-// contributes out. A train can contribute to neither board (doesn't stop at
-// Penn), one, or both — a train that arrives at Penn and continues on shows
-// up on both boards, same as the real one.
-function amtrakTrainEntries(train) {
+// contributes out, for whichever reference station the board is currently
+// pointed at. A train can contribute to neither board (doesn't stop at that
+// station), one, or both — a train that arrives and continues on shows up
+// on both boards, same as the real one.
+function amtrakTrainEntries(train, stationCode) {
   const stations = amtrakNormalizeStations(train.stations);
-  const idx = stations.findIndex((s) => s.code === NYP_CODE);
+  const idx = stations.findIndex((s) => s.code === stationCode);
   if (idx === -1) return [];
   const at = stations[idx];
   const common = {
     trainNum: train.trainNum, trainID: train.trainID, routeName: train.routeName,
     color: train.iconColor || "0039a6", textColor: train.textColor || "ffffff",
     lat: Number.isFinite(train.lat) ? train.lat : null, lon: Number.isFinite(train.lon) ? train.lon : null,
+    velocity: Number.isFinite(train.velocity) ? train.velocity : null, heading: train.heading || null,
     stations, live: true,
   };
   const entries = [];
@@ -2708,18 +2719,19 @@ function loadAmtrakModel() {
     if (!rawByTrip.has(st.trip_id)) rawByTrip.set(st.trip_id, []);
     rawByTrip.get(st.trip_id).push(st);
   }
-  // Only trips that touch Penn Station are ever read again — dropping the
-  // rest here keeps the in-memory model to a small fraction of Amtrak's
-  // full national stop_times.txt.
+  // Only trips that touch one of the board's reference stations are ever
+  // read again — dropping the rest here keeps the in-memory model to a
+  // small fraction of Amtrak's full national stop_times.txt.
+  const boardCodes = Object.keys(AMTRAK_BOARD_STATIONS);
   const stByTrip = new Map();
   for (const [tripId, sts] of rawByTrip) {
-    if (!sts.some((s) => s.stop_id === NYP_CODE)) continue;
+    if (!sts.some((s) => boardCodes.includes(s.stop_id))) continue;
     sts.sort((a, b) => +a.stop_sequence - +b.stop_sequence);
     stByTrip.set(tripId, sts);
   }
 
   amtrakModel = { stopNameById, routeById, tripById, stByTrip, calendarById };
-  console.log(`Amtrak: loaded ${stByTrip.size} trips touching Penn Station (of ${trips.length} nationwide)`);
+  console.log(`Amtrak: loaded ${stByTrip.size} trips touching a board station (of ${trips.length} nationwide)`);
 }
 
 const DOW_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -2741,7 +2753,7 @@ function amtrakServiceActive(serviceId, dateParts) {
 // (outside NY) can be off by an hour where the country changes time zones —
 // a known, accepted approximation since this data only ever backs up the
 // live feed, never replaces it once amtraker.com is actually tracking a run.
-function amtrakScheduleEntries(now) {
+function amtrakScheduleEntries(now, stationCode) {
   if (!amtrakModel) return [];
   const nowParts = nyDateParts(now);
   const yParts = nyDateParts(new Date(now.getTime() - 86400000));
@@ -2764,13 +2776,13 @@ function amtrakScheduleEntries(now) {
           arrMs: null, depMs: null, status: null, track: null,
         };
       });
-      const idx = stations.findIndex((s) => s.code === NYP_CODE);
+      const idx = stations.findIndex((s) => s.code === stationCode);
       if (idx === -1) continue;
       const at = stations[idx];
       const common = {
         trainNum: trip.trip_short_name, trainID: null, routeName: route ? route.route_long_name : "",
         color: (route && route.route_color) || "0039a6", textColor: (route && route.route_text_color) || "ffffff",
-        lat: null, lon: null, stations, live: false,
+        lat: null, lon: null, velocity: null, heading: null, stations, live: false,
       };
       if (idx > 0) {
         const from = stations[0];
@@ -2785,15 +2797,28 @@ function amtrakScheduleEntries(now) {
   return entries;
 }
 
+// The live feed's entries for one reference station, computed at request
+// time from the last full fetch — cheap enough (a few hundred trains
+// nationwide) that there is no need to precompute this per station on every
+// 30s refresh, only to throw two of the three away.
+function amtrakLiveEntries(stationCode) {
+  if (!amtrakTrainsJson) return [];
+  const entries = [];
+  for (const num of Object.keys(amtrakTrainsJson)) {
+    for (const train of amtrakTrainsJson[num]) entries.push(...amtrakTrainEntries(train, stationCode));
+  }
+  return entries;
+}
+
 // Live data wins where both exist (matched by train number + which board it's
 // on — Amtrak train numbers are unique per direction per day) since it's
 // strictly more informative; the schedule fills in everything live tracking
 // hasn't picked up yet, and stays as the record for anything live tracking
 // never mentions at all (a schedule change amtraker.com hasn't caught, etc).
-function amtrakMergedEntries(now) {
+function amtrakMergedEntries(now, stationCode) {
   const merged = new Map();
-  for (const e of amtrakScheduleEntries(now)) merged.set(e.trainNum + "|" + e.event, e);
-  for (const e of amtrakTrainsRaw) merged.set(e.trainNum + "|" + e.event, e);
+  for (const e of amtrakScheduleEntries(now, stationCode)) merged.set(e.trainNum + "|" + e.event, e);
+  for (const e of amtrakLiveEntries(stationCode)) merged.set(e.trainNum + "|" + e.event, e);
   return [...merged.values()];
 }
 
@@ -2813,32 +2838,28 @@ function amtrakBoardRow(entry, nowMs) {
   return {
     trainNum: entry.trainNum, trainID: entry.trainID, routeName: entry.routeName,
     color: entry.color, textColor: entry.textColor, lat: entry.lat, lon: entry.lon,
+    velocity: entry.velocity, heading: entry.heading,
     other: entry.other, schedMs: entry.schedMs, atMs: entry.atMs, track: entry.track,
     state, stations: entry.stations,
   };
 }
 
-let amtrakTrainsRaw = []; // last fetch's per-train NYP entries, unfiltered by time
+let amtrakTrainsJson = null; // last fetch's raw /v3/trains payload, not yet filtered to any station
 async function refreshAmtrakBoard() {
   try {
     const res = await fetch(AMTRAK_TRAINS_URL);
     if (!res.ok) throw new Error(`Amtrak fetch ${res.status}`);
-    const json = await res.json();
-    const entries = [];
-    for (const num of Object.keys(json)) {
-      for (const train of json[num]) entries.push(...amtrakTrainEntries(train));
-    }
-    amtrakTrainsRaw = entries;
+    amtrakTrainsJson = await res.json();
   } catch (e) {
     console.error("Amtrak board fetch failed (keeping last good data):", e.message);
   }
 }
 
-function amtrakBoard() {
+function amtrakBoard(stationCode) {
   const now = new Date();
   const nowMs = now.getTime();
   const departures = [], arrivals = [];
-  for (const entry of amtrakMergedEntries(now)) {
+  for (const entry of amtrakMergedEntries(now, stationCode)) {
     const row = amtrakBoardRow(entry, nowMs);
     if (!row) continue;
     (entry.event === "dep" ? departures : arrivals).push(row);
@@ -2849,9 +2870,10 @@ function amtrakBoard() {
   // the way it's supposed to (failed to load, or genuinely ran dry) — worth
   // knowing about, since the whole point of merging it in was to never see this.
   if (departures.length < AMTRAK_BOARD_MIN_ROWS || arrivals.length < AMTRAK_BOARD_MIN_ROWS) {
-    console.warn(`Amtrak board below the ${AMTRAK_BOARD_MIN_ROWS}-row floor: ${departures.length} departures, ${arrivals.length} arrivals`);
+    console.warn(`Amtrak board (${stationCode}) below the ${AMTRAK_BOARD_MIN_ROWS}-row floor: ${departures.length} departures, ${arrivals.length} arrivals`);
   }
   return {
+    station: stationCode,
     departures: departures.slice(0, AMTRAK_BOARD_MAX_ROWS),
     arrivals: arrivals.slice(0, AMTRAK_BOARD_MAX_ROWS),
     updatedAt: nowMs,
@@ -3068,8 +3090,10 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (url.pathname === "/api/penn-board") {
+    const requested = (url.searchParams.get("station") || "").toUpperCase();
+    const station = AMTRAK_BOARD_STATIONS[requested] ? requested : AMTRAK_DEFAULT_STATION;
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(amtrakBoard()));
+    res.end(JSON.stringify(amtrakBoard(station)));
     return;
   }
   if (url.pathname === "/trains") {
@@ -3251,6 +3275,10 @@ body {
 }
 .tp-back:active { background: var(--panel); }
 .tp-brand { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--text2); text-transform: uppercase; }
+.tp-station-select {
+  margin-left: auto; background: var(--panel2); color: var(--text1); border: 1px solid var(--border);
+  border-radius: 8px; padding: 5px 8px; font-size: 12px; font-weight: 700;
+}
 
 /* ── the departures/arrivals board — styled after the physical Solari
    board at Penn Station: light header, solid blue rows, dark gaps ── */
@@ -3355,6 +3383,15 @@ body {
   border-bottom: 1px solid var(--border); font-size: 12.5px;
 }
 .tt-stop.here { background: rgba(245,197,24,0.08); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+/* already behind the train — faded, not colored, so it reads as "done" */
+.tt-stop.past { opacity: 0.48; }
+.tt-stop.past .nm { color: var(--text2); }
+/* the very next stop ahead — the one color call-out on the whole list */
+.tt-stop.next-stop {
+  background: rgba(34,197,94,0.14); margin: 0 -16px; padding-left: 16px; padding-right: 16px;
+  border-left: 3px solid var(--green); opacity: 1;
+}
+.tt-stop.next-stop .nm { color: var(--text1); font-weight: 700; }
 .tt-stop .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text1); }
 .tt-stop .tm { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text2); }
 .tt-stop .st { width: 74px; flex-shrink: 0; text-align: right; font-size: 10.5px; color: var(--text3); }
@@ -3368,7 +3405,12 @@ body {
 
   <div class="tp-topbar">
     <a class="tp-back" href="/" aria-label="Back to BTC ticker">&larr;</a>
-    <span class="tp-brand">NY Penn Station</span>
+    <span class="tp-brand">Departures &amp; Arrivals</span>
+    <select class="tp-station-select" id="stationSelect" aria-label="Reference station">
+      ${Object.entries(AMTRAK_BOARD_STATIONS).map(([code, name]) =>
+        `<option value="${code}"${code === AMTRAK_DEFAULT_STATION ? " selected" : ""}>${name}</option>`
+      ).join("")}
+    </select>
   </div>
 
   <div class="board-card">
@@ -3425,7 +3467,13 @@ body {
 
   // ---------- NY Penn Departures / Arrivals (Amtrak) ----------
 
-  var state = { departures: [], arrivals: [], lirrRows: [] };
+  var STATION_NAMES = ${JSON.stringify(AMTRAK_BOARD_STATIONS)};
+  var STATION_CODES = ${JSON.stringify(Object.keys(AMTRAK_BOARD_STATIONS))};
+  var urlStation = new URL(location.href).searchParams.get("station");
+  var state = {
+    departures: [], arrivals: [], lirrRows: [],
+    station: STATION_CODES.indexOf(urlStation) !== -1 ? urlStation : "${AMTRAK_DEFAULT_STATION}",
+  };
 
   function amtrakStatus(row) {
     if (row.state === "departed") return { text: "Departed", cls: "gone" };
@@ -3465,7 +3513,12 @@ body {
   }
 
   function loadPennBoard() {
-    fetch("/api/penn-board").then(function (r) { return r.json(); }).then(function (d) {
+    var forStation = state.station;
+    fetch("/api/penn-board?station=" + forStation).then(function (r) { return r.json(); }).then(function (d) {
+      // the dropdown may have changed again while this request was in
+      // flight — a late response for the station we've since navigated
+      // away from would otherwise flash back over the one the user picked
+      if (d.station !== state.station) return;
       state.departures = d.departures || [];
       state.arrivals = d.arrivals || [];
       renderBoard("depBody", state.departures, "dep");
@@ -3478,6 +3531,21 @@ body {
       document.getElementById("arrBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
     });
   }
+
+  var stationSelectEl = document.getElementById("stationSelect");
+  stationSelectEl.value = state.station;
+  stationSelectEl.addEventListener("change", function () {
+    state.station = stationSelectEl.value;
+    boardExpanded.dep = false;
+    boardExpanded.arr = false;
+    if (openTrain && openTrain.kind === "amtrak") closeTrain();
+    var url = new URL(location.href);
+    url.searchParams.set("station", state.station);
+    history.replaceState(null, "", url);
+    document.getElementById("depBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
+    document.getElementById("arrBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
+    loadPennBoard();
+  });
 
   function tickClocks() {
     var now = new Date();
@@ -3571,13 +3639,22 @@ body {
     return '<span class="st">On Time</span>';
   }
 
+  function amtrakStopBest(s) {
+    var arr = s.arrMs != null ? s.arrMs : s.schedArrMs;
+    var dep = s.depMs != null ? s.depMs : s.schedDepMs;
+    return { arr: arr, dep: dep };
+  }
+
   function renderAmtrakDetail(row) {
     var status = amtrakStatus(row);
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
     var showMap = routeStops.length >= 2 || (row.lat != null && row.lon != null);
+    var speedBit = row.velocity != null
+      ? " &middot; " + Math.round(row.velocity) + " mph" + (row.heading ? " " + esc(row.heading) : "")
+      : "";
     elBody.innerHTML =
       '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
-      '<div class="tt-sub">Amtrak &middot; ' + status.text + '</div>' +
+      '<div class="tt-sub">Amtrak &middot; ' + status.text + speedBit + '</div>' +
       (showMap ? '<div id="ttMap"></div>' : '<div class="tt-position">Route map not available for this train right now.</div>') +
       '<div class="tt-stops" id="ttStops"></div>';
 
@@ -3585,14 +3662,24 @@ body {
     if (!row.stations || !row.stations.length) {
       stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
     } else {
-      stopsEl.innerHTML = row.stations.map(function (s) {
-        var atArr = s.arrMs != null ? s.arrMs : s.schedArrMs;
-        var atDep = s.depMs != null ? s.depMs : s.schedDepMs;
-        var timeMs = atDep != null ? atDep : atArr;
+      // The first stop with no arrival yet (or none confirmed) is "next" —
+      // everything before it is done, everything after is still ahead.
+      var now = Date.now();
+      var nextIdx = -1;
+      for (var ni = 0; ni < row.stations.length; ni++) {
+        var best = amtrakStopBest(row.stations[ni]);
+        var ref = best.arr != null ? best.arr : best.dep;
+        if (ref == null || now < ref) { nextIdx = ni; break; }
+      }
+      stopsEl.innerHTML = row.stations.map(function (s, i) {
+        var best = amtrakStopBest(s);
+        var timeMs = best.dep != null ? best.dep : best.arr;
         var schedMs = s.schedDepMs != null ? s.schedDepMs : s.schedArrMs;
-        var atMs = atDep != null ? atDep : atArr;
-        var here = s.code === "NYP";
-        return '<div class="tt-stop' + (here ? " here" : "") + '"><span class="nm">' + esc(s.name) + (here ? " (Penn Station)" : "") + '</span>' +
+        var atMs = timeMs;
+        var here = s.code === state.station;
+        var isPast = nextIdx === -1 ? true : i < nextIdx;
+        var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
+        return '<div class="tt-stop' + cls + '"><span class="nm">' + esc(s.name) + (here ? " (" + esc(STATION_NAMES[state.station] || "") + ")" : "") + '</span>' +
           '<span class="tm">' + fmtBoardTime(schedMs != null ? schedMs : timeMs) + '</span>' +
           stopStateHTML(schedMs, atMs, "Departed") + '</div>';
       }).join("");
@@ -3609,7 +3696,7 @@ body {
           L.polyline(latlngs, { color: "#" + row.color, weight: 3, opacity: 0.8 }).addTo(ttMap);
           var routeMarkers = routeStops.map(function (s, i) {
             var marker = L.circleMarker([s.lat, s.lon], { radius: 4, color: "#" + row.color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(ttMap);
-            return { marker: marker, name: s.name, forceLabel: i === 0 || i === routeStops.length - 1 || s.code === "NYP" };
+            return { marker: marker, name: s.name, forceLabel: i === 0 || i === routeStops.length - 1 || s.code === state.station };
           });
           // Every stop labeled at once is unreadable the moment the route is
           // longer than a handful of stops and the map is zoomed out to fit
@@ -3660,13 +3747,19 @@ body {
       stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
     } else {
       var now = Date.now();
-      stopsEl.innerHTML = row.stops.map(function (s) {
+      var nextIdx = -1;
+      for (var ni = 0; ni < row.stops.length; ni++) {
+        if (now < row.stops[ni].depMs) { nextIdx = ni; break; }
+      }
+      stopsEl.innerHTML = row.stops.map(function (s, i) {
         var here = s.stopId === "237";
         var passed = now >= s.depMs;
+        var isPast = nextIdx === -1 ? true : i < nextIdx;
+        var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
         var stHtml = passed
           ? '<span class="st done">Departed</span>'
           : (now >= s.arrMs ? '<span class="st delayed">Boarding</span>' : '<span class="st">Upcoming</span>');
-        return '<div class="tt-stop' + (here ? " here" : "") + '"><span class="nm">' + esc(s.name) + '</span>' +
+        return '<div class="tt-stop' + cls + '"><span class="nm">' + esc(s.name) + '</span>' +
           '<span class="tm">' + fmtBoardTime(s.depMs) + '</span>' + stHtml + '</div>';
       }).join("");
     }
