@@ -2245,7 +2245,7 @@ function lirrNextDirect(candidates, destStopId, nowMs) {
     const destStop = c.stops.find((s) => s.stopId === destStopId);
     if (!pennStop || !destStop || pennStop.seq >= destStop.seq) continue;
     if (pennStop.depMs < nowMs) continue;
-    if (!best || pennStop.depMs < best.depMs) best = { depMs: pennStop.depMs, tripId: c.tripId, routeId: c.routeId };
+    if (!best || pennStop.depMs < best.depMs) best = { depMs: pennStop.depMs, tripId: c.tripId, routeId: c.routeId, candidate: c };
   }
   return best;
 }
@@ -2267,10 +2267,10 @@ function lirrNextViaJamaica(candidates, destStopId, nowMs) {
     if (!pennStop || !jamStop || pennStop.seq >= jamStop.seq) continue;
     if (pennStop.depMs < nowMs) continue;
     if (jamStop.arrMs + LIRR_TRANSFER_BUFFER_MS > bestLeg2.jamDepMs) continue;
-    if (!bestLeg1 || pennStop.depMs < bestLeg1.depMs) bestLeg1 = { depMs: pennStop.depMs, tripId: c.tripId };
+    if (!bestLeg1 || pennStop.depMs < bestLeg1.depMs) bestLeg1 = { depMs: pennStop.depMs, tripId: c.tripId, candidate: c };
   }
   if (!bestLeg1) return null;
-  return { depMs: bestLeg1.depMs, tripId: bestLeg2.tripId, routeId: bestLeg2.routeId, penn2JamaicaTripId: bestLeg1.tripId };
+  return { depMs: bestLeg1.depMs, tripId: bestLeg2.tripId, routeId: bestLeg2.routeId, penn2JamaicaTripId: bestLeg1.tripId, candidate: bestLeg1.candidate };
 }
 
 // Pure and independently testable: model + candidates + "now" in, board out.
@@ -2289,6 +2289,7 @@ function computeLirrBoard(model, candidates, now) {
       results.push({
         stopId: stop.stop_id, name: stop.stop_name, kind: "direct", depMs: direct.depMs, tripId: direct.tripId,
         route: route ? { name: route.route_long_name, color: route.route_color, textColor: route.route_text_color } : null,
+        _candidate: direct.candidate,
       });
       continue;
     }
@@ -2298,6 +2299,7 @@ function computeLirrBoard(model, candidates, now) {
       results.push({
         stopId: stop.stop_id, name: stop.stop_name, kind: "jamaica", depMs: viaJ.depMs, tripId: viaJ.penn2JamaicaTripId,
         route: route ? { name: route.route_long_name, color: route.route_color, textColor: route.route_text_color } : null,
+        _candidate: viaJ.candidate,
       });
       continue;
     }
@@ -2305,6 +2307,44 @@ function computeLirrBoard(model, candidates, now) {
   }
   results.sort((a, b) => a.name.localeCompare(b.name));
   return results;
+}
+
+// Builds the passenger-relevant slice of one trip's schedule for the detail
+// view: everything from Penn onward (boarding at Penn is the point of this
+// board), each stop's scheduled time shifted by the trip's one known delay
+// figure — the realtime feed only ever gives one delay per trip, not one per
+// stop, so every stop after Penn is assumed equally early/late.
+function lirrTripStops(candidate, stopNameById, delaySec) {
+  if (!candidate) return [];
+  const pennStop = candidate.stops.find((s) => s.stopId === PENN_STOP_ID);
+  if (!pennStop) return [];
+  const shiftMs = (delaySec || 0) * 1000;
+  return candidate.stops
+    .filter((s) => s.seq >= pennStop.seq)
+    .sort((a, b) => a.seq - b.seq)
+    .map((s) => ({
+      stopId: s.stopId,
+      name: stopNameById.get(s.stopId) || s.stopId,
+      arrMs: s.arrMs + shiftMs,
+      depMs: s.depMs + shiftMs,
+    }));
+}
+
+// A plain-English estimate of where the train is right now, since LIRR's
+// public feed carries delay but not GPS — "at Jamaica" / "between Jamaica
+// and Woodside" is inferred from the (delay-adjusted) schedule, not measured.
+function lirrPositionEstimate(stops, nowMs) {
+  if (!stops.length) return null;
+  if (nowMs < stops[0].depMs) return `Boarding at ${stops[0].name}`;
+  const last = stops[stops.length - 1];
+  if (nowMs >= last.arrMs) return `Arrived at ${last.name}`;
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (nowMs >= stops[i].arrMs && nowMs < stops[i].depMs) return `At ${stops[i].name}`;
+    if (nowMs >= stops[i].depMs && nowMs < stops[i + 1].arrMs) {
+      return `Between ${stops[i].name} and ${stops[i + 1].name}`;
+    }
+  }
+  return null;
 }
 
 // ---------- minimal protobuf wire-format reader (no dependency) ----------
@@ -2454,9 +2494,26 @@ let lirrBoardCache = { rows: [], updatedAt: 0 };
 function refreshLirrBoard() {
   if (!lirrModel) return;
   const now = new Date();
+  const nowMs = now.getTime();
   const candidates = buildLirrCandidates(now, lirrModel.stByTrip, lirrModel.tripById, lirrModel.servicesByDate);
   let rows = computeLirrBoard(lirrModel, candidates, now);
   rows = applyLirrRealtime(rows, lirrRealtimeByTrip);
+
+  // Enrich each row with the full ride (for the tap-through detail view) and
+  // a plain-English position estimate. Uses the EXACT candidate instance
+  // computeLirrBoard already matched (row._candidate) rather than re-looking
+  // it up by trip ID — a trip ID alone is ambiguous here, since the same
+  // trip can have a separate candidate for yesterday/today/tomorrow's
+  // service, each with its own timestamps a day apart.
+  const stopNameById = new Map(lirrModel.stops.map((s) => [s.stop_id, s.stop_name]));
+  rows = rows.map((row) => {
+    if (!row._candidate) return row;
+    const rt = lirrRealtimeByTrip.get(row.tripId);
+    const stops = lirrTripStops(row._candidate, stopNameById, rt ? rt.delaySec : null);
+    const { _candidate, ...clean } = row;
+    return { ...clean, stops, position: lirrPositionEstimate(stops, nowMs) };
+  });
+
   lirrBoardCache = { rows, updatedAt: Date.now() };
 }
 
@@ -2476,6 +2533,122 @@ async function startLirrBoard() {
   } catch (e) {
     console.error("LIRR board failed to start:", e.message);
   }
+}
+
+// ---------- NY Penn Station Departures / Arrivals board (Amtrak) ----------
+// A live recreation of the physical departures/arrivals board at Penn
+// Station. Amtrak's own real-time API (amtraker.com — a long-running
+// community project, not an official Amtrak product) needs no key and
+// publishes live GPS per train, unlike LIRR's feed above. NJ Transit isn't
+// on this board yet — their real-time data needs its own developer
+// credentials that haven't been set up.
+
+const AMTRAK_TRAINS_URL = "https://api-v3.amtraker.com/v3/trains";
+const AMTRAK_REFRESH_MS = 30 * 1000;
+const NYP_CODE = "NYP";
+const AMTRAK_DEP_GRACE_MS = 3 * 60 * 1000; // stays listed as "Departed" this long, then drops off
+const AMTRAK_ARR_GRACE_MS = 5 * 60 * 1000; // stays listed as "Arrived" this long, then drops off
+const AMTRAK_DELAY_THRESHOLD_MS = 60 * 1000; // how far off schedule counts as "delayed" rather than noise
+
+function amtrakParseMs(iso) {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+// One train's stations array, normalized — used both for the board row and
+// verbatim for the detail view, so the two can never disagree with each other.
+function amtrakNormalizeStations(stations) {
+  return (Array.isArray(stations) ? stations : []).map((s) => ({
+    code: s.code, name: s.name,
+    schedArrMs: amtrakParseMs(s.schArr), schedDepMs: amtrakParseMs(s.schDep),
+    arrMs: amtrakParseMs(s.arr), depMs: amtrakParseMs(s.dep),
+    status: s.status || null, track: s.platform || null,
+  }));
+}
+
+// Pure: one train's raw /v3/trains entry in, the board entries it
+// contributes out. A train can contribute to neither board (doesn't stop at
+// Penn), one, or both — a train that arrives at Penn and continues on shows
+// up on both boards, same as the real one.
+function amtrakTrainEntries(train) {
+  const stations = amtrakNormalizeStations(train.stations);
+  const idx = stations.findIndex((s) => s.code === NYP_CODE);
+  if (idx === -1) return [];
+  const at = stations[idx];
+  const common = {
+    trainNum: train.trainNum, trainID: train.trainID, routeName: train.routeName,
+    color: train.iconColor || "0039a6", textColor: train.textColor || "ffffff",
+    lat: Number.isFinite(train.lat) ? train.lat : null, lon: Number.isFinite(train.lon) ? train.lon : null,
+    stations,
+  };
+  const entries = [];
+  if (idx > 0) {
+    entries.push({
+      ...common, event: "arr", other: stations[0].name,
+      schedMs: at.schedArrMs, atMs: at.arrMs != null ? at.arrMs : at.schedArrMs, track: at.track,
+    });
+  }
+  if (idx < stations.length - 1) {
+    entries.push({
+      ...common, event: "dep", other: stations[stations.length - 1].name,
+      schedMs: at.schedDepMs, atMs: at.depMs != null ? at.depMs : at.schedDepMs, track: at.track,
+    });
+  }
+  return entries;
+}
+
+// Turns a raw arrival/departure entry into what the board actually shows,
+// evaluated fresh against "now" — the departed/arrived grace windows are a
+// function of the current instant, not of whenever the feed last refreshed,
+// so this runs at request time rather than being baked into the fetch cache.
+function amtrakBoardRow(entry, nowMs) {
+  if (entry.schedMs == null || entry.atMs == null) return null;
+  const graceMs = entry.event === "dep" ? AMTRAK_DEP_GRACE_MS : AMTRAK_ARR_GRACE_MS;
+  const passed = nowMs >= entry.atMs;
+  if (passed && nowMs - entry.atMs > graceMs) return null;
+  const delayed = !passed && entry.atMs - entry.schedMs > AMTRAK_DELAY_THRESHOLD_MS;
+  const state = passed ? (entry.event === "dep" ? "departed" : "arrived") : (delayed ? "delayed" : "on-time");
+  return {
+    trainNum: entry.trainNum, trainID: entry.trainID, routeName: entry.routeName,
+    color: entry.color, textColor: entry.textColor, lat: entry.lat, lon: entry.lon,
+    other: entry.other, schedMs: entry.schedMs, atMs: entry.atMs, track: entry.track,
+    state, stations: entry.stations,
+  };
+}
+
+let amtrakTrainsRaw = []; // last fetch's per-train NYP entries, unfiltered by time
+async function refreshAmtrakBoard() {
+  try {
+    const res = await fetch(AMTRAK_TRAINS_URL);
+    if (!res.ok) throw new Error(`Amtrak fetch ${res.status}`);
+    const json = await res.json();
+    const entries = [];
+    for (const num of Object.keys(json)) {
+      for (const train of json[num]) entries.push(...amtrakTrainEntries(train));
+    }
+    amtrakTrainsRaw = entries;
+  } catch (e) {
+    console.error("Amtrak board fetch failed (keeping last good data):", e.message);
+  }
+}
+
+function amtrakBoard() {
+  const nowMs = Date.now();
+  const departures = [], arrivals = [];
+  for (const entry of amtrakTrainsRaw) {
+    const row = amtrakBoardRow(entry, nowMs);
+    if (!row) continue;
+    (entry.event === "dep" ? departures : arrivals).push(row);
+  }
+  departures.sort((a, b) => a.schedMs - b.schedMs);
+  arrivals.sort((a, b) => a.schedMs - b.schedMs);
+  return { departures, arrivals, updatedAt: nowMs };
+}
+
+async function startAmtrakBoard() {
+  await refreshAmtrakBoard();
+  setInterval(refreshAmtrakBoard, AMTRAK_REFRESH_MS);
 }
 
 // ---------- HTTP + WebSocket server ----------
@@ -2671,6 +2844,16 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(lirrBoardCache));
     return;
   }
+  if (url.pathname === "/api/penn-board") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(amtrakBoard()));
+    return;
+  }
+  if (url.pathname === "/trains") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(trainsPage);
+    return;
+  }
   if (url.pathname === "/api/portfolio") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(portfolioState));
@@ -2791,6 +2974,453 @@ function load() {
 }
 load();
 setInterval(load, 60000);
+</script>
+</body>
+</html>`;
+
+// A standalone page — its own template literal, no PIN gate (train
+// schedules aren't the sensitive personal-finance data the main ticker
+// hides). Two pieces: a literal "Departures"/"Arrivals" board for NY Penn
+// (Amtrak only for now — NJ Transit needs its own developer credentials
+// that haven't been set up), styled after the physical Solari board at
+// Penn Station, and the LIRR "Next Train To…" board moved here from the
+// main ticker page. Tapping any row opens a detail sheet with the train's
+// full route; Amtrak trains get a live map (real GPS), LIRR trains get a
+// plain-English position estimate (their public feed has delay, not GPS).
+const trainsPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<title>NY Penn Departures</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #000000;
+  --panel: #0b0b0d;
+  --panel2: #131317;
+  --border: #232329;
+  --text1: #ffffff;
+  --text2: #9a9aa2;
+  --text3: #5c5c66;
+  --green: #22c55e;
+  --red: #ef4444;
+  --yellow: #f5c518;
+}
+html, body { background: var(--bg); color: var(--text1); height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  min-height: 100%;
+}
+#app { max-width: 480px; margin: 0 auto; padding: 14px 14px 32px; }
+
+.tp-topbar { display: flex; align-items: center; gap: 10px; padding: 4px 2px 16px; }
+.tp-back {
+  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text1);
+  display: flex; align-items: center; justify-content: center; font-size: 16px; text-decoration: none;
+}
+.tp-back:active { background: var(--panel); }
+.tp-brand { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--text2); text-transform: uppercase; }
+
+/* ── the departures/arrivals board — styled after the physical Solari
+   board at Penn Station: light header, solid blue rows, dark gaps ── */
+.board-card {
+  background: #050914; border: 1px solid var(--border); border-radius: 14px;
+  overflow: hidden; margin-bottom: 14px;
+}
+.board-hdr { background: #eef1f8; display: flex; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px; }
+.board-title { font-size: 19px; font-weight: 900; color: #14265c; letter-spacing: -0.3px; }
+.board-clock { font-size: 13px; font-weight: 700; color: #14265c; font-variant-numeric: tabular-nums; }
+.board-cols {
+  background: #dde2ee; display: flex; align-items: center; gap: 8px;
+  padding: 4px 14px; font-size: 8.5px; font-weight: 800; letter-spacing: 0.6px;
+  text-transform: uppercase; color: #5a6685;
+}
+.board-body { display: flex; flex-direction: column; }
+.board-row {
+  display: flex; align-items: center; gap: 8px;
+  background: #1e4fce; color: #fff; padding: 9px 14px;
+  border-bottom: 3px solid #050914; font-weight: 700; font-size: 12.5px;
+  text-align: left;
+}
+.board-row:last-child { border-bottom: none; }
+.board-row:active { background: #2a5cdc; }
+.c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.c-train { flex: 1.1; min-width: 0; display: flex; align-items: center; gap: 5px; }
+.tp-badge {
+  flex-shrink: 0; font-size: 6.5px; font-weight: 900; letter-spacing: 0.3px;
+  background: #fff; color: #0039a6; border-radius: 3px; padding: 2px 3px; line-height: 1;
+}
+.c-train .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-to { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.c-status { width: 62px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
+.c-status.delayed { color: #ffd54a; }
+.c-status.gone { color: #c9d6ff; font-style: italic; }
+.c-track { width: 34px; flex-shrink: 0; text-align: right; font-size: 11px; }
+.board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
+.board-ftr { background: #0d1226; color: var(--text3); text-align: right; padding: 6px 14px; font-size: 10px; letter-spacing: 0.4px; }
+.board-note { text-align: center; color: var(--text3); font-size: 10.5px; margin: -6px 0 16px; }
+
+/* ── LIRR next-train board (moved here from the main ticker page) ── */
+.trains-section { margin-top: 4px; }
+.section-hdr { display: flex; align-items: center; gap: 8px; padding: 0 4px 8px; }
+.trains-title { font-size: 12px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: var(--yellow); }
+.section-sub { font-size: 10.5px; color: var(--text3); }
+.tr-card { background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px 8px; }
+.tr-sub { font-size: 10px; color: var(--text3); margin: 2px 0 8px; line-height: 1.4; }
+.tr-sub b { color: var(--text2); }
+.tr-group { margin-bottom: 8px; }
+.tr-group:last-child { margin-bottom: 0; }
+.tr-hdr { font-size: 11px; font-weight: 800; color: var(--yellow); border-bottom: 1px solid var(--border); padding-bottom: 1px; margin-bottom: 1px; letter-spacing: 1px; }
+.tr-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 1.5px 0; font-size: 13px; }
+.tr-row .nm { color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.tr-row .in { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.tr-xfer { font-size: 10px; font-weight: 800; color: var(--text2); }
+.tr-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 3px; font-weight: 700; font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tr-pill.delayed::after { content: "LATE"; font-size: 8px; font-weight: 900; opacity: 0.85; margin-left: 2px; }
+.tr-track { font-size: 9px; font-weight: 900; letter-spacing: 0.4px; color: #04231f; background: var(--green); border-radius: 3px; padding: 2px 5px; white-space: nowrap; }
+.tr-flat { color: var(--text3); font-style: italic; font-size: 11.5px; }
+.tr-empty { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 20px 0; }
+
+/* ── the detail sheet (same slide-up pattern as the hotel/flight sheets
+   on the main page — a fresh copy, this is a standalone template) ── */
+.tt-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
+.tt-sheet.on { display: block; }
+.tt-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
+.tt-panel {
+  position: absolute; left: 0; right: 0; bottom: 0; top: 60px;
+  background: var(--bg); border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0; overflow: hidden; overflow-y: auto;
+  animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+@keyframes ttUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
+.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 8px auto 0; }
+.tt-close {
+  position: absolute; top: 8px; right: 10px; z-index: 2;
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
+  font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.tt-close:active { background: var(--panel); color: var(--text1); }
+.tt-body { padding: 14px 16px 28px; }
+.tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; }
+.tt-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.tt-position {
+  margin-top: 12px; background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--text1);
+}
+.tt-position b { color: var(--yellow); }
+#ttMap { height: 190px; border-radius: 12px; margin-top: 12px; background: var(--panel2); }
+.tt-stops { margin-top: 14px; border-top: 1px solid var(--border); }
+.tt-stop {
+  display: flex; align-items: center; gap: 8px; padding: 7px 0;
+  border-bottom: 1px solid var(--border); font-size: 12.5px;
+}
+.tt-stop.here { background: rgba(245,197,24,0.08); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+.tt-stop .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text1); }
+.tt-stop .tm { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text2); }
+.tt-stop .st { width: 74px; flex-shrink: 0; text-align: right; font-size: 10.5px; color: var(--text3); }
+.tt-stop .st.delayed { color: var(--yellow); }
+.tt-stop .st.done { color: var(--text3); font-style: italic; }
+.tt-empty { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 16px 0; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="tp-topbar">
+    <a class="tp-back" href="/" aria-label="Back to BTC ticker">&larr;</a>
+    <span class="tp-brand">NY Penn Station</span>
+  </div>
+
+  <div class="board-card">
+    <div class="board-hdr"><span class="board-title">Departures</span><span class="board-clock" id="depClock">&mdash;</span></div>
+    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">To</span><span class="c-status">Status</span><span class="c-track">Track</span></div>
+    <div class="board-body" id="depBody"><div class="board-empty">Loading&hellip;</div></div>
+    <div class="board-ftr" id="depDate">&mdash;</div>
+  </div>
+
+  <div class="board-card">
+    <div class="board-hdr"><span class="board-title">Arrivals</span><span class="board-clock" id="arrClock">&mdash;</span></div>
+    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">From</span><span class="c-status">Status</span><span class="c-track">Track</span></div>
+    <div class="board-body" id="arrBody"><div class="board-empty">Loading&hellip;</div></div>
+    <div class="board-ftr" id="arrDate">&mdash;</div>
+  </div>
+  <div class="board-note">Amtrak shown live &middot; NJ Transit coming soon</div>
+
+  <div class="trains-section" id="trains">
+    <div class="section-hdr">
+      <span class="trains-title">Next Train To&hellip;</span>
+      <span class="section-sub">LIRR &middot; Penn Station / Moynihan</span>
+    </div>
+    <div class="tr-card">
+      <div class="tr-sub" id="trSub">Loading&hellip;</div>
+      <div id="trBody"><div class="tr-empty">Loading&hellip;</div></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="tt-sheet" id="ttSheet" role="dialog" aria-modal="true" aria-label="Train details">
+  <div class="tt-scrim" id="ttScrim"></div>
+  <div class="tt-panel">
+    <div class="tt-grip"></div>
+    <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
+    <div class="tt-body" id="ttBody"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function () {
+  function esc(v) {
+    return String(v == null ? "" : v).replace(/[&<>"\\u0027]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "\\u0027": "&#39;" }[c];
+    });
+  }
+  function fmtBoardTime(ms) {
+    if (ms == null) return "\\u2014";
+    var s = new Date(ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+    return s.replace(" AM", "a").replace(" PM", "p");
+  }
+
+  // ---------- NY Penn Departures / Arrivals (Amtrak) ----------
+
+  var state = { departures: [], arrivals: [], lirrRows: [] };
+
+  function amtrakStatus(row) {
+    if (row.state === "departed") return { text: "Departed", cls: "gone" };
+    if (row.state === "arrived") return { text: "Arrived", cls: "gone" };
+    if (row.state === "delayed") return { text: "Now " + fmtBoardTime(row.atMs), cls: "delayed" };
+    return { text: "On Time", cls: "" };
+  }
+
+  function boardRowHTML(row, idx, kind) {
+    var status = amtrakStatus(row);
+    return '<div class="board-row" data-kind="amtrak" data-event="' + kind + '" data-idx="' + idx + '">' +
+      '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
+      '<span class="c-train"><span class="tp-badge">AMTRAK</span><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
+      '<span class="c-to">' + esc(row.other) + '</span>' +
+      '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
+      '<span class="c-track">' + (row.track ? esc(row.track) : "") + '</span>' +
+      '</div>';
+  }
+
+  function renderBoard(bodyId, rows, kind) {
+    var el = document.getElementById(bodyId);
+    if (!rows.length) {
+      el.innerHTML = '<div class="board-empty">No ' + (kind === "dep" ? "departures" : "arrivals") + ' from Amtrak in this window.</div>';
+      return;
+    }
+    el.innerHTML = rows.map(function (r, i) { return boardRowHTML(r, i, kind); }).join("");
+  }
+
+  function loadPennBoard() {
+    fetch("/api/penn-board").then(function (r) { return r.json(); }).then(function (d) {
+      state.departures = d.departures || [];
+      state.arrivals = d.arrivals || [];
+      renderBoard("depBody", state.departures, "dep");
+      renderBoard("arrBody", state.arrivals, "arr");
+      // an open sheet should stay live rather than freeze at whatever it
+      // showed when it was opened — the train may have moved since
+      if (openTrain && openTrain.kind === "amtrak") reopenIfStillOpen();
+    }).catch(function (e) {
+      document.getElementById("depBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
+      document.getElementById("arrBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
+    });
+  }
+
+  function tickClocks() {
+    var now = new Date();
+    var t = now.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+    var d = now.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    document.getElementById("depClock").textContent = t;
+    document.getElementById("arrClock").textContent = t;
+    document.getElementById("depDate").textContent = d;
+    document.getElementById("arrDate").textContent = d;
+  }
+  tickClocks();
+  setInterval(tickClocks, 1000);
+  loadPennBoard();
+  setInterval(loadPennBoard, 30000);
+
+  // ---------- LIRR next-train board ----------
+
+  function trRowHTML(r, idx) {
+    var info;
+    if (r.kind === "special") {
+      info = '<span class="tr-flat">Special Events Only</span>';
+    } else if (r.kind === "unknown" || r.depMs == null) {
+      info = '<span class="tr-flat">Check TrainTime App</span>';
+    } else {
+      var xfer = r.kind === "jamaica" ? '<span class="tr-xfer">J</span>' : "";
+      var route = r.route || { name: "", color: "3b3b3b", textColor: "ffffff" };
+      var track = r.track ? '<span class="tr-track" title="Boarding on track ' + esc(r.track) + '">TRACK ' + esc(r.track) + "</span>" : "";
+      info = xfer + '<span class="tr-pill' + (r.delayed ? " delayed" : "") + '" style="background:#' + route.color + ";color:#" + route.textColor + '">' +
+        fmtBoardTime(r.depMs) + " " + esc(route.name.replace(/ Branch$/, "")) + "</span>" + track;
+    }
+    var tappable = r.tripId ? ' data-kind="lirr" data-idx="' + idx + '"' : "";
+    return '<div class="tr-row"' + tappable + '><span class="nm">' + esc(r.name) + '</span><span class="in">' + info + "</span></div>";
+  }
+
+  function renderTrains(rows) {
+    var body = document.getElementById("trBody");
+    if (!rows || !rows.length) {
+      body.innerHTML = '<div class="tr-empty">No data yet — check back shortly.</div>';
+      return;
+    }
+    var groups = [];
+    var cur = null;
+    rows.forEach(function (r, i) {
+      var letter = r.name[0].toUpperCase();
+      if (!cur || cur.letter !== letter) { cur = { letter: letter, rows: [] }; groups.push(cur); }
+      cur.rows.push({ r: r, i: i });
+    });
+    body.innerHTML = groups.map(function (g) {
+      return '<div class="tr-group"><div class="tr-hdr">' + esc(g.letter) + "</div>" + g.rows.map(function (x) { return trRowHTML(x.r, x.i); }).join("") + "</div>";
+    }).join("");
+  }
+
+  function loadTrains() {
+    fetch("/api/lirr-board").then(function (r) { return r.json(); }).then(function (d) {
+      state.lirrRows = d.rows || [];
+      renderTrains(state.lirrRows);
+      document.getElementById("trSub").innerHTML = state.lirrRows.length + " destinations &middot; updated " +
+        new Date(d.updatedAt).toLocaleTimeString("en-US", { timeZone: "America/New_York" }) +
+        ' &middot; <b>J</b> change at Jamaica &middot; tap a row for train details';
+      if (openTrain && openTrain.kind === "lirr") reopenIfStillOpen();
+    }).catch(function (e) {
+      document.getElementById("trBody").innerHTML = '<div class="tr-empty">' + esc(e.message) + "</div>";
+    });
+  }
+  loadTrains();
+  setInterval(loadTrains, 30000);
+
+  // ---------- the detail sheet ----------
+
+  var elSheet = document.getElementById("ttSheet");
+  var elBody = document.getElementById("ttBody");
+  var openTrain = null; // { kind: "amtrak"|"lirr", event, idx } — kept so a live poll can re-render it
+  var ttMap = null, ttMarker = null;
+
+  function closeTrain() {
+    elSheet.classList.remove("on");
+    document.body.style.overflow = "";
+    openTrain = null;
+  }
+  document.getElementById("ttClose").addEventListener("click", closeTrain);
+  document.getElementById("ttScrim").addEventListener("click", closeTrain);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && elSheet.classList.contains("on")) closeTrain(); });
+
+  function stopStateHTML(schedMs, atMs, passedLabel) {
+    if (schedMs == null && atMs == null) return '<span class="st">\\u2014</span>';
+    var now = Date.now();
+    var use = atMs != null ? atMs : schedMs;
+    if (now >= use) return '<span class="st done">' + passedLabel + '</span>';
+    if (atMs != null && schedMs != null && atMs - schedMs > 60000) return '<span class="st delayed">Now ' + fmtBoardTime(atMs) + '</span>';
+    return '<span class="st">On Time</span>';
+  }
+
+  function renderAmtrakDetail(row) {
+    var status = amtrakStatus(row);
+    elBody.innerHTML =
+      '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
+      '<div class="tt-sub">Amtrak &middot; ' + status.text + '</div>' +
+      (row.lat != null && row.lon != null ? '<div id="ttMap"></div>' : '<div class="tt-position">Live position not available for this train right now.</div>') +
+      '<div class="tt-stops" id="ttStops"></div>';
+
+    var stopsEl = document.getElementById("ttStops");
+    if (!row.stations || !row.stations.length) {
+      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
+    } else {
+      stopsEl.innerHTML = row.stations.map(function (s) {
+        var atArr = s.arrMs != null ? s.arrMs : s.schedArrMs;
+        var atDep = s.depMs != null ? s.depMs : s.schedDepMs;
+        var timeMs = atDep != null ? atDep : atArr;
+        var schedMs = s.schedDepMs != null ? s.schedDepMs : s.schedArrMs;
+        var atMs = atDep != null ? atDep : atArr;
+        var here = s.code === "NYP";
+        return '<div class="tt-stop' + (here ? " here" : "") + '"><span class="nm">' + esc(s.name) + (here ? " (Penn Station)" : "") + '</span>' +
+          '<span class="tm">' + fmtBoardTime(schedMs != null ? schedMs : timeMs) + '</span>' +
+          stopStateHTML(schedMs, atMs, "Departed") + '</div>';
+      }).join("");
+    }
+
+    if (row.lat != null && row.lon != null && window.L) {
+      setTimeout(function () {
+        if (ttMap) { ttMap.remove(); ttMap = null; }
+        ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false }).setView([row.lat, row.lon], 8);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
+        ttMarker = L.circleMarker([row.lat, row.lon], { radius: 7, color: "#" + row.color, fillColor: "#" + row.color, fillOpacity: 1, weight: 2 }).addTo(ttMap);
+      }, 0);
+    }
+  }
+
+  function renderLirrDetail(row) {
+    var route = row.route || { name: "LIRR" };
+    elBody.innerHTML =
+      '<div class="tt-title">' + esc(route.name || "LIRR Train") + '</div>' +
+      '<div class="tt-sub">Toward ' + esc(row.name) + (row.kind === "jamaica" ? " (change at Jamaica)" : "") + '</div>' +
+      (row.position ? '<div class="tt-position"><b>Currently:</b> ' + esc(row.position) + '</div>' : "") +
+      '<div class="tt-stops" id="ttStops"></div>';
+
+    var stopsEl = document.getElementById("ttStops");
+    if (!row.stops || !row.stops.length) {
+      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
+    } else {
+      var now = Date.now();
+      stopsEl.innerHTML = row.stops.map(function (s) {
+        var here = s.stopId === "237";
+        var passed = now >= s.depMs;
+        var stHtml = passed
+          ? '<span class="st done">Departed</span>'
+          : (now >= s.arrMs ? '<span class="st delayed">Boarding</span>' : '<span class="st">Upcoming</span>');
+        return '<div class="tt-stop' + (here ? " here" : "") + '"><span class="nm">' + esc(s.name) + '</span>' +
+          '<span class="tm">' + fmtBoardTime(s.depMs) + '</span>' + stHtml + '</div>';
+      }).join("");
+    }
+  }
+
+  function openDetail(kind, event, idx) {
+    openTrain = { kind: kind, event: event, idx: idx };
+    elSheet.classList.add("on");
+    document.body.style.overflow = "hidden";
+    if (kind === "amtrak") {
+      var row = (event === "dep" ? state.departures : state.arrivals)[idx];
+      if (row) renderAmtrakDetail(row);
+    } else {
+      var lrow = state.lirrRows[idx];
+      if (lrow) renderLirrDetail(lrow);
+    }
+  }
+
+  function reopenIfStillOpen() {
+    if (!openTrain) return;
+    if (openTrain.kind === "amtrak") {
+      var list = openTrain.event === "dep" ? state.departures : state.arrivals;
+      if (openTrain.idx < list.length) renderAmtrakDetail(list[openTrain.idx]);
+      else closeTrain(); // the train aged off the board while the sheet was open
+    } else {
+      if (openTrain.idx < state.lirrRows.length) renderLirrDetail(state.lirrRows[openTrain.idx]);
+    }
+  }
+
+  document.addEventListener("click", function (e) {
+    var row = e.target.closest("[data-kind]");
+    if (!row) return;
+    var kind = row.getAttribute("data-kind");
+    var idx = +row.getAttribute("data-idx");
+    openDetail(kind, row.getAttribute("data-event"), idx);
+  });
+})();
 </script>
 </body>
 </html>`;
@@ -3375,27 +4005,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .ht-chiplist.no span { color: var(--text3); text-decoration: line-through; opacity: 0.75; }
 .ht-desc { font-size: 12px; color: var(--text2); line-height: 1.55; }
 
-/* ── LIRR next-train board ── */
-.trains-section { margin-top: 18px; scroll-margin-top: 10px; }
-.trains-title { font-size: 12px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: #f5c518; }
-.tr-card { background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px 8px; }
-.tr-sub { font-size: 10px; color: var(--text3); margin: 2px 0 8px; line-height: 1.4; }
-.tr-sub b { color: var(--text2); }
-/* one column always, matching the phone-width real board rather than the
-   multi-column desktop layout — this card lives on a mobile page */
-.tr-group { margin-bottom: 8px; }
-.tr-group:last-child { margin-bottom: 0; }
-.tr-hdr { font-size: 11px; font-weight: 800; color: #f5c518; border-bottom: 1px solid var(--border); padding-bottom: 1px; margin-bottom: 1px; letter-spacing: 1px; }
-.tr-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 1.5px 0; font-size: 13px; }
-.tr-row .nm { color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-.tr-row .in { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
-.tr-xfer { font-size: 10px; font-weight: 800; color: var(--text2); }
-.tr-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 3px; font-weight: 700; font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.tr-pill.delayed::after { content: "LATE"; font-size: 8px; font-weight: 900; opacity: 0.85; margin-left: 2px; }
-.tr-track { font-size: 9px; font-weight: 900; letter-spacing: 0.4px; color: #04231f; background: var(--green); border-radius: 3px; padding: 2px 5px; white-space: nowrap; }
-.tr-flat { color: var(--text3); font-style: italic; font-size: 11.5px; }
-.tr-empty { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 20px 0; }
-
 /* ── passcode ──
    A privacy screen, not access control: it keeps the dashboard off the glass
    when someone else is holding the phone. The data behind it is still served
@@ -3536,7 +4145,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     <span class="brand-sep">|</span>
     <span class="status-dot" id="statusDot"></span>
     <span class="status-word" id="statusWord">LIVE</span>
-    <button class="jump-flights jump-trains" id="jumpTrains" aria-label="Jump to LIRR board">&#128646;</button>
+    <a class="jump-flights jump-trains" href="/trains" aria-label="Open NY Penn / LIRR trains page">&#128646;</a>
     <button class="jump-flights" id="jumpFlights" aria-label="Jump to flight search">&#9992;</button>
     <button class="jump-flights stealth-btn" id="stealthBtn" aria-label="Stealth mode">&#9680;</button>
   </div>
@@ -3700,17 +4309,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     </div>
 
     <div class="fl-results" id="htResults"></div>
-  </div>
-
-  <div class="trains-section" id="trains">
-    <div class="flights-hdr">
-      <span class="trains-title">Next Train To&hellip;</span>
-      <span class="flights-sub">LIRR &middot; Penn Station / Moynihan</span>
-    </div>
-    <div class="tr-card">
-      <div class="tr-sub" id="trSub">Loading&hellip;</div>
-      <div id="trBody"><div class="tr-empty">Loading&hellip;</div></div>
-    </div>
   </div>
 
   <div class="ht-sheet" id="htSheet" role="dialog" aria-modal="true" aria-label="Hotel details">
@@ -5658,67 +6256,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     document.getElementById("flights").scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
-  // ---------- LIRR next-train board ----------
-
-  function trFmtTime(ms) {
-    return new Date(ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
-  }
-
-  function trRowHTML(r) {
-    var info;
-    if (r.kind === "special") {
-      info = '<span class="tr-flat">Special Events Only</span>';
-    } else if (r.kind === "unknown" || r.depMs == null) {
-      info = '<span class="tr-flat">Check TrainTime App</span>';
-    } else {
-      var xfer = r.kind === "jamaica" ? '<span class="tr-xfer">J</span>' : "";
-      var route = r.route || { name: "", color: "3b3b3b", textColor: "ffffff" };
-      // A track only ever shows up in the feed once LIRR has actually posted
-      // it, which in practice means the train is at the platform boarding —
-      // no separate "close to departure" heuristic needed, the data already
-      // encodes exactly that.
-      var track = r.track ? '<span class="tr-track" title="Boarding on track ' + esc(r.track) + '">TRACK ' + esc(r.track) + "</span>" : "";
-      info = xfer + '<span class="tr-pill' + (r.delayed ? " delayed" : "") + '" style="background:#' + route.color + ";color:#" + route.textColor + '">' +
-        trFmtTime(r.depMs) + " " + esc(route.name.replace(/ Branch$/, "")) + "</span>" + track;
-    }
-    return '<div class="tr-row"><span class="nm">' + esc(r.name) + '</span><span class="in">' + info + "</span></div>";
-  }
-
-  function renderTrains(rows) {
-    var body = document.getElementById("trBody");
-    if (!rows || !rows.length) {
-      body.innerHTML = '<div class="tr-empty">No data yet — check back shortly.</div>';
-      return;
-    }
-    var groups = [];
-    var cur = null;
-    rows.forEach(function (r) {
-      var letter = r.name[0].toUpperCase();
-      if (!cur || cur.letter !== letter) { cur = { letter: letter, rows: [] }; groups.push(cur); }
-      cur.rows.push(r);
-    });
-    body.innerHTML = groups.map(function (g) {
-      return '<div class="tr-group"><div class="tr-hdr">' + esc(g.letter) + "</div>" + g.rows.map(trRowHTML).join("") + "</div>";
-    }).join("");
-  }
-
-  function loadTrains() {
-    fetch("/api/lirr-board").then(function (r) { return r.json(); }).then(function (d) {
-      renderTrains(d.rows);
-      document.getElementById("trSub").innerHTML = (d.rows || []).length + " destinations &middot; updated " +
-        new Date(d.updatedAt).toLocaleTimeString("en-US", { timeZone: "America/New_York" }) +
-        ' &middot; <b>J</b> change at Jamaica';
-    }).catch(function (e) {
-      document.getElementById("trBody").innerHTML = '<div class="tr-empty">' + esc(e.message) + "</div>";
-    });
-  }
-  loadTrains();
-  setInterval(loadTrains, 30000);
-
-  document.getElementById("jumpTrains").addEventListener("click", function () {
-    document.getElementById("trains").scrollIntoView({ behavior: "smooth", block: "start" });
-  });
-
   // ---------- passcode ----------
   //
   // This is a privacy screen, not access control. It keeps the dashboard off
@@ -6202,6 +6739,7 @@ loadHistory();
 connectCoinbase();
 connectBitstamp();
 startLirrBoard();
+startAmtrakBoard();
 server.listen(PORT, () => {
   console.log(`\nBitcoin ticker running at http://localhost:${PORT}\n`);
 });
