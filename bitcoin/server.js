@@ -2078,17 +2078,17 @@ async function serpHotelDetails(token, checkIn, checkOut, adults, apiKey) {
 // A live recreation of the LIRR departure board at Moynihan Train Hall / Penn
 // Station: for every station in the system, the next train reachable from
 // Penn — direct, or via a timed connection at Jamaica. Data is MTA's own
-// LIRR GTFS static schedule (no key needed); LIRR_API_KEY additionally
-// enables live GTFS-realtime delay adjustment.
+// LIRR GTFS static schedule plus MTA's public GTFS-realtime feed — both
+// no key needed. (An earlier version of this gated the realtime half behind
+// an API key using a since-abandoned Metro-North-hosted URL; MTA's own
+// api-endpoint.mta.info feeds need no key/registration at all and this one
+// carries the same per-agency track extension.)
 
 const LIRR_STATIC_GTFS_URL = "https://rrgtfsfeeds.s3.amazonaws.com/gtfslirr.zip";
-const LIRR_API_KEY = process.env.LIRR_API_KEY || null;
 // The JSON variant of this feed silently drops MTA's LIRR-specific track
 // extension (JSON has no extension mechanism) — only the raw protobuf
 // carries it, hence decoding it by hand below instead of using /json.
-const LIRR_RT_PROTO_URL = LIRR_API_KEY
-  ? `https://mnorth.prod.acquia-sites.com/wse/LIRR/gtfsrt/realtime/${LIRR_API_KEY}/proto`
-  : null;
+const LIRR_RT_PROTO_URL = "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/lirr%2Fgtfs-lirr";
 const LIRR_CACHE_DIR = path.join(__dirname, ".lirr-gtfs-cache");
 const LIRR_STATIC_REFRESH_MS = 20 * 60 * 60 * 1000; // schedules don't change intraday
 const LIRR_BOARD_REFRESH_MS = 30 * 1000;
@@ -2481,7 +2481,6 @@ function applyLirrRealtime(board, realtimeByTrip) {
 
 let lirrRealtimeByTrip = new Map();
 async function refreshLirrRealtime() {
-  if (!LIRR_RT_PROTO_URL) return;
   try {
     const res = await fetch(LIRR_RT_PROTO_URL);
     if (!res.ok) throw new Error(`RT fetch ${res.status}`);
@@ -2525,13 +2524,9 @@ async function startLirrBoard() {
     loadLirrModel();
     refreshLirrBoard();
     setInterval(refreshLirrBoard, LIRR_BOARD_REFRESH_MS);
-    if (LIRR_RT_PROTO_URL) {
-      await refreshLirrRealtime();
-      setInterval(refreshLirrRealtime, LIRR_RT_REFRESH_MS);
-      console.log("LIRR: realtime delay feed enabled");
-    } else {
-      console.log("LIRR: no LIRR_API_KEY set — schedule-only, no live delay adjustment");
-    }
+    await refreshLirrRealtime();
+    setInterval(refreshLirrRealtime, LIRR_RT_REFRESH_MS);
+    console.log("LIRR: realtime delay + track feed enabled");
   } catch (e) {
     console.error("LIRR board failed to start:", e.message);
   }
