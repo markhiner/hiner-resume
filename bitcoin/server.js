@@ -2123,7 +2123,9 @@ function nyWallTimeToMs(dateParts, h, mi, s) {
   const offsetMin = nyOffsetMinutes(new Date(guessUtcMs));
   return guessUtcMs - offsetMin * 60000;
 }
-function lirrYmd(p) { return `${p.y}${String(p.mo).padStart(2, "0")}${String(p.d).padStart(2, "0")}`; }
+// Shared by both GTFS-consuming sections below (LIRR and Amtrak) — a plain
+// calendar-date key, not railroad-specific.
+function ymdKey(p) { return `${p.y}${String(p.mo).padStart(2, "0")}${String(p.d).padStart(2, "0")}`; }
 function gtfsTimeToMs(dateParts, hms) {
   // GTFS times legitimately exceed 24:00:00 for trips that run past midnight
   // as part of the PREVIOUS day's service — adding seconds past midnight to
@@ -2216,7 +2218,7 @@ function buildLirrCandidates(now, stByTrip, tripById, servicesByDate) {
   const yParts = nyDateParts(new Date(now.getTime() - 86400000));
   const tParts = nyDateParts(new Date(now.getTime() + 86400000));
   const dateContexts = [yParts, nowParts, tParts].map((parts) => ({
-    parts, services: servicesByDate.get(lirrYmd(parts)) || new Set(),
+    parts, services: servicesByDate.get(ymdKey(parts)) || new Set(),
   }));
 
   const candidates = [];
@@ -2537,18 +2539,26 @@ async function startLirrBoard() {
 
 // ---------- NY Penn Station Departures / Arrivals board (Amtrak) ----------
 // A live recreation of the physical departures/arrivals board at Penn
-// Station. Amtrak's own real-time API (amtraker.com — a long-running
-// community project, not an official Amtrak product) needs no key and
-// publishes live GPS per train, unlike LIRR's feed above. NJ Transit isn't
-// on this board yet — their real-time data needs its own developer
-// credentials that haven't been set up.
+// Station, built from two Amtrak sources: their public real-time API
+// (amtraker.com — a long-running community project, not an official Amtrak
+// product; needs no key, publishes live GPS per train) for trains Amtrak is
+// actively tracking, and Amtrak's own official static GTFS schedule for
+// everything else — a train doesn't stop existing just because Amtrak
+// hasn't started tracking it live yet, so the board always shows the full
+// printed schedule and fills in live times/position/status wherever that's
+// available.
 
 const AMTRAK_TRAINS_URL = "https://api-v3.amtraker.com/v3/trains";
 const AMTRAK_REFRESH_MS = 30 * 1000;
+const AMTRAK_STATIC_GTFS_URL = "https://content.amtrak.com/content/gtfs/GTFS.zip";
+const AMTRAK_CACHE_DIR = path.join(__dirname, ".amtrak-gtfs-cache");
+const AMTRAK_STATIC_REFRESH_MS = 20 * 60 * 60 * 1000; // schedules don't change intraday
 const NYP_CODE = "NYP";
 const AMTRAK_DEP_GRACE_MS = 3 * 60 * 1000; // stays listed as "Departed" this long, then drops off
 const AMTRAK_ARR_GRACE_MS = 5 * 60 * 1000; // stays listed as "Arrived" this long, then drops off
 const AMTRAK_DELAY_THRESHOLD_MS = 60 * 1000; // how far off schedule counts as "delayed" rather than noise
+const AMTRAK_BOARD_MIN_ROWS = 5; // the schedule fallback exists specifically to guarantee this
+const AMTRAK_BOARD_MAX_ROWS = 20; // a physical board doesn't scroll two days out
 
 function amtrakParseMs(iso) {
   if (!iso) return null;
@@ -2580,7 +2590,7 @@ function amtrakTrainEntries(train) {
     trainNum: train.trainNum, trainID: train.trainID, routeName: train.routeName,
     color: train.iconColor || "0039a6", textColor: train.textColor || "ffffff",
     lat: Number.isFinite(train.lat) ? train.lat : null, lon: Number.isFinite(train.lon) ? train.lon : null,
-    stations,
+    stations, live: true,
   };
   const entries = [];
   if (idx > 0) {
@@ -2598,6 +2608,130 @@ function amtrakTrainEntries(train) {
   return entries;
 }
 
+// ---- Amtrak's official static GTFS schedule — the printed timetable,
+// independent of whether amtraker.com has started tracking a given run yet.
+// Same download/cache/parse shape as the LIRR static feed above.
+
+async function ensureAmtrakStaticGTFS() {
+  fs.mkdirSync(AMTRAK_CACHE_DIR, { recursive: true });
+  const zipPath = path.join(AMTRAK_CACHE_DIR, "gtfs.zip");
+  const stampPath = path.join(AMTRAK_CACHE_DIR, ".fetched-at");
+  let fresh = false;
+  try {
+    const stamp = +fs.readFileSync(stampPath, "utf8");
+    fresh = Date.now() - stamp < AMTRAK_STATIC_REFRESH_MS && fs.existsSync(path.join(AMTRAK_CACHE_DIR, "stops.txt"));
+  } catch {}
+  if (fresh) return;
+
+  console.log("Amtrak: fetching static GTFS schedule...");
+  const res = await fetch(AMTRAK_STATIC_GTFS_URL);
+  if (!res.ok) throw new Error(`Amtrak GTFS static fetch failed: ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  fs.writeFileSync(zipPath, buf);
+  execFileSync("unzip", ["-o", zipPath, "-d", AMTRAK_CACHE_DIR], { stdio: "ignore" });
+  fs.writeFileSync(stampPath, String(Date.now()));
+  console.log("Amtrak: static GTFS refreshed");
+}
+
+let amtrakModel = null; // { stopNameById, routeById, tripById, stByTrip, calendarById }
+
+function loadAmtrakModel() {
+  const read = (f) => fs.readFileSync(path.join(AMTRAK_CACHE_DIR, f), "utf8");
+  const stops = parseCSV(read("stops.txt"));
+  const routes = parseCSV(read("routes.txt"));
+  const trips = parseCSV(read("trips.txt"));
+  const stopTimes = parseCSV(read("stop_times.txt"));
+  const calendar = parseCSV(read("calendar.txt"));
+
+  const stopNameById = new Map(stops.map((s) => [s.stop_id, s.stop_name]));
+  const routeById = new Map(routes.map((r) => [r.route_id, r]));
+  const tripById = new Map(trips.map((t) => [t.trip_id, t]));
+  const calendarById = new Map(calendar.map((c) => [c.service_id, c]));
+
+  const rawByTrip = new Map();
+  for (const st of stopTimes) {
+    if (!rawByTrip.has(st.trip_id)) rawByTrip.set(st.trip_id, []);
+    rawByTrip.get(st.trip_id).push(st);
+  }
+  // Only trips that touch Penn Station are ever read again — dropping the
+  // rest here keeps the in-memory model to a small fraction of Amtrak's
+  // full national stop_times.txt.
+  const stByTrip = new Map();
+  for (const [tripId, sts] of rawByTrip) {
+    if (!sts.some((s) => s.stop_id === NYP_CODE)) continue;
+    sts.sort((a, b) => +a.stop_sequence - +b.stop_sequence);
+    stByTrip.set(tripId, sts);
+  }
+
+  amtrakModel = { stopNameById, routeById, tripById, stByTrip, calendarById };
+  console.log(`Amtrak: loaded ${stByTrip.size} trips touching Penn Station (of ${trips.length} nationwide)`);
+}
+
+const DOW_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+function amtrakServiceActive(serviceId, dateParts) {
+  const cal = amtrakModel.calendarById.get(serviceId);
+  if (!cal) return false;
+  const ymd = ymdKey(dateParts);
+  if (ymd < cal.start_date || ymd > cal.end_date) return false;
+  const dow = DOW_NAMES[new Date(Date.UTC(dateParts.y, dateParts.mo - 1, dateParts.d)).getUTCDay()];
+  return cal[dow] === "1";
+}
+
+// The printed schedule's own version of amtrakTrainEntries — same output
+// shape (so the two merge without special-casing) but every stop's time
+// comes straight from GTFS, none of it confirmed live. Every stop's clock
+// time is read in Penn Station's own timezone (America/New_York); Amtrak's
+// GTFS times are not guaranteed to be authored per-stop-local for legs
+// outside the Eastern time zone, so a schedule-only train's OTHER stops
+// (outside NY) can be off by an hour where the country changes time zones —
+// a known, accepted approximation since this data only ever backs up the
+// live feed, never replaces it once amtraker.com is actually tracking a run.
+function amtrakScheduleEntries(now) {
+  if (!amtrakModel) return [];
+  const nowParts = nyDateParts(now);
+  const yParts = nyDateParts(new Date(now.getTime() - 86400000));
+  const tParts = nyDateParts(new Date(now.getTime() + 86400000));
+  const dateContexts = [yParts, nowParts, tParts];
+
+  const entries = [];
+  for (const [tripId, sts] of amtrakModel.stByTrip) {
+    const trip = amtrakModel.tripById.get(tripId);
+    if (!trip) continue;
+    const route = amtrakModel.routeById.get(trip.route_id);
+    for (const parts of dateContexts) {
+      if (!amtrakServiceActive(trip.service_id, parts)) continue;
+      const stations = sts.map((s) => ({
+        code: s.stop_id, name: amtrakModel.stopNameById.get(s.stop_id) || s.stop_id,
+        schedArrMs: gtfsTimeToMs(parts, s.arrival_time), schedDepMs: gtfsTimeToMs(parts, s.departure_time),
+        arrMs: null, depMs: null, status: null, track: null,
+      }));
+      const idx = stations.findIndex((s) => s.code === NYP_CODE);
+      if (idx === -1) continue;
+      const at = stations[idx];
+      const common = {
+        trainNum: trip.trip_short_name, trainID: null, routeName: route ? route.route_long_name : "",
+        color: (route && route.route_color) || "0039a6", textColor: (route && route.route_text_color) || "ffffff",
+        lat: null, lon: null, stations, live: false,
+      };
+      if (idx > 0) entries.push({ ...common, event: "arr", other: stations[0].name, schedMs: at.schedArrMs, atMs: at.schedArrMs, track: null });
+      if (idx < stations.length - 1) entries.push({ ...common, event: "dep", other: stations[stations.length - 1].name, schedMs: at.schedDepMs, atMs: at.schedDepMs, track: null });
+    }
+  }
+  return entries;
+}
+
+// Live data wins where both exist (matched by train number + which board it's
+// on — Amtrak train numbers are unique per direction per day) since it's
+// strictly more informative; the schedule fills in everything live tracking
+// hasn't picked up yet, and stays as the record for anything live tracking
+// never mentions at all (a schedule change amtraker.com hasn't caught, etc).
+function amtrakMergedEntries(now) {
+  const merged = new Map();
+  for (const e of amtrakScheduleEntries(now)) merged.set(e.trainNum + "|" + e.event, e);
+  for (const e of amtrakTrainsRaw) merged.set(e.trainNum + "|" + e.event, e);
+  return [...merged.values()];
+}
+
 // Turns a raw arrival/departure entry into what the board actually shows,
 // evaluated fresh against "now" — the departed/arrived grace windows are a
 // function of the current instant, not of whenever the feed last refreshed,
@@ -2607,8 +2741,10 @@ function amtrakBoardRow(entry, nowMs) {
   const graceMs = entry.event === "dep" ? AMTRAK_DEP_GRACE_MS : AMTRAK_ARR_GRACE_MS;
   const passed = nowMs >= entry.atMs;
   if (passed && nowMs - entry.atMs > graceMs) return null;
-  const delayed = !passed && entry.atMs - entry.schedMs > AMTRAK_DELAY_THRESHOLD_MS;
-  const state = passed ? (entry.event === "dep" ? "departed" : "arrived") : (delayed ? "delayed" : "on-time");
+  let state;
+  if (passed) state = entry.event === "dep" ? "departed" : "arrived";
+  else if (entry.live === false) state = "scheduled"; // on the printed timetable, not live-tracked yet
+  else state = entry.atMs - entry.schedMs > AMTRAK_DELAY_THRESHOLD_MS ? "delayed" : "on-time";
   return {
     trainNum: entry.trainNum, trainID: entry.trainID, routeName: entry.routeName,
     color: entry.color, textColor: entry.textColor, lat: entry.lat, lon: entry.lon,
@@ -2634,19 +2770,39 @@ async function refreshAmtrakBoard() {
 }
 
 function amtrakBoard() {
-  const nowMs = Date.now();
+  const now = new Date();
+  const nowMs = now.getTime();
   const departures = [], arrivals = [];
-  for (const entry of amtrakTrainsRaw) {
+  for (const entry of amtrakMergedEntries(now)) {
     const row = amtrakBoardRow(entry, nowMs);
     if (!row) continue;
     (entry.event === "dep" ? departures : arrivals).push(row);
   }
   departures.sort((a, b) => a.schedMs - b.schedMs);
   arrivals.sort((a, b) => a.schedMs - b.schedMs);
-  return { departures, arrivals, updatedAt: nowMs };
+  // Below the floor means the static schedule isn't backing up the live feed
+  // the way it's supposed to (failed to load, or genuinely ran dry) — worth
+  // knowing about, since the whole point of merging it in was to never see this.
+  if (departures.length < AMTRAK_BOARD_MIN_ROWS || arrivals.length < AMTRAK_BOARD_MIN_ROWS) {
+    console.warn(`Amtrak board below the ${AMTRAK_BOARD_MIN_ROWS}-row floor: ${departures.length} departures, ${arrivals.length} arrivals`);
+  }
+  return {
+    departures: departures.slice(0, AMTRAK_BOARD_MAX_ROWS),
+    arrivals: arrivals.slice(0, AMTRAK_BOARD_MAX_ROWS),
+    updatedAt: nowMs,
+  };
 }
 
 async function startAmtrakBoard() {
+  try {
+    await ensureAmtrakStaticGTFS();
+    loadAmtrakModel();
+    setInterval(() => {
+      ensureAmtrakStaticGTFS().then(loadAmtrakModel).catch((e) => console.error("Amtrak static GTFS refresh failed:", e.message));
+    }, AMTRAK_STATIC_REFRESH_MS);
+  } catch (e) {
+    console.error("Amtrak static schedule failed to load (board will be live-only):", e.message);
+  }
   await refreshAmtrakBoard();
   setInterval(refreshAmtrakBoard, AMTRAK_REFRESH_MS);
 }
@@ -2980,13 +3136,12 @@ setInterval(load, 60000);
 
 // A standalone page — its own template literal, no PIN gate (train
 // schedules aren't the sensitive personal-finance data the main ticker
-// hides). Two pieces: a literal "Departures"/"Arrivals" board for NY Penn
-// (Amtrak only for now — NJ Transit needs its own developer credentials
-// that haven't been set up), styled after the physical Solari board at
-// Penn Station, and the LIRR "Next Train To…" board moved here from the
-// main ticker page. Tapping any row opens a detail sheet with the train's
-// full route; Amtrak trains get a live map (real GPS), LIRR trains get a
-// plain-English position estimate (their public feed has delay, not GPS).
+// hides). Two pieces: a literal Amtrak "Departures"/"Arrivals" board for NY
+// Penn, styled after the physical Solari board at Penn Station, and the
+// LIRR "Next Train To…" board moved here from the main ticker page. Tapping
+// any row opens a detail sheet with the train's full route; Amtrak trains
+// get a live map (real GPS), LIRR trains get a plain-English position
+// estimate (their public feed has delay, not GPS).
 const trainsPage = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3054,20 +3209,17 @@ body {
 .board-row:last-child { border-bottom: none; }
 .board-row:active { background: #2a5cdc; }
 .c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.c-train { flex: 1.1; min-width: 0; display: flex; align-items: center; gap: 5px; }
-.tp-badge {
-  flex-shrink: 0; font-size: 6.5px; font-weight: 900; letter-spacing: 0.3px;
-  background: #fff; color: #0039a6; border-radius: 3px; padding: 2px 3px; line-height: 1;
-}
-.c-train .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.c-to { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.c-status { width: 62px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
+/* no width cap and no ellipsis — full train/route names always fit, wrapping
+   onto a second line rather than being cut off */
+.c-train { flex: 1.3; min-width: 0; }
+.c-train .nm { white-space: normal; word-break: break-word; }
+.c-to { flex: 1; min-width: 0; white-space: normal; word-break: break-word; font-weight: 600; }
+.c-status { width: 70px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
 .c-status.delayed { color: #ffd54a; }
 .c-status.gone { color: #c9d6ff; font-style: italic; }
-.c-track { width: 34px; flex-shrink: 0; text-align: right; font-size: 11px; }
+.c-status.scheduled { color: #a9b6d6; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
-.board-ftr { background: #0d1226; color: var(--text3); text-align: right; padding: 6px 14px; font-size: 10px; letter-spacing: 0.4px; }
-.board-note { text-align: center; color: var(--text3); font-size: 10.5px; margin: -6px 0 16px; }
+.board-ftr { background: #dde2ee; color: #5a6685; text-align: right; padding: 6px 14px; font-size: 10px; letter-spacing: 0.4px; }
 
 /* ── LIRR next-train board (moved here from the main ticker page) ── */
 .trains-section { margin-top: 4px; }
@@ -3143,18 +3295,17 @@ body {
 
   <div class="board-card">
     <div class="board-hdr"><span class="board-title">Departures</span><span class="board-clock" id="depClock">&mdash;</span></div>
-    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">To</span><span class="c-status">Status</span><span class="c-track">Track</span></div>
+    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">To</span><span class="c-status">Status</span></div>
     <div class="board-body" id="depBody"><div class="board-empty">Loading&hellip;</div></div>
     <div class="board-ftr" id="depDate">&mdash;</div>
   </div>
 
   <div class="board-card">
     <div class="board-hdr"><span class="board-title">Arrivals</span><span class="board-clock" id="arrClock">&mdash;</span></div>
-    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">From</span><span class="c-status">Status</span><span class="c-track">Track</span></div>
+    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">From</span><span class="c-status">Status</span></div>
     <div class="board-body" id="arrBody"><div class="board-empty">Loading&hellip;</div></div>
     <div class="board-ftr" id="arrDate">&mdash;</div>
   </div>
-  <div class="board-note">Amtrak shown live &middot; NJ Transit coming soon</div>
 
   <div class="trains-section" id="trains">
     <div class="section-hdr">
@@ -3188,8 +3339,10 @@ body {
   }
   function fmtBoardTime(ms) {
     if (ms == null) return "\\u2014";
-    var s = new Date(ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
-    return s.replace(" AM", "a").replace(" PM", "p");
+    var s = new Date(ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false });
+    // some environments render midnight as "24:00" under hour12:false
+    if (s.slice(0, 3) === "24:") s = "00:" + s.slice(3);
+    return s;
   }
 
   // ---------- NY Penn Departures / Arrivals (Amtrak) ----------
@@ -3200,6 +3353,7 @@ body {
     if (row.state === "departed") return { text: "Departed", cls: "gone" };
     if (row.state === "arrived") return { text: "Arrived", cls: "gone" };
     if (row.state === "delayed") return { text: "Now " + fmtBoardTime(row.atMs), cls: "delayed" };
+    if (row.state === "scheduled") return { text: "Scheduled", cls: "scheduled" };
     return { text: "On Time", cls: "" };
   }
 
@@ -3207,10 +3361,9 @@ body {
     var status = amtrakStatus(row);
     return '<div class="board-row" data-kind="amtrak" data-event="' + kind + '" data-idx="' + idx + '">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
-      '<span class="c-train"><span class="tp-badge">AMTRAK</span><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
+      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
       '<span class="c-to">' + esc(row.other) + '</span>' +
       '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
-      '<span class="c-track">' + (row.track ? esc(row.track) : "") + '</span>' +
       '</div>';
   }
 
@@ -3240,7 +3393,8 @@ body {
 
   function tickClocks() {
     var now = new Date();
-    var t = now.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+    var t = now.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false });
+    if (t.slice(0, 3) === "24:") t = "00:" + t.slice(3);
     var d = now.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric", year: "numeric" });
     document.getElementById("depClock").textContent = t;
     document.getElementById("arrClock").textContent = t;

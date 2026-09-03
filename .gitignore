@@ -14,3 +14,4 @@ bitcoin/lab/*.csv
 kalshi_private_key
 trains/.lirr-gtfs-cache/
 bitcoin/.lirr-gtfs-cache/
+bitcoin/.amtrak-gtfs-cache/
