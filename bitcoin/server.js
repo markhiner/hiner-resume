@@ -2544,7 +2544,9 @@ async function startLirrBoard() {
 // available.
 
 const AMTRAK_TRAINS_URL = "https://api-v3.amtraker.com/v3/trains";
+const AMTRAK_STATIONS_URL = "https://api-v3.amtraker.com/v3/stations";
 const AMTRAK_REFRESH_MS = 30 * 1000;
+const AMTRAK_STATIONS_REFRESH_MS = 20 * 60 * 60 * 1000; // station locations don't move
 const AMTRAK_STATIC_GTFS_URL = "https://content.amtrak.com/content/gtfs/GTFS.zip";
 const AMTRAK_CACHE_DIR = path.join(__dirname, ".amtrak-gtfs-cache");
 const AMTRAK_STATIC_REFRESH_MS = 20 * 60 * 60 * 1000; // schedules don't change intraday
@@ -2561,15 +2563,71 @@ function amtrakParseMs(iso) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+// Station coordinates, keyed by station code — fetched once from amtraker's
+// station database (not the per-train feed, which carries no lat/lon at all)
+// and refreshed roughly daily since stations don't move. Backs the route map
+// in the detail sheet: every stop on a train's route gets its own point.
+let amtrakStationCoords = new Map(); // code -> { lat, lon }
+async function refreshAmtrakStations() {
+  try {
+    const res = await fetch(AMTRAK_STATIONS_URL);
+    if (!res.ok) throw new Error(`Amtrak stations fetch ${res.status}`);
+    const json = await res.json();
+    const next = new Map();
+    for (const code of Object.keys(json)) {
+      const s = json[code];
+      if (Number.isFinite(s.lat) && Number.isFinite(s.lon)) next.set(code, { lat: s.lat, lon: s.lon });
+    }
+    amtrakStationCoords = next;
+  } catch (e) {
+    console.error("Amtrak station coordinates fetch failed (keeping last good data):", e.message);
+  }
+}
+
+// A handful of stations where the "just the city name" rule (applied below)
+// would either lose real information — Boston and Baltimore each have two
+// stations Amtrak actually serves — or where the official GTFS name isn't
+// even unique on its own (GTFS calls all three Boston-area stops "Boston").
+const AMTRAK_CITY_OVERRIDES = {
+  BOS: "Boston South", BBY: "Boston Back Bay",
+  BAL: "Baltimore Penn", BWI: "Baltimore Airport",
+};
+// Everywhere else, Amtrak's own station names are the city name plus a
+// generic suffix ("Washington Union Station", "Trenton Transit Center") that
+// only ever matters when a city has a second station to tell it apart from —
+// which the override list above already covers — so it's dropped.
+function amtrakCityName(code, rawName) {
+  if (AMTRAK_CITY_OVERRIDES[code]) return AMTRAK_CITY_OVERRIDES[code];
+  if (!rawName) return rawName;
+  return rawName
+    .replace(/\s+(Regional\s+)?Transportation Center$/i, "")
+    .replace(/\s+Transit Center$/i, "")
+    .replace(/\s+Amtrak Station$/i, "")
+    .replace(/\s+Union Station$/i, "")
+    .replace(/\s+Station$/i, "")
+    .replace(/\s+Amtrak$/i, "")
+    // the live feed already shortens "Union Station" to just "Union" itself
+    // (e.g. "Washington Union", "Chicago Union") — same single-station cities,
+    // so it comes off same as the "Union Station" case above.
+    .replace(/\s+Union$/i, "")
+    .trim() || rawName;
+}
+
 // One train's stations array, normalized — used both for the board row and
-// verbatim for the detail view, so the two can never disagree with each other.
+// verbatim for the detail view, so the two can never disagree with each
+// other. Each stop's lat/lon comes from the separate station database above
+// (the per-train feed itself carries no coordinates), for the route map.
 function amtrakNormalizeStations(stations) {
-  return (Array.isArray(stations) ? stations : []).map((s) => ({
-    code: s.code, name: s.name,
-    schedArrMs: amtrakParseMs(s.schArr), schedDepMs: amtrakParseMs(s.schDep),
-    arrMs: amtrakParseMs(s.arr), depMs: amtrakParseMs(s.dep),
-    status: s.status || null, track: s.platform || null,
-  }));
+  return (Array.isArray(stations) ? stations : []).map((s) => {
+    const coords = amtrakStationCoords.get(s.code);
+    return {
+      code: s.code, name: s.name,
+      lat: coords ? coords.lat : null, lon: coords ? coords.lon : null,
+      schedArrMs: amtrakParseMs(s.schArr), schedDepMs: amtrakParseMs(s.schDep),
+      arrMs: amtrakParseMs(s.arr), depMs: amtrakParseMs(s.dep),
+      status: s.status || null, track: s.platform || null,
+    };
+  });
 }
 
 // Pure: one train's raw /v3/trains entry in, the board entries it
@@ -2589,14 +2647,16 @@ function amtrakTrainEntries(train) {
   };
   const entries = [];
   if (idx > 0) {
+    const from = stations[0];
     entries.push({
-      ...common, event: "arr", other: stations[0].name,
+      ...common, event: "arr", other: amtrakCityName(from.code, from.name),
       schedMs: at.schedArrMs, atMs: at.arrMs != null ? at.arrMs : at.schedArrMs, track: at.track,
     });
   }
   if (idx < stations.length - 1) {
+    const to = stations[stations.length - 1];
     entries.push({
-      ...common, event: "dep", other: stations[stations.length - 1].name,
+      ...common, event: "dep", other: amtrakCityName(to.code, to.name),
       schedMs: at.schedDepMs, atMs: at.depMs != null ? at.depMs : at.schedDepMs, track: at.track,
     });
   }
@@ -2695,11 +2755,15 @@ function amtrakScheduleEntries(now) {
     const route = amtrakModel.routeById.get(trip.route_id);
     for (const parts of dateContexts) {
       if (!amtrakServiceActive(trip.service_id, parts)) continue;
-      const stations = sts.map((s) => ({
-        code: s.stop_id, name: amtrakModel.stopNameById.get(s.stop_id) || s.stop_id,
-        schedArrMs: gtfsTimeToMs(parts, s.arrival_time), schedDepMs: gtfsTimeToMs(parts, s.departure_time),
-        arrMs: null, depMs: null, status: null, track: null,
-      }));
+      const stations = sts.map((s) => {
+        const coords = amtrakStationCoords.get(s.stop_id);
+        return {
+          code: s.stop_id, name: amtrakModel.stopNameById.get(s.stop_id) || s.stop_id,
+          lat: coords ? coords.lat : null, lon: coords ? coords.lon : null,
+          schedArrMs: gtfsTimeToMs(parts, s.arrival_time), schedDepMs: gtfsTimeToMs(parts, s.departure_time),
+          arrMs: null, depMs: null, status: null, track: null,
+        };
+      });
       const idx = stations.findIndex((s) => s.code === NYP_CODE);
       if (idx === -1) continue;
       const at = stations[idx];
@@ -2708,8 +2772,14 @@ function amtrakScheduleEntries(now) {
         color: (route && route.route_color) || "0039a6", textColor: (route && route.route_text_color) || "ffffff",
         lat: null, lon: null, stations, live: false,
       };
-      if (idx > 0) entries.push({ ...common, event: "arr", other: stations[0].name, schedMs: at.schedArrMs, atMs: at.schedArrMs, track: null });
-      if (idx < stations.length - 1) entries.push({ ...common, event: "dep", other: stations[stations.length - 1].name, schedMs: at.schedDepMs, atMs: at.schedDepMs, track: null });
+      if (idx > 0) {
+        const from = stations[0];
+        entries.push({ ...common, event: "arr", other: amtrakCityName(from.code, from.name), schedMs: at.schedArrMs, atMs: at.schedArrMs, track: null });
+      }
+      if (idx < stations.length - 1) {
+        const to = stations[stations.length - 1];
+        entries.push({ ...common, event: "dep", other: amtrakCityName(to.code, to.name), schedMs: at.schedDepMs, atMs: at.schedDepMs, track: null });
+      }
     }
   }
   return entries;
@@ -2789,6 +2859,8 @@ function amtrakBoard() {
 }
 
 async function startAmtrakBoard() {
+  await refreshAmtrakStations();
+  setInterval(refreshAmtrakStations, AMTRAK_STATIONS_REFRESH_MS);
   try {
     await ensureAmtrakStaticGTFS();
     loadAmtrakModel();
@@ -3215,6 +3287,12 @@ body {
 .c-status.scheduled { color: #a9b6d6; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
 .board-ftr { background: #dde2ee; color: #5a6685; text-align: right; padding: 6px 14px; font-size: 10px; letter-spacing: 0.4px; }
+.board-more {
+  display: block; width: 100%; text-align: center;
+  background: #142a5c; color: #fff; border: none; border-top: 3px solid #050914;
+  padding: 9px 14px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+}
+.board-more:active { background: #1e3a7a; }
 
 /* ── LIRR next-train board (moved here from the main ticker page) ── */
 .trains-section { margin-top: 4px; }
@@ -3265,7 +3343,12 @@ body {
   border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--text1);
 }
 .tt-position b { color: var(--yellow); }
-#ttMap { height: 190px; border-radius: 12px; margin-top: 12px; background: var(--panel2); }
+#ttMap { height: 260px; border-radius: 12px; margin-top: 12px; background: var(--panel2); }
+.tt-map-label {
+  background: rgba(11,11,13,0.85); color: #fff; border: none; border-radius: 4px;
+  padding: 1px 5px; font-size: 9px; font-weight: 700; box-shadow: none;
+}
+.tt-map-label::before { display: none; }
 .tt-stops { margin-top: 14px; border-top: 1px solid var(--border); }
 .tt-stop {
   display: flex; align-items: center; gap: 8px; padding: 7px 0;
@@ -3362,13 +3445,23 @@ body {
       '</div>';
   }
 
+  var BOARD_COLLAPSED_ROWS = 5;
+  var boardExpanded = { dep: false, arr: false };
+
   function renderBoard(bodyId, rows, kind) {
     var el = document.getElementById(bodyId);
     if (!rows.length) {
       el.innerHTML = '<div class="board-empty">No ' + (kind === "dep" ? "departures" : "arrivals") + ' from Amtrak in this window.</div>';
       return;
     }
-    el.innerHTML = rows.map(function (r, i) { return boardRowHTML(r, i, kind); }).join("");
+    var expanded = boardExpanded[kind];
+    var visible = expanded ? rows : rows.slice(0, BOARD_COLLAPSED_ROWS);
+    var html = visible.map(function (r, i) { return boardRowHTML(r, i, kind); }).join("");
+    if (rows.length > BOARD_COLLAPSED_ROWS) {
+      html += '<button class="board-more" data-more="' + kind + '">' +
+        (expanded ? "Show fewer" : "More (" + (rows.length - BOARD_COLLAPSED_ROWS) + ")") + '</button>';
+    }
+    el.innerHTML = html;
   }
 
   function loadPennBoard() {
@@ -3480,10 +3573,12 @@ body {
 
   function renderAmtrakDetail(row) {
     var status = amtrakStatus(row);
+    var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
+    var showMap = routeStops.length >= 2 || (row.lat != null && row.lon != null);
     elBody.innerHTML =
       '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
       '<div class="tt-sub">Amtrak &middot; ' + status.text + '</div>' +
-      (row.lat != null && row.lon != null ? '<div id="ttMap"></div>' : '<div class="tt-position">Live position not available for this train right now.</div>') +
+      (showMap ? '<div id="ttMap"></div>' : '<div class="tt-position">Route map not available for this train right now.</div>') +
       '<div class="tt-stops" id="ttStops"></div>';
 
     var stopsEl = document.getElementById("ttStops");
@@ -3503,12 +3598,31 @@ body {
       }).join("");
     }
 
-    if (row.lat != null && row.lon != null && window.L) {
+    if (showMap && window.L) {
       setTimeout(function () {
         if (ttMap) { ttMap.remove(); ttMap = null; }
-        ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false }).setView([row.lat, row.lon], 8);
+        ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
-        ttMarker = L.circleMarker([row.lat, row.lon], { radius: 7, color: "#" + row.color, fillColor: "#" + row.color, fillOpacity: 1, weight: 2 }).addTo(ttMap);
+
+        if (routeStops.length >= 2) {
+          var latlngs = routeStops.map(function (s) { return [s.lat, s.lon]; });
+          L.polyline(latlngs, { color: "#" + row.color, weight: 3, opacity: 0.8 }).addTo(ttMap);
+          routeStops.forEach(function (s) {
+            L.circleMarker([s.lat, s.lon], { radius: 4, color: "#" + row.color, fillColor: "#fff", fillOpacity: 1, weight: 2 })
+              .bindTooltip(s.name, { permanent: true, direction: "top", className: "tt-map-label", offset: [0, -4] })
+              .addTo(ttMap);
+          });
+          ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+        } else {
+          ttMap.setView([row.lat, row.lon], 8);
+        }
+
+        // the train's own live GPS, distinct from the route's fixed stops
+        if (row.lat != null && row.lon != null) {
+          ttMarker = L.circleMarker([row.lat, row.lon], { radius: 7, color: "#fff", fillColor: "#" + row.color, fillOpacity: 1, weight: 3 })
+            .bindTooltip("Live position", { direction: "top" })
+            .addTo(ttMap);
+        }
       }, 0);
     }
   }
@@ -3563,6 +3677,13 @@ body {
   }
 
   document.addEventListener("click", function (e) {
+    var more = e.target.closest("[data-more]");
+    if (more) {
+      var mkind = more.getAttribute("data-more");
+      boardExpanded[mkind] = !boardExpanded[mkind];
+      renderBoard(mkind === "dep" ? "depBody" : "arrBody", mkind === "dep" ? state.departures : state.arrivals, mkind);
+      return;
+    }
     var row = e.target.closest("[data-kind]");
     if (!row) return;
     var kind = row.getAttribute("data-kind");
