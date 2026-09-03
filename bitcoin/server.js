@@ -3607,12 +3607,32 @@ body {
         if (routeStops.length >= 2) {
           var latlngs = routeStops.map(function (s) { return [s.lat, s.lon]; });
           L.polyline(latlngs, { color: "#" + row.color, weight: 3, opacity: 0.8 }).addTo(ttMap);
-          routeStops.forEach(function (s) {
-            L.circleMarker([s.lat, s.lon], { radius: 4, color: "#" + row.color, fillColor: "#fff", fillOpacity: 1, weight: 2 })
-              .bindTooltip(s.name, { permanent: true, direction: "top", className: "tt-map-label", offset: [0, -4] })
-              .addTo(ttMap);
+          var routeMarkers = routeStops.map(function (s, i) {
+            var marker = L.circleMarker([s.lat, s.lon], { radius: 4, color: "#" + row.color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(ttMap);
+            return { marker: marker, name: s.name, forceLabel: i === 0 || i === routeStops.length - 1 || s.code === "NYP" };
           });
+          // Every stop labeled at once is unreadable the moment the route is
+          // longer than a handful of stops and the map is zoomed out to fit
+          // it — endpoints and Penn Station always keep their label,
+          // everything else only keeps one once it's far enough away (in
+          // screen pixels, not miles, so this redoes itself on every
+          // zoom/pan) from the nearest label that's already showing.
+          var MIN_LABEL_PX = 46;
+          function declutterLabels() {
+            var shown = [];
+            routeMarkers.forEach(function (rm) {
+              rm.marker.unbindTooltip();
+              var pt = ttMap.latLngToContainerPoint(rm.marker.getLatLng());
+              var tooClose = shown.some(function (p) { return Math.hypot(pt.x - p.x, pt.y - p.y) < MIN_LABEL_PX; });
+              if (rm.forceLabel || !tooClose) {
+                shown.push(pt);
+                rm.marker.bindTooltip(rm.name, { permanent: true, direction: "top", className: "tt-map-label", offset: [0, -4] });
+              }
+            });
+          }
+          ttMap.on("zoomend moveend", declutterLabels);
           ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+          declutterLabels();
         } else {
           ttMap.setView([row.lat, row.lon], 8);
         }
