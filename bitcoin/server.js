@@ -19,7 +19,7 @@ const COINBASE_WS = "wss://ws-feed.exchange.coinbase.com";
 const BITSTAMP_WS = "wss://ws.bitstamp.net";
 
 const MAX_SECOND_TICKS = 3600; // 1 hour @ 1/sec — full resolution window
-const MAX_MINUTE_BARS = 1440; // 24 hours @ 1/min — long-range window
+const MAX_MINUTE_BARS = 4320; // 3 days @ 1/min — long-range window
 const MAX_TRADES = 40; // rapid-fire trade ticker buffer
 const SAVE_INTERVAL_MS = 60_000;
 const STALE_MS = 20_000; // force-reconnect a feed that's gone quiet
@@ -117,7 +117,7 @@ function loadHistory() {
     // well under an hour until they finally age out.
     const now = Date.now();
     if (Array.isArray(parsed.minuteBars)) {
-      minuteBars = parsed.minuteBars.filter((b) => b && now - b.t < 24 * 60 * 60 * 1000).slice(-MAX_MINUTE_BARS);
+      minuteBars = parsed.minuteBars.filter((b) => b && now - b.t < 3 * 24 * 60 * 60 * 1000).slice(-MAX_MINUTE_BARS);
     }
     if (Array.isArray(parsed.secondTicks)) {
       secondTicks = parsed.secondTicks.filter((p) => p && now - p.t < 60 * 60 * 1000).slice(-MAX_SECOND_TICKS);
@@ -1547,6 +1547,19 @@ function getHistory(range) {
     const bars = minuteBars.concat(currentBar ? [currentBar] : []).filter((b) => b.t >= cutoff);
     return bucketize(bars, 300);
   }
+  if (range === "6h") {
+    const cutoff = now - 6 * 60 * 60 * 1000;
+    const bars = minuteBars.concat(currentBar ? [currentBar] : []).filter((b) => b.t >= cutoff);
+    return bucketize(bars, 360);
+  }
+  if (range === "3d") {
+    const cutoff = now - 3 * 24 * 60 * 60 * 1000;
+    // 3 days at 1 bar/min is up to 4320 points — MAX_MINUTE_BARS covers the
+    // whole window, but only once the buffer has actually run that long
+    // since this feature shipped (or since the last restart cleared it).
+    const bars = minuteBars.concat(currentBar ? [currentBar] : []).filter((b) => b.t >= cutoff);
+    return bucketize(bars, 500);
+  }
   const cutoff = now - 24 * 60 * 60 * 1000;
   const bars = minuteBars.concat(currentBar ? [currentBar] : []).filter((b) => b.t >= cutoff);
   return bucketize(bars, 360);
@@ -2959,16 +2972,16 @@ body {
 @keyframes countdownFlash { 50% { opacity: 0.15; } }
 
 /* ── range buttons ── */
-.range-row-sm { display: flex; gap: 6px; justify-content: center; }
+.range-row-sm { display: flex; flex-wrap: wrap; gap: 6px; row-gap: 6px; justify-content: center; }
 .range-btn-sm {
   background: var(--panel2);
   border: 1px solid var(--border);
   color: var(--text2);
   font-size: 11px;
   font-weight: 800;
-  padding: 4px 15px;
+  padding: 4px 11px;
   border-radius: 20px;
-  min-width: 32px;
+  min-width: 28px;
 }
 .range-btn-sm.active { background: var(--text1); color: #000; border-color: var(--text1); }
 
@@ -3553,7 +3566,9 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     <button class="range-btn-sm" data-range="5m">5m</button>
     <button class="range-btn-sm active" data-range="1h">1</button>
     <button class="range-btn-sm" data-range="3h">3</button>
+    <button class="range-btn-sm" data-range="6h">6</button>
     <button class="range-btn-sm" data-range="24h">24</button>
+    <button class="range-btn-sm" data-range="3d">3d</button>
   </div>
 
   <div class="chart-card">
@@ -4229,7 +4244,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     return ticks;
   }
 
-  var RANGE_MS = { "2m": 120000, "5m": 300000, "1h": 3600000, "3h": 3 * 3600000, "24h": 24 * 3600000 };
+  var RANGE_MS = {
+    "2m": 120000, "5m": 300000, "1h": 3600000, "3h": 3 * 3600000, "6h": 6 * 3600000,
+    "24h": 24 * 3600000, "3d": 3 * 24 * 3600000,
+  };
   // ranges fed by the live websocket feed, second by second, rather than by
   // the 30s poll — both are windows short enough that a 30s-stale chart
   // would visibly lag behind the price ticking by on the header above it
@@ -4343,6 +4361,9 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
     var axisFmt = function (t) {
       var d = new Date(t);
+      if (state.range === "3d") {
+        return d.toLocaleDateString([], { weekday: "short" }) + " " + d.toLocaleTimeString([], { hour: "numeric" });
+      }
       return state.range === "24h"
         ? d.toLocaleTimeString([], { hour: "numeric" })
         : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
