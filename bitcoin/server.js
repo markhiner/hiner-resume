@@ -3698,9 +3698,16 @@ body {
 
         if (routeStops.length >= 2) {
           var latlngs = routeStops.map(function (s) { return [s.lat, s.lon]; });
-          L.polyline(latlngs, { color: "#" + row.color, weight: 3, opacity: 0.8 }).addTo(ttMap);
+          // A plain colored line/dot can vanish into OSM's pale basemap
+          // depending on the route's own color, so everything gets a solid
+          // white halo underneath — a wider white line, and a white disc
+          // behind each dot — before the actual colored shape goes on top.
+          // That keeps it visible regardless of what's under it on the map.
+          L.polyline(latlngs, { color: "#ffffff", weight: 7, opacity: 0.95, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
+          L.polyline(latlngs, { color: "#" + row.color, weight: 4, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
           var routeMarkers = routeStops.map(function (s, i) {
-            var marker = L.circleMarker([s.lat, s.lon], { radius: 4, color: "#" + row.color, fillColor: "#fff", fillOpacity: 1, weight: 2 }).addTo(ttMap);
+            L.circleMarker([s.lat, s.lon], { radius: 6, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
+            var marker = L.circleMarker([s.lat, s.lon], { radius: 4.5, color: "#000", weight: 1.5, fillColor: "#" + row.color, fillOpacity: 1 }).addTo(ttMap);
             return { marker: marker, name: s.name, forceLabel: i === 0 || i === routeStops.length - 1 || s.code === state.station };
           });
           // Every stop labeled at once is unreadable the moment the route is
@@ -3729,9 +3736,11 @@ body {
           ttMap.setView([row.lat, row.lon], 8);
         }
 
-        // the train's own live GPS, distinct from the route's fixed stops
+        // the train's own live GPS — bigger and higher-contrast than the
+        // fixed route dots, so it reads as "the one that moves" at a glance
         if (row.lat != null && row.lon != null) {
-          ttMarker = L.circleMarker([row.lat, row.lon], { radius: 7, color: "#fff", fillColor: "#" + row.color, fillOpacity: 1, weight: 3 })
+          L.circleMarker([row.lat, row.lon], { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
+          ttMarker = L.circleMarker([row.lat, row.lon], { radius: 9, color: "#000", weight: 2.5, fillColor: "#" + row.color, fillOpacity: 1 })
             .bindTooltip("Live position", { direction: "top" })
             .addTo(ttMap);
         }
