@@ -3470,6 +3470,33 @@ body {
     return s;
   }
 
+  // Catmull-Rom spline through the real station points — a plain polyline
+  // snaps straight from stop to stop, which reads as a jointed chain of hard
+  // angles at every turn (very visible at, say, Buffalo, where the route
+  // bends ~90°); a real rail line eases into a curve instead. This inserts
+  // interpolated points between each pair of stops so the drawn line curves
+  // smoothly through them — the stations themselves stay exactly where they
+  // really are, only the line connecting them is reshaped.
+  function smoothRoute(points, segmentsPerLeg) {
+    if (points.length < 3) return points;
+    var n = points.length, out = [];
+    for (var i = 0; i < n - 1; i++) {
+      var p0 = points[i > 0 ? i - 1 : i];
+      var p1 = points[i];
+      var p2 = points[i + 1];
+      var p3 = points[i + 2 < n ? i + 2 : n - 1];
+      for (var t = 0; t < segmentsPerLeg; t++) {
+        var u = t / segmentsPerLeg, u2 = u * u, u3 = u2 * u;
+        out.push([
+          0.5 * (2 * p1[0] + (p2[0] - p0[0]) * u + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * u2 + (3 * p1[0] - p0[0] - 3 * p2[0] + p3[0]) * u3),
+          0.5 * (2 * p1[1] + (p2[1] - p0[1]) * u + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * u2 + (3 * p1[1] - p0[1] - 3 * p2[1] + p3[1]) * u3),
+        ]);
+      }
+    }
+    out.push(points[n - 1]);
+    return out;
+  }
+
   // ---------- NY Penn Departures / Arrivals (Amtrak) ----------
 
   var STATION_NAMES = ${JSON.stringify(AMTRAK_BOARD_STATIONS)};
@@ -3698,13 +3725,14 @@ body {
 
         if (routeStops.length >= 2) {
           var latlngs = routeStops.map(function (s) { return [s.lat, s.lon]; });
+          var curvedLatlngs = smoothRoute(latlngs, 12);
           // A plain colored line/dot can vanish into OSM's pale basemap
           // depending on the route's own color, so everything gets a solid
           // white halo underneath — a wider white line, and a white disc
           // behind each dot — before the actual colored shape goes on top.
           // That keeps it visible regardless of what's under it on the map.
-          L.polyline(latlngs, { color: "#ffffff", weight: 7, opacity: 0.95, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
-          L.polyline(latlngs, { color: "#" + row.color, weight: 4, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
+          L.polyline(curvedLatlngs, { color: "#ffffff", weight: 7, opacity: 0.95, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
+          L.polyline(curvedLatlngs, { color: "#" + row.color, weight: 4, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
           var routeMarkers = routeStops.map(function (s, i) {
             L.circleMarker([s.lat, s.lon], { radius: 6, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
             var marker = L.circleMarker([s.lat, s.lon], { radius: 4.5, color: "#000", weight: 1.5, fillColor: "#" + row.color, fillOpacity: 1 }).addTo(ttMap);
