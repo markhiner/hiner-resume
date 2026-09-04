@@ -3333,13 +3333,18 @@ body {
 .tr-group { margin-bottom: 8px; }
 .tr-group:last-child { margin-bottom: 0; }
 .tr-hdr { font-size: 11px; font-weight: 800; color: var(--yellow); border-bottom: 1px solid var(--border); padding-bottom: 1px; margin-bottom: 1px; letter-spacing: 1px; }
-.tr-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 1.5px 0; font-size: 13px; }
-.tr-row .nm { color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-.tr-row .in { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
-.tr-xfer { font-size: 10px; font-weight: 800; color: var(--text2); }
+/* a fixed-width grid, not flex — every row gets IDENTICAL column widths
+   this way, so the branch pill and the track column line up down the page
+   regardless of how long any one row's destination/branch name is */
+.tr-row { display: grid; grid-template-columns: 1fr 180px 32px; align-items: center; gap: 6px; padding: 1.5px 0; font-size: 13px; }
+.tr-row .nm { color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tr-row .in { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; }
+.tr-xfer { font-size: 10px; font-weight: 800; color: var(--text2); flex-shrink: 0; }
 .tr-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 3px; font-weight: 700; font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .tr-pill.delayed::after { content: "LATE"; font-size: 8px; font-weight: 900; opacity: 0.85; margin-left: 2px; }
-.tr-track { font-size: 9px; font-weight: 900; letter-spacing: 0.4px; color: #04231f; background: var(--green); border-radius: 3px; padding: 2px 5px; white-space: nowrap; }
+/* blank until LIRR actually posts a track — no badge, no label, just the
+   number, right-aligned in its own column */
+.tr-track-col { text-align: right; color: var(--yellow); font-weight: 800; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .tr-flat { color: var(--text3); font-style: italic; font-size: 11.5px; }
 .tr-empty { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 20px 0; }
 
@@ -3565,7 +3570,7 @@ body {
   // ---------- LIRR next-train board ----------
 
   function trRowHTML(r, idx) {
-    var info;
+    var info, track = "";
     if (r.kind === "special") {
       info = '<span class="tr-flat">Special Events Only</span>';
     } else if (r.kind === "unknown" || r.depMs == null) {
@@ -3573,12 +3578,12 @@ body {
     } else {
       var xfer = r.kind === "jamaica" ? '<span class="tr-xfer">J</span>' : "";
       var route = r.route || { name: "", color: "3b3b3b", textColor: "ffffff" };
-      var track = r.track ? '<span class="tr-track" title="Boarding on track ' + esc(r.track) + '">TRACK ' + esc(r.track) + "</span>" : "";
       info = xfer + '<span class="tr-pill' + (r.delayed ? " delayed" : "") + '" style="background:#' + route.color + ";color:#" + route.textColor + '">' +
-        fmtBoardTime(r.depMs) + " " + esc(route.name.replace(/ Branch$/, "")) + "</span>" + track;
+        fmtBoardTime(r.depMs) + " " + esc(route.name.replace(/ Branch$/, "")) + "</span>";
+      track = r.track ? esc(r.track) : "";
     }
     var tappable = r.tripId ? ' data-kind="lirr" data-idx="' + idx + '"' : "";
-    return '<div class="tr-row"' + tappable + '><span class="nm">' + esc(r.name) + '</span><span class="in">' + info + "</span></div>";
+    return '<div class="tr-row"' + tappable + '><span class="nm">' + esc(r.name) + '</span><span class="in">' + info + '</span><span class="tr-track-col">' + track + '</span></div>';
   }
 
   function renderTrains(rows) {
