@@ -208,6 +208,13 @@ input[type="range"].brightness::-webkit-slider-runnable-track {
 input[type="range"].warmcool::-webkit-slider-runnable-track {
   background: linear-gradient(90deg, #ffb454, #cfe0ff);
 }
+input[type="range"].hue::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    90deg,
+    hsl(0, 100%, 50%), hsl(60, 100%, 50%), hsl(120, 100%, 50%),
+    hsl(180, 100%, 50%), hsl(240, 100%, 50%), hsl(300, 100%, 50%), hsl(360, 100%, 50%)
+  );
+}
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -219,24 +226,13 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow: 0 2px 6px rgba(0,0,0,0.4);
 }
 
-.color-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-input[type="color"] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 44px;
-  height: 44px;
-  border: 2px solid #2a2d38;
+.hue-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  padding: 0;
-  background: none;
-  touch-action: manipulation;
+  border: 1px solid rgba(255,255,255,0.25);
+  vertical-align: middle;
 }
-input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; border-radius: 50%; }
-input[type="color"]::-webkit-color-swatch { border: none; border-radius: 50%; }
 
 .card.loading .card-controls { opacity: 0.35; pointer-events: none; }

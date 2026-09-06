@@ -1,8 +1,8 @@
 {
   "location": {
-    "_comment": "Replace lat/lon with your actual home coordinates (right-click your house on Google Maps, the numbers it shows you ARE lat,lon) so sunset/sunrise rules fire at the right time.",
-    "lat": 0.0,
-    "lon": 0.0,
+    "_comment": "Sutherlin, VA (Pittsylvania County), via Wikipedia: 36.62472, -79.19694.",
+    "lat": 36.62472,
+    "lon": -79.19694,
     "timezone": "America/New_York"
   },
   "rules": [

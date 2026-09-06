@@ -1,119 +1,122 @@
 #!/usr/bin/env python3
 """
-Flask backend for controlling Tuya lights via the Tuya Cloud API.
-Talks to tinytuya's Cloud client; the frontend is a single iOS-optimized page.
+Flask backend for controlling Tuya lights via the Tuya Cloud API, plus a
+background automation loop that runs automation.json's schedule (fixed
+times and/or sunset/sunrise) for as long as this process stays running.
 """
 
 import json
 import os
 import threading
+import time
+import traceback
+from datetime import datetime, timedelta
 
-import tinytuya
-from dotenv import load_dotenv
+from astral import LocationInfo
+from astral.sun import sun
 from flask import Flask, jsonify, render_template, request
 from werkzeug.exceptions import HTTPException
 
-load_dotenv()
+from tuya_client import TuyaClient, TuyaError
 
-ACCESS_ID = os.environ["TUYA_ACCESS_ID"]
-ACCESS_KEY = os.environ["TUYA_ACCESS_KEY"]
-API_REGION = os.environ.get("TUYA_API_REGION", "us")
-SEED_DEVICE_ID = os.environ["TUYA_SEED_DEVICE_ID"]
 PORT = int(os.environ.get("PORT", 8000))
+AUTOMATION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automation.json")
+AUTOMATION_CHECK_SECONDS = 30
 
 app = Flask(__name__)
+client = TuyaClient()
 
-cloud = tinytuya.Cloud(
-    apiRegion=API_REGION,
-    apiKey=ACCESS_ID,
-    apiSecret=ACCESS_KEY,
-    apiDeviceID=SEED_DEVICE_ID,
-)
-
-# DP codes vary by bulb model/firmware generation; try the common ones in order.
-SWITCH_CODES = ("switch_led", "switch_1", "switch")
-BRIGHT_CODES = ("bright_value_v2", "bright_value")
-TEMP_CODES = ("temp_value_v2", "temp_value")
-COLOUR_CODES = ("colour_data_v2", "colour_data")
-MODE_CODE = "work_mode"
-
-_spec_cache = {}
-_spec_lock = threading.Lock()
+_automation_enabled = True
+_fired_today = set()
+_fired_date = None
+_automation_lock = threading.Lock()
 
 
-class TuyaError(Exception):
-    pass
+def load_automation():
+    with open(AUTOMATION_FILE) as f:
+        return json.load(f)
 
 
-def _check(resp, action):
-    """Raise if a Tuya API call failed.
-
-    tinytuya returns either the raw Tuya API response (has "msg" on failure)
-    or one of its own error_json() dicts (has "Error"/"Payload" instead, no
-    "success" key at all — treated as falsy here).
-    """
-    if not isinstance(resp, dict) or not resp.get("success", False):
-        if isinstance(resp, dict):
-            msg = resp.get("msg") or resp.get("Payload") or resp.get("Error") or "unknown error"
-        else:
-            msg = "empty response"
-        raise TuyaError(f"{action} failed: {msg}")
-    return resp
-
-
-def get_spec(device_id):
-    """Fetch (and cache) which DP codes this device supports, and their ranges."""
-    with _spec_lock:
-        cached = _spec_cache.get(device_id)
-    if cached:
-        return cached
-
-    resp = _check(cloud.getfunctions(device_id), "fetch device functions")
-    functions = resp.get("result", {}).get("functions", [])
-    by_code = {f["code"]: f for f in functions}
-
-    def pick(candidates):
-        return next((c for c in candidates if c in by_code), None)
-
-    def values_of(code):
-        if not code:
-            return {}
+def resolve_trigger(rule, today):
+    t = rule.get("time")
+    if t in ("sunset", "sunrise"):
         try:
-            return json.loads(by_code[code].get("values", "{}"))
-        except (ValueError, TypeError):
-            return {}
+            loc = load_automation()["location"]
+        except Exception:
+            return None
+        observer = LocationInfo(
+            "Home", "Region", loc.get("timezone", "UTC"), loc["lat"], loc["lon"]
+        ).observer
+        try:
+            times = sun(observer, date=today, tzinfo=loc.get("timezone", "UTC"))
+        except Exception as exc:
+            print(f"[automation] sun calc failed: {exc}")
+            return None
+        base = times[t]
+        offset = rule.get("offset_minutes", 0)
+        return (base + timedelta(minutes=offset)).replace(tzinfo=None)
+    try:
+        hour, minute = (int(p) for p in t.split(":"))
+        return datetime.combine(today, datetime.min.time()).replace(hour=hour, minute=minute)
+    except (ValueError, AttributeError):
+        print(f"[automation] bad time value in rule {rule.get('name')!r}: {t!r}")
+        return None
 
-    switch_code = pick(SWITCH_CODES)
-    bright_code = pick(BRIGHT_CODES)
-    temp_code = pick(TEMP_CODES)
-    colour_code = pick(COLOUR_CODES)
-    mode_code = MODE_CODE if MODE_CODE in by_code else None
 
-    bright_vals = values_of(bright_code)
-    temp_vals = values_of(temp_code)
-    colour_vals = values_of(colour_code)
-    mode_vals = values_of(mode_code)
-    mode_range = mode_vals.get("range", [])
+def apply_rule(rule, name_to_id):
+    devices = rule.get("devices", "all")
+    if devices == "all":
+        target_ids = list(name_to_id.values())
+    else:
+        target_ids = [name_to_id[n] for n in devices if n in name_to_id]
+        missing = [n for n in devices if n not in name_to_id]
+        if missing:
+            print(f"[automation] rule {rule.get('name')!r}: unknown device name(s) {missing}")
 
-    spec = {
-        "switch_code": switch_code,
-        "bright_code": bright_code,
-        "bright_min": bright_vals.get("min", 10),
-        "bright_max": bright_vals.get("max", 1000),
-        "temp_code": temp_code,
-        "temp_min": temp_vals.get("min", 0),
-        "temp_max": temp_vals.get("max", 1000),
-        "colour_code": colour_code,
-        "colour_h_max": colour_vals.get("h", {}).get("max", 360),
-        "colour_s_max": colour_vals.get("s", {}).get("max", 1000),
-        "colour_v_max": colour_vals.get("v", {}).get("max", 1000),
-        "mode_code": mode_code,
-        "mode_white": next((m for m in mode_range if "white" in m.lower()), None),
-        "mode_colour": next((m for m in mode_range if m.lower().startswith("colo")), None),
-    }
-    with _spec_lock:
-        _spec_cache[device_id] = spec
-    return spec
+    action = rule.get("action")
+    for device_id in target_ids:
+        try:
+            if action == "on":
+                client.set_switch(device_id, True)
+                if "brightness_pct" in rule:
+                    client.set_brightness_pct(device_id, rule["brightness_pct"])
+                if "temp_pct" in rule:
+                    client.set_temp_pct(device_id, rule["temp_pct"])
+            elif action == "off":
+                client.set_switch(device_id, False)
+        except Exception as exc:
+            print(f"[automation] rule {rule.get('name')!r} failed for {device_id}: {exc}")
+
+    print(f"[automation] fired: {rule.get('name', '(unnamed rule)')}")
+
+
+def automation_loop():
+    global _fired_date, _fired_today
+    while True:
+        try:
+            now = datetime.now()
+            if _fired_date != now.date():
+                _fired_today = set()
+                _fired_date = now.date()
+
+            with _automation_lock:
+                enabled = _automation_enabled
+
+            if enabled:
+                config = load_automation()
+                devices = client.list_devices()
+                name_to_id = {d["name"]: d["id"] for d in devices}
+                for idx, rule in enumerate(config.get("rules", [])):
+                    key = (idx, rule.get("name"))
+                    if key in _fired_today:
+                        continue
+                    trigger = resolve_trigger(rule, now.date())
+                    if trigger and now >= trigger:
+                        apply_rule(rule, name_to_id)
+                        _fired_today.add(key)
+        except Exception:
+            traceback.print_exc()
+        time.sleep(AUTOMATION_CHECK_SECONDS)
 
 
 @app.route("/")
@@ -123,27 +126,13 @@ def index():
 
 @app.route("/api/devices")
 def api_devices():
-    resp = _check(cloud.getdevices(verbose=True), "list devices")
-    devices = resp.get("result", [])
-    out = [
-        {
-            "id": d.get("id"),
-            "name": d.get("name") or d.get("id"),
-            "online": bool(d.get("online", d.get("isOnline", False))),
-            "category": d.get("category"),
-            "product_name": d.get("product_name"),
-        }
-        for d in devices
-    ]
-    out.sort(key=lambda d: d["name"].lower())
-    return jsonify(out)
+    return jsonify(client.list_devices())
 
 
 @app.route("/api/devices/<device_id>/status")
 def api_device_status(device_id):
-    spec = get_spec(device_id)
-    resp = _check(cloud.getstatus(device_id), "fetch device status")
-    values = {s["code"]: s["value"] for s in resp.get("result", [])}
+    spec = client.get_spec(device_id)
+    values = client.get_status(device_id)
 
     return jsonify({
         "spec": spec,
@@ -161,9 +150,7 @@ def api_device_command(device_id):
     commands = body.get("commands")
     if not commands:
         return jsonify({"error": "commands is required"}), 400
-    # tinytuya JSON-encodes whatever we pass here as-is (no wrapping), but
-    # Tuya's /commands endpoint requires the {"commands": [...]} envelope.
-    resp = _check(cloud.sendcommand(device_id, {"commands": commands}), "send command")
+    resp = client.send_command(device_id, commands)
     return jsonify(resp)
 
 
@@ -171,21 +158,19 @@ def api_device_command(device_id):
 def api_all():
     body = request.get_json(force=True, silent=True) or {}
     on = bool(body.get("on"))
-    resp = _check(cloud.getdevices(verbose=True), "list devices")
+    return jsonify(client.set_all(on))
 
-    results = {}
-    for d in resp.get("result", []):
-        device_id = d.get("id")
-        spec = get_spec(device_id)
-        if not spec["switch_code"]:
-            continue
-        try:
-            command = {"commands": [{"code": spec["switch_code"], "value": on}]}
-            _check(cloud.sendcommand(device_id, command), "send command")
-            results[device_id] = "ok"
-        except Exception as exc:  # keep going across the rest of the devices
-            results[device_id] = f"error: {exc}"
-    return jsonify(results)
+
+@app.route("/api/automation", methods=["GET", "POST"])
+def api_automation():
+    global _automation_enabled
+    if request.method == "POST":
+        body = request.get_json(force=True, silent=True) or {}
+        with _automation_lock:
+            _automation_enabled = bool(body.get("enabled", True))
+    with _automation_lock:
+        enabled = _automation_enabled
+    return jsonify({"enabled": enabled})
 
 
 @app.errorhandler(Exception)
@@ -197,4 +182,5 @@ def handle_error(exc):
 
 
 if __name__ == "__main__":
+    threading.Thread(target=automation_loop, daemon=True).start()
     app.run(host="0.0.0.0", port=PORT)

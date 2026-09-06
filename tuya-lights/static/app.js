@@ -8,7 +8,7 @@
   const allOnBtn = document.getElementById('allOnBtn');
   const allOffBtn = document.getElementById('allOffBtn');
 
-  const cards = new Map(); // device id -> { el, refs, spec }
+  const cards = new Map(); // device id -> { el, refs, spec, controls, state }
 
   function showBanner(msg) {
     banner.textContent = msg;
@@ -27,40 +27,23 @@
     return body;
   }
 
-  // ---- HSV <-> hex, mapped through each device's own h/s/v ranges ----
-
-  function hexToHsv(hex) {
-    const r = parseInt(hex.slice(1, 3), 16) / 255;
-    const g = parseInt(hex.slice(3, 5), 16) / 255;
-    const b = parseInt(hex.slice(5, 7), 16) / 255;
-    const max = Math.max(r, g, b), min = Math.min(r, g, b);
-    const d = max - min;
-    let h = 0;
-    if (d !== 0) {
-      if (max === r) h = ((g - b) / d) % 6;
-      else if (max === g) h = (b - r) / d + 2;
-      else h = (r - g) / d + 4;
-      h *= 60;
-      if (h < 0) h += 360;
-    }
-    const s = max === 0 ? 0 : d / max;
-    const v = max;
-    return { h, s, v };
+  // A device's "brightness" lives in one of two places depending on which
+  // mode it's in: bright_code (white mode) or colour_code's v component
+  // (color mode). Bulbs with only colour_data and no white mode always use
+  // the color path.
+  function brightnessGoesThroughColour(spec, mode) {
+    if (!spec.colour_code) return false;
+    if (!spec.bright_code) return true;
+    if (spec.mode_code && spec.mode_colour) return mode === spec.mode_colour;
+    return false;
   }
 
-  function hsvToHex(h, s, v) {
-    const c = v * s;
-    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-    const m = v - c;
-    let r = 0, g = 0, b = 0;
-    if (h < 60) [r, g, b] = [c, x, 0];
-    else if (h < 120) [r, g, b] = [x, c, 0];
-    else if (h < 180) [r, g, b] = [0, c, x];
-    else if (h < 240) [r, g, b] = [0, x, c];
-    else if (h < 300) [r, g, b] = [x, 0, c];
-    else [r, g, b] = [c, 0, x];
-    const toHex = (n) => Math.round((n + m) * 255).toString(16).padStart(2, '0');
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  function parseColour(raw) {
+    if (!raw) return null;
+    if (typeof raw === 'string') {
+      try { return JSON.parse(raw); } catch (_) { return null; }
+    }
+    return typeof raw === 'object' ? raw : null;
   }
 
   // ---- card creation ----
@@ -106,11 +89,11 @@
     if (!device.online) el.classList.add('offline');
 
     grid.appendChild(el);
-    cards.set(device.id, { el, refs, controls, device });
+    cards.set(device.id, { el, refs, controls, device, state: {} });
   }
 
-  function addSlider(deviceId, controls, opts) {
-    const { key, label, min, max, className, valueToText } = opts;
+  function addSlider(controls, opts) {
+    const { label, min, max, className, valueToText, onInput, onCommit } = opts;
     const row = document.createElement('div');
     row.className = 'control-row';
     const labelRow = document.createElement('div');
@@ -129,46 +112,93 @@
 
     const update = (v) => { valueText.textContent = valueToText ? valueToText(v) : v; };
 
-    input.addEventListener('input', () => update(Number(input.value)));
-    input.addEventListener('change', () => {
-      sendCommand(deviceId, [{ code: key, value: Number(input.value) }]);
+    input.addEventListener('input', () => {
+      const v = Number(input.value);
+      update(v);
+      if (onInput) onInput(v);
     });
+    input.addEventListener('change', () => onCommit(Number(input.value)));
 
     row.append(labelRow, input);
     controls.appendChild(row);
     return { input, update };
   }
 
-  function addColorPicker(deviceId, controls) {
+  function addHueSlider(deviceId, controls) {
     const row = document.createElement('div');
     row.className = 'control-row color-row';
-    const label = document.createElement('span');
-    label.className = 'control-label';
-    label.textContent = 'Color';
+    const labelRow = document.createElement('div');
+    labelRow.className = 'control-label';
+    const labelText = document.createElement('span');
+    labelText.textContent = 'Color';
+    const swatch = document.createElement('span');
+    swatch.className = 'hue-swatch';
+    labelRow.append(labelText, swatch);
+
     const input = document.createElement('input');
-    input.type = 'color';
+    input.type = 'range';
+    input.className = 'hue';
+    input.min = '0';
+    input.max = '360';
     input.disabled = true;
-    input.addEventListener('change', () => {
-      const card = cards.get(deviceId);
-      const spec = card.spec;
-      const hsv = hexToHsv(input.value);
-      const commands = [];
-      if (spec.mode_code && spec.mode_colour) {
-        commands.push({ code: spec.mode_code, value: spec.mode_colour });
-      }
-      commands.push({
-        code: spec.colour_code,
-        value: {
-          h: Math.round(hsv.h),
-          s: Math.round(hsv.s * spec.colour_s_max),
-          v: Math.round(hsv.v * spec.colour_v_max),
-        },
-      });
-      sendCommand(deviceId, commands);
-    });
-    row.append(label, input);
+
+    const paint = (hue) => { swatch.style.background = `hsl(${hue}, 100%, 50%)`; };
+
+    input.addEventListener('input', () => paint(Number(input.value)));
+    input.addEventListener('change', () => commitHue(deviceId, Number(input.value)));
+
+    row.append(labelRow, input);
     controls.appendChild(row);
-    return { input };
+    return { input, paint };
+  }
+
+  // ---- commit handlers (mode-aware) ----
+
+  function commitSwitch(deviceId, on) {
+    const card = cards.get(deviceId);
+    sendCommand(deviceId, [{ code: card.spec.switch_code, value: on }]);
+  }
+
+  function commitBrightnessPct(deviceId, pct) {
+    const card = cards.get(deviceId);
+    const spec = card.spec;
+    if (brightnessGoesThroughColour(spec, card.state.mode)) {
+      const h = card.state.hue || 0;
+      const s = spec.colour_s_max || 1000;
+      const v = Math.round((pct / 100) * (spec.colour_v_max || 1000));
+      sendCommand(deviceId, [{ code: spec.colour_code, value: { h, s, v } }]);
+    } else {
+      const value = Math.round(spec.bright_min + (spec.bright_max - spec.bright_min) * pct / 100);
+      sendCommand(deviceId, [{ code: spec.bright_code, value }]);
+    }
+  }
+
+  function commitTemp(deviceId, value) {
+    const card = cards.get(deviceId);
+    const spec = card.spec;
+    const commands = [];
+    if (spec.mode_code && spec.mode_white) {
+      commands.push({ code: spec.mode_code, value: spec.mode_white });
+      card.state.mode = spec.mode_white; // optimistic
+    }
+    commands.push({ code: spec.temp_code, value });
+    sendCommand(deviceId, commands);
+  }
+
+  function commitHue(deviceId, hue) {
+    const card = cards.get(deviceId);
+    const spec = card.spec;
+    card.state.hue = hue; // optimistic
+    const commands = [];
+    if (spec.mode_code && spec.mode_colour) {
+      commands.push({ code: spec.mode_code, value: spec.mode_colour });
+      card.state.mode = spec.mode_colour; // optimistic
+    }
+    const pct = card.brightness ? Number(card.brightness.input.value) : 100;
+    const s = spec.colour_s_max || 1000;
+    const v = Math.round((pct / 100) * (spec.colour_v_max || 1000));
+    commands.push({ code: spec.colour_code, value: { h: hue, s, v } });
+    sendCommand(deviceId, commands);
   }
 
   async function sendCommand(deviceId, commands) {
@@ -205,6 +235,10 @@
     if (!card) return;
     const spec = state.spec;
     card.spec = spec;
+    card.state.mode = state.mode;
+
+    const colour = parseColour(state.colour);
+    if (colour) card.state.hue = colour.h || 0;
 
     // Build controls once, on first successful status load.
     if (!card.built) {
@@ -212,64 +246,66 @@
       const { switchInput } = card.refs;
       if (spec.switch_code) {
         switchInput.disabled = false;
-        switchInput.addEventListener('change', () => {
-          sendCommand(deviceId, [{ code: spec.switch_code, value: switchInput.checked }]);
-        });
+        switchInput.addEventListener('change', () => commitSwitch(deviceId, switchInput.checked));
       }
 
-      if (spec.bright_code) {
-        card.brightness = addSlider(deviceId, card.controls, {
-          key: spec.bright_code,
+      if (spec.bright_code || spec.colour_code) {
+        card.brightness = addSlider(card.controls, {
           label: 'Brightness',
-          min: spec.bright_min,
-          max: spec.bright_max,
+          min: 0,
+          max: 100,
           className: 'brightness',
-          valueToText: (v) => `${Math.round(((v - spec.bright_min) / (spec.bright_max - spec.bright_min)) * 100)}%`,
+          valueToText: (v) => `${v}%`,
+          onCommit: (pct) => commitBrightnessPct(deviceId, pct),
         });
       }
 
       if (spec.temp_code) {
-        card.temp = addSlider(deviceId, card.controls, {
-          key: spec.temp_code,
+        card.temp = addSlider(card.controls, {
           label: 'Warm ↔ Cool',
           min: spec.temp_min,
           max: spec.temp_max,
           className: 'warmcool',
           valueToText: () => '',
+          onCommit: (v) => commitTemp(deviceId, v),
         });
       }
 
       if (spec.colour_code) {
-        card.color = addColorPicker(deviceId, card.controls);
+        card.hue = addHueSlider(deviceId, card.controls);
       }
     }
 
     if (spec.switch_code && typeof state.on === 'boolean') {
       card.refs.switchInput.checked = state.on;
     }
-    if (card.brightness && typeof state.brightness === 'number') {
-      card.brightness.input.value = state.brightness;
-      card.brightness.input.disabled = false;
-      card.brightness.update(state.brightness);
+
+    if (card.brightness) {
+      const usesColour = brightnessGoesThroughColour(spec, state.mode);
+      let pct = null;
+      if (usesColour && colour) {
+        pct = Math.round(((colour.v || 0) / (spec.colour_v_max || 1000)) * 100);
+      } else if (typeof state.brightness === 'number') {
+        pct = Math.round(((state.brightness - spec.bright_min) / (spec.bright_max - spec.bright_min)) * 100);
+      }
+      if (pct !== null) {
+        card.brightness.input.value = pct;
+        card.brightness.input.disabled = false;
+        card.brightness.update(pct);
+      }
     }
+
     if (card.temp && typeof state.temperature === 'number') {
       card.temp.input.value = state.temperature;
       card.temp.input.disabled = false;
       card.temp.update(state.temperature);
     }
-    if (card.color && state.colour) {
-      // Some firmware reports colour_data(_v2) as a JSON string instead of an object.
-      let colour = state.colour;
-      if (typeof colour === 'string') {
-        try { colour = JSON.parse(colour); } catch (_) { colour = null; }
-      }
-      if (colour && typeof colour === 'object') {
-        const h = colour.h || 0;
-        const s = (colour.s || 0) / (spec.colour_s_max || 1000);
-        const v = (colour.v || 0) / (spec.colour_v_max || 1000);
-        card.color.input.value = hsvToHex(h, s, v);
-        card.color.input.disabled = false;
-      }
+
+    if (card.hue && colour) {
+      const hue = colour.h || 0;
+      card.hue.input.value = hue;
+      card.hue.input.disabled = false;
+      card.hue.paint(hue);
     }
   }
 

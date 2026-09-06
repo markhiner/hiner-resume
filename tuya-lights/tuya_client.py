@@ -60,6 +60,11 @@ class TuyaClient:
         out.sort(key=lambda d: d["name"].lower())
         return out
 
+    def get_status(self, device_id):
+        """Raw current DP values for a device, as a {code: value} dict."""
+        resp = self._check(self.cloud.getstatus(device_id), "fetch device status")
+        return {s["code"]: s["value"] for s in resp.get("result", [])}
+
     def get_spec(self, device_id):
         """Fetch (and cache) which DP codes this device supports, and their ranges."""
         with self._spec_lock:

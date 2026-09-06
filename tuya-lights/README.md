@@ -2,15 +2,17 @@
 
 Tools for controlling Tuya-based smart lights (the ones you normally
 control from the Tuya / Smart Life app) without opening that app. Two
-front ends share the same Tuya Cloud setup and the same `.env`:
+front ends share the same Tuya Cloud setup, the same `.env`, and the same
+`automation.json` schedule:
 
-- **`menubar.py`** — a macOS menu bar app: click a light to turn it on/off
-  or set brightness, plus a JSON-configured schedule that runs automations
-  throughout the day (fixed times and/or sunset/sunrise). This is the
+- **`app.py`** — a Flask web app: tappable on/off, brightness, color
+  temperature, and a full rainbow color slider per light, plus a
+  background scheduler that runs `automation.json` (fixed times and/or
+  sunset/sunrise) for as long as the process is running. This is the
   primary way to use this folder right now.
-- **`app.py`** — a Flask web app optimized for iOS Safari (Home Screen
-  install, native color picker). Parked for now but still there if you
-  want it later — see "Web app" below.
+- **`menubar.py`** — a macOS menu bar equivalent: click a light in the
+  menu bar for on/off/brightness, same schedule engine. An alternative to
+  the web app, not required alongside it — see "Menu bar app" below.
 
 Both talk to the [Tuya Cloud API](https://developer.tuya.com/en/docs/iot)
 via [`tinytuya`](https://github.com/jasonacox/tinytuya)'s `Cloud` client —
@@ -60,34 +62,38 @@ python3 list_devices.py
 This should print every linked light by name — no web server or menu bar
 app needed for this step.
 
-## 3. Menu bar app
+## 3. Run the web app
 
 ```bash
-python3 menubar.py
+python app.py
 ```
 
-A 💡 icon appears in your menu bar. Click it for:
+Open `http://localhost:8000` (or `http://<your-mac's-lan-ip>:8000` from
+your iPhone or any other device on your network). Each light gets:
 
-- **Refresh Lights** — reload the device list (e.g. after adding/renaming
-  a light in the Tuya app)
-- One entry per light, each with a submenu: **On**, **Off**, and (for
-  dimmable bulbs) **Dim (25%)** / **Half (50%)** / **Full (100%)**
-- **All On** / **All Off**
-- **Automation Enabled** — check to pause all scheduled automations
-  without quitting the app
-- **Edit Schedule...** — opens `automation.json` in your default editor
-- **Validate Schedule** — checks the file parses and reports how many
-  rules it found (edits take effect on their own within ~30 seconds,
-  this is just a sanity check)
+- An iOS-style **on/off switch**
+- A **Brightness** slider (0-100%) — works whether the bulb is currently
+  in white or color mode
+- A **Warm ↔ Cool** color-temperature slider (white mode)
+- A **Color** slider showing the full rainbow (hue 0-360°) for bulbs that
+  support it, with a live swatch preview as you drag
+- **All On** / **All Off** at the top
 
-Leave it running in the menu bar; automations fire in the background as
-long as it's open.
+Touching the rainbow slider switches that bulb into color mode automatically;
+touching the warm/cool slider switches it back to white mode — same as how
+the Tuya app itself behaves.
+
+In Safari, Share → **Add to Home Screen** for a full-screen, app-like
+experience on your phone.
+
+Leave `python app.py` running in the background (e.g. via `pm2`,
+`systemd`, or `tmux`, or see the Cloudflare Tunnel section below) —
+that's also what runs the automation schedule below.
 
 ### Automation schedule
 
-Edit `automation.json`. First, set your real location so sunset/sunrise
-rules fire at the right time — right-click your house on Google Maps and
-it'll show you the lat/lon to paste in.
+Edit `automation.json`. Location is already set to Sutherlin, VA for
+sunset/sunrise math; update it if that's wrong, or if you move.
 
 Each rule:
 
@@ -128,7 +134,7 @@ Create `~/Library/LaunchAgents/nyc.hiner.tuyalights.plist`:
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/python3</string>
-    <string>/Users/mark/hiner-resume/tuya-lights/menubar.py</string>
+    <string>/Users/mark/hiner-resume/tuya-lights/app.py</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -138,18 +144,6 @@ Create `~/Library/LaunchAgents/nyc.hiner.tuyalights.plist`:
 
 Then: `launchctl load ~/Library/LaunchAgents/nyc.hiner.tuyalights.plist`.
 Adjust the python3 path if `which python3` gives something different.
-
-## Web app (optional, parked for now)
-
-```bash
-python app.py
-```
-
-Open `http://localhost:8000` (or `http://<your-mac's-lan-ip>:8000` from
-your iPhone). In Safari, Share → **Add to Home Screen** for a full-screen,
-app-like experience. See `static/`, `templates/`, and `app.py` for the
-implementation — it uses the same `.env` and Tuya setup as the menu bar
-app above.
 
 ### Expose it outside your home network
 
@@ -171,6 +165,28 @@ cloudflared tunnel run lights
 Keep `app.py` running in the background (e.g. via `pm2`, `systemd`, or
 `tmux`) alongside the tunnel.
 
+## Menu bar app (alternative to the web app)
+
+```bash
+python3 menubar.py
+```
+
+A 💡 icon appears in your menu bar instead of a web page — same lights,
+same `automation.json` schedule, same on/off/brightness controls, just as
+native macOS menu items instead of a browser tab. Click it for:
+
+- **Refresh Lights** — reload the device list
+- One entry per light with **On** / **Off** / **Dim (25%)** / **Half (50%)**
+  / **Full (100%)** (no rainbow color slider here — menu items can't do a
+  drag gesture, so color is web-app-only for now)
+- **All On** / **All Off**
+- **Automation Enabled** — pause scheduled automations without quitting
+- **Edit Schedule...** / **Validate Schedule**
+
+Only run one of `app.py` / `menubar.py` at a time if you're worried about
+doubled-up automation firing — both run the same scheduler loop
+independently.
+
 ## Finding devices on your local network (optional)
 
 If you just want to see what Tuya devices are reachable on your Wi-Fi
@@ -190,16 +206,21 @@ above works fine — that's expected, just use the Cloud path instead.
 
 - **Rate limits:** free/trial Tuya Cloud projects are limited to a few
   requests per second. Device capabilities (which DP codes a bulb
-  supports) are fetched lazily and cached — the menu bar app only makes a
-  Tuya API call when you actually click something or an automation rule
-  fires, never on a timer or on startup beyond the initial device list.
+  supports) are fetched lazily and cached — a command is only sent when
+  you actually release a slider/switch or an automation rule fires, never
+  on a timer or on startup beyond the initial device list.
 - **Which lights show up:** every device linked to the Tuya app account
   appears — not just bulbs. Simple on/off switches or plugs will only
-  offer On/Off, since brightness controls only show up for devices that
-  report that capability.
-- **Timezone:** the menu bar app compares sunset/sunrise times against
-  your Mac's local clock, so `automation.json`'s `timezone` should match
-  whatever timezone your Mac is actually set to.
+  offer On/Off, since brightness/color controls only show up for devices
+  that report that capability.
+- **Color vs. brightness vs. white:** touching the rainbow slider switches
+  a bulb into color mode; touching Warm↔Cool switches it back to white
+  mode. The Brightness slider works in either mode — it adjusts whichever
+  DP actually controls brightness for the bulb's current mode.
+- **Timezone:** sunset/sunrise times are compared against the local clock
+  of whatever machine is running `app.py`/`menubar.py`, so
+  `automation.json`'s `timezone` should match that machine's actual
+  timezone setting.
 - **`rumps` (the menu bar library) is macOS-only** — `menubar.py` won't
   run on Linux/Windows. `app.py` and the other scripts in this folder are
   plain Python and work anywhere.
