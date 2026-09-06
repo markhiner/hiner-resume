@@ -1783,6 +1783,14 @@ const AMENITY_BADGES = [
   { label: "Turndown", cls: "b-turn", keys: ["turndownservice", "turndown"] },
   { label: "In-room dining", cls: "b-dine", keys: ["roomservice", "inroomdining"] },
   { label: "Casino", cls: "b-casino", keys: ["casino"] },
+  // Icon-only, same reasoning as the paw: these are common enough that the
+  // shape reads faster than the word once you know it.
+  { label: "Airport shuttle", icon: "plane", cls: "b-shuttle", keys: ["airportshuttle"] },
+  { label: "Bar", icon: "cocktail", cls: "b-drink", keys: ["bar"] },
+  // Short label on the card, full name on hover/aria — "Business center"
+  // doesn't fit the same compact pill the icon badges get away with.
+  { label: "Biz Center", title: "Business center", cls: "b-biz", keys: ["businesscenter", "businesscentre"] },
+  { label: "Laundry", cls: "b-laundry", keys: ["fullservicelaundry", "laundryservice", "laundry"] },
 ];
 
 function amenityBadges(list) {
@@ -1791,7 +1799,7 @@ function amenityBadges(list) {
   for (const b of AMENITY_BADGES) {
     if (!b.keys.some((k) => have.has(k))) continue;
     if (b.unless && b.unless.some((k) => have.has(k))) continue;
-    const badge = { label: b.label, title: b.label, cls: b.cls };
+    const badge = { label: b.label, title: b.title || b.label, cls: b.cls };
     if (b.icon) badge.icon = b.icon;
     out.push(badge);
   }
@@ -4353,6 +4361,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .fl-flag.b-turn   { background: rgba(148,163,184,0.18); color: #94a3b8; }
 .fl-flag.b-dine   { background: rgba(163,230,53,0.15);  color: #a3e635; }
 .fl-flag.b-casino { background: rgba(232,121,249,0.16); color: #e879f9; }
+.fl-flag.b-shuttle { background: rgba(251,191,36,0.16); color: #fbbf24; padding: 3px 8px; }
+.fl-flag.b-drink   { background: rgba(251,113,133,0.16); color: #fb7185; padding: 3px 8px; }
+.fl-flag.b-biz     { background: rgba(96,165,250,0.16); color: #60a5fa; }
+.fl-flag.b-laundry { background: rgba(34,211,238,0.16); color: #22d3ee; }
 .paw-svg { width: 13px; height: 13px; display: block; }
 .fl-tile.ht-tile.best { border-color: rgba(45,212,191,0.32); background: linear-gradient(180deg, rgba(45,212,191,0.055), rgba(0,0,0,0)); }
 .fl-tile.ht-tile.best .lbl { color: #2dd4bf; }
@@ -6322,8 +6334,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
   function money(n) { return "$" + Number(n).toLocaleString("en-US"); }
 
-  // Drawn rather than the 🐾 emoji: an emoji glyph carries its own colour and
-  // cannot be tinted, and it renders differently on every platform.
+  // Drawn rather than emoji glyphs: an emoji carries its own colour and
+  // cannot be tinted, and renders differently on every platform.
   var PAW_SVG =
     '<svg class="paw-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
     '<ellipse cx="5.6" cy="11.2" rx="2.5" ry="3.1"/>' +
@@ -6332,6 +6344,15 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     '<ellipse cx="19.5" cy="11.2" rx="2.5" ry="3.1"/>' +
     '<path d="M12.5 12.6c3.1 0 5.9 2.6 5.9 5.1 0 1.9-1.6 2.9-3.4 2.9-1.1 0-1.8-.4-2.5-.4s-1.4.4-2.5.4c-1.8 0-3.4-1-3.4-2.9 0-2.5 2.8-5.1 5.9-5.1z"/>' +
     "</svg>";
+  var PLANE_SVG =
+    '<svg class="paw-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2.5 1.5V22l4-1 4 1v-1.5L13 19v-5.5l8 2.5z"/>' +
+    "</svg>";
+  var COCKTAIL_SVG =
+    '<svg class="paw-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    '<path d="M21 5V3H3v2l8 9v5H6v2h12v-2h-5v-5l8-9z"/>' +
+    "</svg>";
+  var ICON_SVGS = { paw: PAW_SVG, plane: PLANE_SVG, cocktail: COCKTAIL_SVG };
 
   function hotelFlagHTML(p) {
     var out = [];
@@ -6342,7 +6363,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     (p.badges || []).forEach(function (b) {
       out.push('<span class="fl-flag ' + esc(b.cls) + '" title="' + esc(b.title) +
         '" aria-label="' + esc(b.title) + '">' +
-        (b.icon === "paw" ? PAW_SVG : esc(b.label)) + "</span>");
+        (ICON_SVGS[b.icon] || esc(b.label)) + "</span>");
     });
     return out.length ? '<div class="fl-flags">' + out.join("") + "</div>" : "";
   }
