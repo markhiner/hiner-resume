@@ -161,7 +161,9 @@ def api_device_command(device_id):
     commands = body.get("commands")
     if not commands:
         return jsonify({"error": "commands is required"}), 400
-    resp = _check(cloud.sendcommand(device_id, commands), "send command")
+    # tinytuya JSON-encodes whatever we pass here as-is (no wrapping), but
+    # Tuya's /commands endpoint requires the {"commands": [...]} envelope.
+    resp = _check(cloud.sendcommand(device_id, {"commands": commands}), "send command")
     return jsonify(resp)
 
 
@@ -178,7 +180,8 @@ def api_all():
         if not spec["switch_code"]:
             continue
         try:
-            _check(cloud.sendcommand(device_id, [{"code": spec["switch_code"], "value": on}]), "send command")
+            command = {"commands": [{"code": spec["switch_code"], "value": on}]}
+            _check(cloud.sendcommand(device_id, command), "send command")
             results[device_id] = "ok"
         except Exception as exc:  # keep going across the rest of the devices
             results[device_id] = f"error: {exc}"

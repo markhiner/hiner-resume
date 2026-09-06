@@ -111,7 +111,11 @@ class TuyaClient:
         return spec
 
     def send_command(self, device_id, commands):
-        return self._check(self.cloud.sendcommand(device_id, commands), "send command")
+        # tinytuya JSON-encodes whatever we pass here as-is (no wrapping), but
+        # Tuya's /commands endpoint requires the {"commands": [...]} envelope.
+        return self._check(
+            self.cloud.sendcommand(device_id, {"commands": commands}), "send command"
+        )
 
     def set_switch(self, device_id, on):
         spec = self.get_spec(device_id)
