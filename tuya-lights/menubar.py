@@ -22,13 +22,39 @@ from astral.sun import sun
 
 from tuya_client import TuyaClient, TuyaError
 
-AUTOMATION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automation.json")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+AUTOMATION_FILE = os.path.join(BASE_DIR, "automation.json")
+GROUPS_FILE = os.path.join(BASE_DIR, "groups.json")
 AUTOMATION_CHECK_SECONDS = 30
 
 
 def load_automation():
     with open(AUTOMATION_FILE) as f:
         return json.load(f)
+
+
+def load_groups():
+    """{group display name: [member device names]}. Missing file = no groups."""
+    try:
+        with open(GROUPS_FILE) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+
+def resolve_names(names, name_to_id):
+    """Expand a list that may mix individual device names and group names
+    into physical device ids. Unknown names are logged and skipped."""
+    groups = load_groups()
+    ids = []
+    for n in names:
+        if n in groups:
+            ids.extend(name_to_id[m] for m in groups[n] if m in name_to_id)
+        elif n in name_to_id:
+            ids.append(name_to_id[n])
+        else:
+            print(f"[automation] unknown device/group name: {n!r}")
+    return ids
 
 
 class LightsMenuBarApp(rumps.App):
@@ -189,10 +215,7 @@ class LightsMenuBarApp(rumps.App):
         if devices == "all":
             target_ids = list(self.name_to_id.values())
         else:
-            target_ids = [self.name_to_id[n] for n in devices if n in self.name_to_id]
-            missing = [n for n in devices if n not in self.name_to_id]
-            if missing:
-                print(f"[automation] rule {rule.get('name')!r}: unknown device name(s) {missing}")
+            target_ids = resolve_names(devices, self.name_to_id)
 
         action = rule.get("action")
         for device_id in target_ids:

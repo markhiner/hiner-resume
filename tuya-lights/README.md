@@ -86,6 +86,31 @@ the Tuya app itself behaves.
 In Safari, Share → **Add to Home Screen** for a full-screen, app-like
 experience on your phone.
 
+### Linking lights together
+
+Edit `groups.json` to make a set of lights show up as a single card,
+controlled together (e.g. all 5 Parlor Ceiling fixtures at once):
+
+```json
+{
+  "Parlor Ceiling": [
+    "Parlor Ceiling 1",
+    "Parlor Ceiling 2",
+    "Parlor Ceiling 3",
+    "Parlor Ceiling 4",
+    "Parlor Ceiling 5"
+  ]
+}
+```
+
+The key is the name the merged card shows; the list is the exact device
+names (from the Tuya app) it controls. Every command sent to that card —
+on/off, brightness, color, temperature — goes to all listed devices at
+once. Its status card just reads back whichever member is first in the
+list, since a group is only ever commanded as a whole. Group names also
+work inside `automation.json`'s `devices` lists, in place of listing every
+member individually.
+
 Leave `python app.py` running in the background (e.g. via `pm2`,
 `systemd`, or `tmux`, or see the Cloudflare Tunnel section below) —
 that's also what runs the automation schedule below.

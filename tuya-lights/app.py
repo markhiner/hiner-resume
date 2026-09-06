@@ -20,8 +20,11 @@ from werkzeug.exceptions import HTTPException
 from tuya_client import TuyaClient, TuyaError
 
 PORT = int(os.environ.get("PORT", 8000))
-AUTOMATION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automation.json")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+AUTOMATION_FILE = os.path.join(BASE_DIR, "automation.json")
+GROUPS_FILE = os.path.join(BASE_DIR, "groups.json")
 AUTOMATION_CHECK_SECONDS = 30
+GROUP_PREFIX = "group:"
 
 app = Flask(__name__)
 client = TuyaClient()
@@ -35,6 +38,30 @@ _automation_lock = threading.Lock()
 def load_automation():
     with open(AUTOMATION_FILE) as f:
         return json.load(f)
+
+
+def load_groups():
+    """{group display name: [member device names]}. Missing file = no groups."""
+    try:
+        with open(GROUPS_FILE) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+
+def resolve_names(names, name_to_id):
+    """Expand a list that may mix individual device names and group names
+    into physical device ids. Unknown names are logged and skipped."""
+    groups = load_groups()
+    ids = []
+    for n in names:
+        if n in groups:
+            ids.extend(name_to_id[m] for m in groups[n] if m in name_to_id)
+        elif n in name_to_id:
+            ids.append(name_to_id[n])
+        else:
+            print(f"[automation] unknown device/group name: {n!r}")
+    return ids
 
 
 def resolve_trigger(rule, today):
@@ -68,10 +95,7 @@ def apply_rule(rule, name_to_id):
     if devices == "all":
         target_ids = list(name_to_id.values())
     else:
-        target_ids = [name_to_id[n] for n in devices if n in name_to_id]
-        missing = [n for n in devices if n not in name_to_id]
-        if missing:
-            print(f"[automation] rule {rule.get('name')!r}: unknown device name(s) {missing}")
+        target_ids = resolve_names(devices, name_to_id)
 
     action = rule.get("action")
     for device_id in target_ids:
@@ -126,11 +150,44 @@ def index():
 
 @app.route("/api/devices")
 def api_devices():
-    return jsonify(client.list_devices())
+    devices = client.list_devices()
+    by_name = {d["name"]: d for d in devices}
+    groups = load_groups()
+    grouped_names = {n for members in groups.values() for n in members}
+
+    out = [d for d in devices if d["name"] not in grouped_names]
+    for group_name, member_names in groups.items():
+        members = [by_name[n] for n in member_names if n in by_name]
+        if not members:
+            continue
+        out.append({
+            "id": GROUP_PREFIX + group_name,
+            "name": group_name,
+            "online": any(m["online"] for m in members),
+            "category": members[0]["category"],
+            "group_size": len(members),
+        })
+    out.sort(key=lambda d: d["name"].lower())
+    return jsonify(out)
+
+
+def _group_member_ids(group_name):
+    devices = client.list_devices()
+    name_to_id = {d["name"]: d["id"] for d in devices}
+    members = resolve_names([group_name], name_to_id)
+    if not members:
+        raise TuyaError(f"group {group_name!r} has no known online members")
+    return members
 
 
 @app.route("/api/devices/<device_id>/status")
 def api_device_status(device_id):
+    # A group has no state of its own — show whichever member is first, on
+    # the assumption a well-behaved group is always kept in sync (every
+    # command to it fans out to all members at once).
+    if device_id.startswith(GROUP_PREFIX):
+        device_id = _group_member_ids(device_id[len(GROUP_PREFIX):])[0]
+
     spec = client.get_spec(device_id)
     values = client.get_status(device_id)
 
@@ -150,6 +207,16 @@ def api_device_command(device_id):
     commands = body.get("commands")
     if not commands:
         return jsonify({"error": "commands is required"}), 400
+
+    if device_id.startswith(GROUP_PREFIX):
+        results = {}
+        for member_id in _group_member_ids(device_id[len(GROUP_PREFIX):]):
+            try:
+                results[member_id] = client.send_command(member_id, commands)
+            except Exception as exc:
+                results[member_id] = {"error": str(exc)}
+        return jsonify(results)
+
     resp = client.send_command(device_id, commands)
     return jsonify(resp)
 

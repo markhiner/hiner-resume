@@ -64,7 +64,8 @@
     name.textContent = device.name;
     const sub = document.createElement('div');
     sub.className = 'card-sub';
-    sub.textContent = device.online ? 'Online' : 'Offline';
+    const status = device.online ? 'Online' : 'Offline';
+    sub.textContent = device.group_size ? `${status} · ${device.group_size} lights` : status;
     nameWrap.append(name, sub);
     refs.sub = sub;
 
