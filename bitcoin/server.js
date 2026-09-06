@@ -3677,6 +3677,16 @@ body {
     return { arr: arr, dep: dep };
   }
 
+  // Amtrak's own iconColor field turns out to be a timeliness indicator
+  // (green-ish on time, orange/red the more delayed, dark otherwise) rather
+  // than a stable route/brand color — using it for the map meant the
+  // line's color reflected how late the train happened to be, not "this is
+  // an Amtrak train", and was almost never actually red. The map uses
+  // Amtrak's own brand red instead, always; the live position is picked out
+  // in the app's existing yellow accent so it doesn't blend into the dots.
+  var AMTRAK_LINE_COLOR = "#c60c30";
+  var AMTRAK_LIVE_COLOR = "#f5c518";
+
   function renderAmtrakDetail(row) {
     var status = amtrakStatus(row);
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
@@ -3732,10 +3742,10 @@ body {
           // behind each dot — before the actual colored shape goes on top.
           // That keeps it visible regardless of what's under it on the map.
           L.polyline(curvedLatlngs, { color: "#ffffff", weight: 7, opacity: 0.95, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
-          L.polyline(curvedLatlngs, { color: "#" + row.color, weight: 4, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
+          L.polyline(curvedLatlngs, { color: AMTRAK_LINE_COLOR, weight: 4, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
           var routeMarkers = routeStops.map(function (s, i) {
             L.circleMarker([s.lat, s.lon], { radius: 6, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
-            var marker = L.circleMarker([s.lat, s.lon], { radius: 4.5, color: "#000", weight: 1.5, fillColor: "#" + row.color, fillOpacity: 1 }).addTo(ttMap);
+            var marker = L.circleMarker([s.lat, s.lon], { radius: 4.5, color: "#000", weight: 1.5, fillColor: AMTRAK_LINE_COLOR, fillOpacity: 1 }).addTo(ttMap);
             return { marker: marker, name: s.name, forceLabel: i === 0 || i === routeStops.length - 1 || s.code === state.station };
           });
           // Every stop labeled at once is unreadable the moment the route is
@@ -3768,7 +3778,7 @@ body {
         // fixed route dots, so it reads as "the one that moves" at a glance
         if (row.lat != null && row.lon != null) {
           L.circleMarker([row.lat, row.lon], { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
-          ttMarker = L.circleMarker([row.lat, row.lon], { radius: 9, color: "#000", weight: 2.5, fillColor: "#" + row.color, fillOpacity: 1 })
+          ttMarker = L.circleMarker([row.lat, row.lon], { radius: 9, color: "#000", weight: 2.5, fillColor: AMTRAK_LIVE_COLOR, fillOpacity: 1 })
             .bindTooltip("Live position", { direction: "top" })
             .addTo(ttMap);
         }
