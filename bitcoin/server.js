@@ -1787,10 +1787,11 @@ const AMENITY_BADGES = [
   // shape reads faster than the word once you know it.
   { label: "Airport shuttle", icon: "plane", cls: "b-shuttle", keys: ["airportshuttle"] },
   { label: "Bar", icon: "cocktail", cls: "b-drink", keys: ["bar"] },
+  { label: "Laundry", icon: "hanger", cls: "b-laundry",
+    keys: ["fullservicelaundry", "laundryservice", "laundry"] },
   // Short label on the card, full name on hover/aria — "Business center"
   // doesn't fit the same compact pill the icon badges get away with.
   { label: "Biz Center", title: "Business center", cls: "b-biz", keys: ["businesscenter", "businesscentre"] },
-  { label: "Laundry", cls: "b-laundry", keys: ["fullservicelaundry", "laundryservice", "laundry"] },
 ];
 
 function amenityBadges(list) {
@@ -4363,8 +4364,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .fl-flag.b-casino { background: rgba(232,121,249,0.16); color: #e879f9; }
 .fl-flag.b-shuttle { background: rgba(251,191,36,0.16); color: #fbbf24; padding: 3px 8px; }
 .fl-flag.b-drink   { background: rgba(251,113,133,0.16); color: #fb7185; padding: 3px 8px; }
+.fl-flag.b-laundry { background: rgba(34,211,238,0.16); color: #22d3ee; padding: 3px 8px; }
 .fl-flag.b-biz     { background: rgba(96,165,250,0.16); color: #60a5fa; }
-.fl-flag.b-laundry { background: rgba(34,211,238,0.16); color: #22d3ee; }
 .paw-svg { width: 13px; height: 13px; display: block; }
 .fl-tile.ht-tile.best { border-color: rgba(45,212,191,0.32); background: linear-gradient(180deg, rgba(45,212,191,0.055), rgba(0,0,0,0)); }
 .fl-tile.ht-tile.best .lbl { color: #2dd4bf; }
@@ -6352,7 +6353,17 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     '<svg class="paw-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
     '<path d="M21 5V3H3v2l8 9v5H6v2h12v-2h-5v-5l8-9z"/>' +
     "</svg>";
-  var ICON_SVGS = { paw: PAW_SVG, plane: PLANE_SVG, cocktail: COCKTAIL_SVG };
+  // Drawn with a stroke rather than a fill — a hanger's silhouette is a thin
+  // wire, and a solid triangle just reads as a warning sign at this size.
+  var HANGER_SVG =
+    '<svg class="paw-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="4" r="2" fill="currentColor" stroke="none"/>' +
+    '<path d="M12 6.5C12 6.5 3.5 10.5 3.5 15"/>' +
+    '<path d="M12 6.5C12 6.5 20.5 10.5 20.5 15"/>' +
+    '<path d="M3.5 15L20.5 15"/>' +
+    "</svg>";
+  var ICON_SVGS = { paw: PAW_SVG, plane: PLANE_SVG, cocktail: COCKTAIL_SVG, hanger: HANGER_SVG };
 
   function hotelFlagHTML(p) {
     var out = [];
