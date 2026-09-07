@@ -1868,8 +1868,18 @@ function dealPercent(deal) {
   return m ? Number(m[1]) : null;
 }
 
-async function serpHotels(q, checkIn, checkOut, adults, apiKey) {
-  const key = [q, checkIn, checkOut, adults].join("|");
+// Google's own class floor: "4,5" for a 4★ floor, "5" for a 5★ floor. Sent
+// straight to SerpApi so the search itself only turns up matching hotels,
+// rather than us asking for everything and throwing rows away afterward.
+function hotelClassParam(minStars) {
+  if (!minStars) return null;
+  const classes = [];
+  for (let s = minStars; s <= 5; s++) classes.push(s);
+  return classes.join(",");
+}
+
+async function serpHotels(q, checkIn, checkOut, adults, apiKey, minStars) {
+  const key = [q, checkIn, checkOut, adults, minStars || 0].join("|");
   const hit = hotelCache.get(key);
   if (hit && Date.now() - hit.at < HOTEL_CACHE_MS) return hit.properties;
 
@@ -1883,6 +1893,8 @@ async function serpHotels(q, checkIn, checkOut, adults, apiKey) {
   url.searchParams.set("currency", "USD");
   url.searchParams.set("gl", "us");
   url.searchParams.set("hl", "en");
+  const classParam = hotelClassParam(minStars);
+  if (classParam) url.searchParams.set("hotel_class", classParam);
   url.searchParams.set("api_key", apiKey);
 
   const res = await fetch(url, { headers: { Accept: "application/json" } });
@@ -1923,19 +1935,16 @@ function flagProperties(list) {
 }
 
 async function searchHotels(q, checkIn, checkOut, adults, apiKey, minStars) {
-  const all = await serpHotels(q, checkIn, checkOut, adults, apiKey);
-  // The star filter runs on the cached, unfiltered fetch — toggling it costs
-  // no extra SerpApi credit — and BEFORE flagging, so "Lowest"/"Top rated"
-  // describe what is actually on screen rather than a property the filter
-  // just hid. A vacation rental carries no hotel_class at all, so a 4-5★
-  // filter drops it along with anything under four stars — that is correct,
-  // not a bug: there is no rental equivalent of a star rating to match against.
-  const properties = minStars ? all.filter((p) => p.stars != null && p.stars >= minStars) : all;
+  // The star floor is sent to SerpApi itself (hotel_class) so a 4-5★ search
+  // is a genuinely different query, not the same fetch filtered after the
+  // fact — a floor that only turned up 6 results unfiltered might turn up
+  // 15 once Google is doing the matching itself.
+  const properties = await serpHotels(q, checkIn, checkOut, adults, apiKey, minStars);
   flagProperties(properties);
   properties.sort((a, b) => (a.perNight || 1e9) - (b.perNight || 1e9));
   const nights = nightsBetween(checkIn, checkOut);
   logHotelSearch(q, checkIn, checkOut, adults, nights, properties);
-  return { properties, nights, total: all.length };
+  return { properties, nights };
 }
 
 // Every search, and the name of everything it turned up — nothing else, so
@@ -6696,8 +6705,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         }
         var list = d.properties || [];
         if (!list.length) {
-          if (d.minStars && d.total) {
-            setHotelMsg("No 4–5★ stays in the " + d.total + " found for those dates", true);
+          if (d.minStars) {
+            setHotelMsg("No 4–5★ stays found for those dates", true);
           } else if (d.error) {
             setHotelMsg(d.error, true);
           } else {
@@ -6706,8 +6715,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
           return;
         }
         renderHotels(list);
-        var starNote = d.minStars && d.total > list.length
-          ? " · 4–5★ only (" + (d.total - list.length) + " hidden)" : "";
+        var starNote = d.minStars ? " · 4–5★ only" : "";
         setHotelMsg(list.length + (list.length === 1 ? " stay · " : " stays · ") + q + " · " +
           dayLabel(d.checkIn) + " → " + dayLabel(d.checkOut) + " · " + d.nights +
           (d.nights === 1 ? " night" : " nights") + starNote);
