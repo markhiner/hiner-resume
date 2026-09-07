@@ -85,8 +85,7 @@
     name.textContent = device.name;
     const sub = document.createElement('div');
     sub.className = 'card-sub';
-    const status = device.online ? 'Online' : 'Offline';
-    sub.textContent = device.group_size ? `${status} · ${device.group_size} lights` : status;
+    sub.textContent = 'Checking…';
     nameWrap.append(name, sub);
     refs.sub = sub;
 
@@ -108,7 +107,6 @@
     controls.className = 'card-controls';
 
     el.append(top, controls);
-    if (!device.online) el.classList.add('offline');
 
     grid.appendChild(el);
     cards.set(device.id, { el, refs, controls, device, state: {} });
@@ -257,6 +255,18 @@
 
   // ---- status loading ----
 
+  // Tuya's device-list "online" flag is cached cloud-side and can go stale
+  // independently of whether the bulb actually responds — so reachability
+  // here is decided by whether *we* can successfully read its status right
+  // now, not by that flag (see buildCard, which no longer trusts it either).
+  function markReachable(card, reachable) {
+    card.el.classList.toggle('offline', !reachable);
+    const label = reachable ? 'Online' : 'Offline';
+    card.refs.sub.textContent = card.device.group_size
+      ? `${label} · ${card.device.group_size} lights`
+      : label;
+  }
+
   async function loadStatus(deviceId) {
     const card = cards.get(deviceId);
     if (!card) return;
@@ -264,7 +274,9 @@
     try {
       const state = await api(`/api/devices/${encodeURIComponent(deviceId)}/status`);
       applyState(deviceId, state);
+      markReachable(card, true);
     } catch (err) {
+      markReachable(card, false);
       showBanner(`Couldn't load ${card.device.name}: ${err.message}`);
     } finally {
       card.el.classList.remove('loading');
@@ -377,7 +389,10 @@
       emptyState.hidden = devices.length > 0;
 
       devices.forEach(buildCard);
-      await Promise.all(devices.map((d) => (d.online ? loadStatus(d.id) : Promise.resolve())));
+      // Always attempt every device — Tuya's list-level online flag can be
+      // stale, so whether a bulb actually responds is what decides this,
+      // not that flag (see markReachable).
+      await Promise.all(devices.map((d) => loadStatus(d.id)));
     } catch (err) {
       showBanner(`Couldn't load lights: ${err.message}`);
     } finally {

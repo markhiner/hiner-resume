@@ -262,6 +262,12 @@ for a quick sanity check, or as a reference for what values to put in an
   appears — not just bulbs. Simple on/off switches or plugs will only
   offer On/Off, since brightness/color controls only show up for devices
   that report that capability.
+- **Online/Offline is a live check, not Tuya's cached flag:** Tuya's
+  device-list API reports an `online` field that can go stale independent
+  of whether a bulb actually responds. The app ignores it and shows
+  "Checking…" for each light until it actually tries to read that light's
+  status — if that succeeds, it's shown Online (and fully usable) even if
+  Tuya's list said otherwise.
 - **Color vs. brightness vs. white:** touching the rainbow slider switches
   a bulb into color mode; touching Warm↔Cool switches it back to white
   mode. The Brightness slider works in either mode — it adjusts whichever
