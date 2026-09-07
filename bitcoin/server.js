@@ -6232,8 +6232,9 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
   var HOTEL_SPOTS = [
     { label: "New York", q: "New York, NY" },
-    { label: "Greensboro", q: "Greensboro, NC" },
-    { label: "Raleigh", q: "Raleigh, NC" }
+    { label: "Philadelphia", q: "Philadelphia, PA" },
+    { label: "Las Vegas", q: "Las Vegas, NV" },
+    { label: "Miami", q: "Miami, FL" }
   ];
   var HOTEL_PARTY = [1, 2, 3, 4];
   var HOTEL_CLASS = [
