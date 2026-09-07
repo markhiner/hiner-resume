@@ -230,6 +230,12 @@ input[type="range"].hue::-webkit-slider-runnable-track {
     hsl(180, 100%, 50%), hsl(240, 100%, 50%), hsl(300, 100%, 50%), hsl(360, 100%, 50%)
   );
 }
+input[type="range"].saturation {
+  --hue: 0;
+}
+input[type="range"].saturation::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, hsl(var(--hue), 0%, 50%), hsl(var(--hue), 100%, 50%));
+}
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;

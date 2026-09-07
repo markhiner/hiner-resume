@@ -48,6 +48,25 @@
     return typeof raw === 'object' ? raw : null;
   }
 
+  // Hue/saturation/brightness sliders each need the others' current value to
+  // build a full colour_data command — the sliders themselves are the single
+  // source of truth (no separate state object to drift out of sync).
+  function currentHue(card) {
+    return card.hue ? Number(card.hue.input.value) : 0;
+  }
+
+  function currentSaturationValue(card) {
+    const pct = card.saturation ? Number(card.saturation.input.value) : 100;
+    return Math.round((pct / 100) * (card.spec.colour_s_max || 1000));
+  }
+
+  function currentVValue(card, pctOverride) {
+    const pct = pctOverride !== undefined
+      ? pctOverride
+      : (card.brightness ? Number(card.brightness.input.value) : 100);
+    return Math.round((pct / 100) * (card.spec.colour_v_max || 1000));
+  }
+
   // ---- card creation ----
 
   function buildCard(device) {
@@ -145,7 +164,13 @@
     input.max = '360';
     input.disabled = true;
 
-    const paint = (hue) => { swatch.style.background = `hsl(${hue}, 100%, 50%)`; };
+    const paint = (hue) => {
+      swatch.style.background = `hsl(${hue}, 100%, 50%)`;
+      const card = cards.get(deviceId);
+      if (card && card.saturation) {
+        card.saturation.input.style.setProperty('--hue', hue);
+      }
+    };
 
     input.addEventListener('input', () => paint(Number(input.value)));
     input.addEventListener('change', () => commitHue(deviceId, Number(input.value)));
@@ -166,9 +191,9 @@
     const card = cards.get(deviceId);
     const spec = card.spec;
     if (brightnessGoesThroughColour(spec, card.state.mode)) {
-      const h = card.state.hue || 0;
-      const s = spec.colour_s_max || 1000;
-      const v = Math.round((pct / 100) * (spec.colour_v_max || 1000));
+      const h = currentHue(card);
+      const s = currentSaturationValue(card);
+      const v = currentVValue(card, pct);
       sendCommand(deviceId, [{ code: spec.colour_code, value: { h, s, v } }]);
     } else {
       const value = Math.round(spec.bright_min + (spec.bright_max - spec.bright_min) * pct / 100);
@@ -191,16 +216,29 @@
   function commitHue(deviceId, hue) {
     const card = cards.get(deviceId);
     const spec = card.spec;
-    card.state.hue = hue; // optimistic
     const commands = [];
     if (spec.mode_code && spec.mode_colour) {
       commands.push({ code: spec.mode_code, value: spec.mode_colour });
       card.state.mode = spec.mode_colour; // optimistic
     }
-    const pct = card.brightness ? Number(card.brightness.input.value) : 100;
-    const s = spec.colour_s_max || 1000;
-    const v = Math.round((pct / 100) * (spec.colour_v_max || 1000));
+    const s = currentSaturationValue(card);
+    const v = currentVValue(card);
     commands.push({ code: spec.colour_code, value: { h: hue, s, v } });
+    sendCommand(deviceId, commands);
+  }
+
+  function commitSaturation(deviceId, pct) {
+    const card = cards.get(deviceId);
+    const spec = card.spec;
+    const commands = [];
+    if (spec.mode_code && spec.mode_colour) {
+      commands.push({ code: spec.mode_code, value: spec.mode_colour });
+      card.state.mode = spec.mode_colour; // optimistic
+    }
+    const h = currentHue(card);
+    const s = Math.round((pct / 100) * (spec.colour_s_max || 1000));
+    const v = currentVValue(card);
+    commands.push({ code: spec.colour_code, value: { h, s, v } });
     sendCommand(deviceId, commands);
   }
 
@@ -241,7 +279,6 @@
     card.state.mode = state.mode;
 
     const colour = parseColour(state.colour);
-    if (colour) card.state.hue = colour.h || 0;
 
     // Build controls once, on first successful status load.
     if (!card.built) {
@@ -275,6 +312,16 @@
       }
 
       if (spec.colour_code) {
+        card.saturation = addSlider(card.controls, {
+          label: 'Saturation',
+          min: 0,
+          max: 100,
+          className: 'saturation',
+          valueToText: (v) => `${v}%`,
+          onCommit: (pct) => commitSaturation(deviceId, pct),
+        });
+        // Built after saturation so its initial paint can colorize the
+        // saturation track's gray-to-vivid gradient right away.
         card.hue = addHueSlider(deviceId, card.controls);
       }
     }
@@ -302,6 +349,13 @@
       card.temp.input.value = state.temperature;
       card.temp.input.disabled = false;
       card.temp.update(state.temperature);
+    }
+
+    if (card.saturation && colour) {
+      const satPct = Math.round(((colour.s || 0) / (spec.colour_s_max || 1000)) * 100);
+      card.saturation.input.value = satPct;
+      card.saturation.input.disabled = false;
+      card.saturation.update(satPct);
     }
 
     if (card.hue && colour) {

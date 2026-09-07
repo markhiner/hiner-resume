@@ -77,11 +77,14 @@ your iPhone or any other device on your network). Each light gets:
 - A **Warm ↔ Cool** color-temperature slider (white mode)
 - A **Color** slider showing the full rainbow (hue 0-360°) for bulbs that
   support it, with a live swatch preview as you drag
+- A **Saturation** slider (0-100%, gray to fully vivid) that tracks
+  whatever hue is currently selected
 - **All On** / **All Off** at the top
 
-Touching the rainbow slider switches that bulb into color mode automatically;
-touching the warm/cool slider switches it back to white mode — same as how
-the Tuya app itself behaves.
+Touching the rainbow or saturation slider switches that bulb into color
+mode automatically; touching the warm/cool slider switches it back to
+white mode — same as how the Tuya app itself behaves. The brightness
+slider works no matter which mode you're in.
 
 In Safari, Share → **Add to Home Screen** for a full-screen, app-like
 experience on your phone.
@@ -235,6 +238,18 @@ It listens for the UDP broadcasts Tuya devices send on the local network.
 Many home routers (mesh systems especially) block this with AP/client
 isolation, in which case it'll find nothing even though your Cloud setup
 above works fine — that's expected, just use the Cloud path instead.
+
+## Printing the current state of every light
+
+```bash
+python3 print_config.py
+```
+
+Prints a table of every light's name, device ID, online/offline, on/off,
+white-vs-color mode, brightness %, and whichever of color temperature %
+(white mode) or hue°/saturation % (color mode) currently applies. Useful
+for a quick sanity check, or as a reference for what values to put in an
+`automation.json` rule.
 
 ## Notes
 
