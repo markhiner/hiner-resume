@@ -117,10 +117,20 @@ that's also what runs the automation schedule below.
 
 ### Automation schedule
 
-Edit `automation.json`. Location is already set to Sutherlin, VA for
-sunset/sunrise math; update it if that's wrong, or if you move.
+**Automation ships OFF by default** (`automation.json`'s top-level
+`"enabled": false`), and starts with an empty rule list. A toggle switch
+in the web app's header shows and controls this — it always reflects
+what's actually saved in `automation.json`, and flipping it writes
+straight back to that file, so the setting survives restarting
+`app.py`/`menubar.py` (it does **not** silently reset to on, or to
+whatever example rules used to be there, the way an earlier version of
+this did — that's what turned all your lights off unannounced. Sorry
+about that.).
 
-Each rule:
+Location is already set to Sutherlin, VA for sunset/sunrise math; update
+it in `automation.json` if that's wrong, or if you move.
+
+Add rules to the `"rules"` array. Each one:
 
 ```json
 {
@@ -135,15 +145,14 @@ Each rule:
 - `time`: `"sunset"`, `"sunrise"`, or a fixed 24-hour `"HH:MM"`
 - `offset_minutes` (optional, sunset/sunrise only): shift earlier (negative)
   or later (positive)
-- `devices`: a list of light names (must match names in the Tuya app
-  exactly) or the string `"all"`
+- `devices`: a list of light or group names (must match names in the Tuya
+  app, or a key in `groups.json`) or the string `"all"`
 - `action`: `"on"` or `"off"`
 - `brightness_pct` / `temp_pct` (optional, `"on"` rules only): 0-100, only
   applied to devices that support it
 
-The included example rules assume your actual room/light names from the
-Tuya app — edit device names in `devices` to match whatever you named
-your lights.
+Only flip the header toggle to ON once you've actually reviewed what's in
+`"rules"` — nothing fires while it's off, no matter what's in the file.
 
 ### Run it automatically at login (optional)
 

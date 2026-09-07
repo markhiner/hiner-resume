@@ -33,6 +33,14 @@ def load_automation():
         return json.load(f)
 
 
+def save_automation(config):
+    """Write atomically so the background loop never reads a half-written file."""
+    tmp_path = AUTOMATION_FILE + ".tmp"
+    with open(tmp_path, "w") as f:
+        json.dump(config, f, indent=2)
+    os.replace(tmp_path, AUTOMATION_FILE)
+
+
 def load_groups():
     """{group display name: [member device names]}. Missing file = no groups."""
     try:
@@ -61,7 +69,6 @@ class LightsMenuBarApp(rumps.App):
     def __init__(self):
         super().__init__("💡", quit_button="Quit")
         self.client = TuyaClient()
-        self.automation_enabled = True
         self.name_to_id = {}
         self._fired_today = set()
         self._fired_date = None
@@ -72,7 +79,10 @@ class LightsMenuBarApp(rumps.App):
         self.automation_toggle = rumps.MenuItem(
             "Automation Enabled", callback=self.toggle_automation
         )
-        self.automation_toggle.state = True
+        try:
+            self.automation_toggle.state = load_automation().get("enabled", False)
+        except Exception:
+            self.automation_toggle.state = False
         self.edit_schedule_item = rumps.MenuItem(
             "Edit Schedule...", callback=self.open_schedule
         )
@@ -166,8 +176,14 @@ class LightsMenuBarApp(rumps.App):
             self.notify("Some lights failed", f"{len(failures)} of {len(results)} didn't respond")
 
     def toggle_automation(self, sender):
-        self.automation_enabled = not self.automation_enabled
-        sender.state = self.automation_enabled
+        try:
+            config = load_automation()
+        except Exception as exc:
+            self.notify("Couldn't read schedule", str(exc))
+            return
+        config["enabled"] = not config.get("enabled", False)
+        save_automation(config)
+        sender.state = config["enabled"]
 
     def open_schedule(self, _):
         subprocess.run(["open", AUTOMATION_FILE])
@@ -178,7 +194,8 @@ class LightsMenuBarApp(rumps.App):
         try:
             config = load_automation()
             n = len(config.get("rules", []))
-            self.notify("Schedule OK", f"{n} rule(s) loaded")
+            state = "ON" if config.get("enabled", False) else "OFF"
+            self.notify("Schedule OK", f"{n} rule(s) loaded, automation is {state}")
         except Exception as exc:
             self.notify("Schedule error", str(exc))
 
@@ -241,8 +258,8 @@ class LightsMenuBarApp(rumps.App):
                     self._fired_today = set()
                     self._fired_date = now.date()
 
-                if self.automation_enabled:
-                    config = load_automation()
+                config = load_automation()
+                if config.get("enabled", False):
                     for idx, rule in enumerate(config.get("rules", [])):
                         key = (idx, rule.get("name"))
                         if key in self._fired_today:

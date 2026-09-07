@@ -29,15 +29,23 @@ GROUP_PREFIX = "group:"
 app = Flask(__name__)
 client = TuyaClient()
 
-_automation_enabled = True
 _fired_today = set()
 _fired_date = None
-_automation_lock = threading.Lock()
+_automation_file_lock = threading.Lock()
 
 
 def load_automation():
     with open(AUTOMATION_FILE) as f:
         return json.load(f)
+
+
+def save_automation(config):
+    """Write atomically so the background loop never reads a half-written file."""
+    tmp_path = AUTOMATION_FILE + ".tmp"
+    with _automation_file_lock:
+        with open(tmp_path, "w") as f:
+            json.dump(config, f, indent=2)
+        os.replace(tmp_path, AUTOMATION_FILE)
 
 
 def load_groups():
@@ -123,11 +131,8 @@ def automation_loop():
                 _fired_today = set()
                 _fired_date = now.date()
 
-            with _automation_lock:
-                enabled = _automation_enabled
-
-            if enabled:
-                config = load_automation()
+            config = load_automation()
+            if config.get("enabled", False):
                 devices = client.list_devices()
                 name_to_id = {d["name"]: d["id"] for d in devices}
                 for idx, rule in enumerate(config.get("rules", [])):
@@ -230,14 +235,15 @@ def api_all():
 
 @app.route("/api/automation", methods=["GET", "POST"])
 def api_automation():
-    global _automation_enabled
+    config = load_automation()
     if request.method == "POST":
         body = request.get_json(force=True, silent=True) or {}
-        with _automation_lock:
-            _automation_enabled = bool(body.get("enabled", True))
-    with _automation_lock:
-        enabled = _automation_enabled
-    return jsonify({"enabled": enabled})
+        config["enabled"] = bool(body.get("enabled", False))
+        save_automation(config)
+    return jsonify({
+        "enabled": config.get("enabled", False),
+        "rule_count": len(config.get("rules", [])),
+    })
 
 
 @app.errorhandler(Exception)

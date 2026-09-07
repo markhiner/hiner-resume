@@ -7,6 +7,8 @@
   const refreshBtn = document.getElementById('refreshBtn');
   const allOnBtn = document.getElementById('allOnBtn');
   const allOffBtn = document.getElementById('allOffBtn');
+  const automationLabel = document.getElementById('automationLabel');
+  const automationToggle = document.getElementById('automationToggle');
 
   const cards = new Map(); // device id -> { el, refs, spec, controls, state }
 
@@ -346,13 +348,52 @@
     }
   }
 
+  // ---- automation status/toggle ----
+
+  function renderAutomation(state) {
+    const ruleWord = state.rule_count === 1 ? 'rule' : 'rules';
+    automationLabel.textContent = state.enabled
+      ? `Automation: ON · ${state.rule_count} ${ruleWord}`
+      : `Automation: OFF (${state.rule_count} ${ruleWord} configured)`;
+    automationToggle.checked = state.enabled;
+    automationToggle.disabled = false;
+  }
+
+  async function loadAutomation() {
+    try {
+      renderAutomation(await api('/api/automation'));
+    } catch (err) {
+      automationLabel.textContent = `Automation: couldn't load (${err.message})`;
+    }
+  }
+
+  automationToggle.addEventListener('change', async () => {
+    const enabled = automationToggle.checked;
+    automationToggle.disabled = true;
+    try {
+      renderAutomation(await api('/api/automation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      }));
+    } catch (err) {
+      showBanner(`Couldn't update automation: ${err.message}`);
+      automationToggle.checked = !enabled;
+      automationToggle.disabled = false;
+    }
+  });
+
   refreshBtn.addEventListener('click', loadAll);
   allOnBtn.addEventListener('click', () => allSwitch(true));
   allOffBtn.addEventListener('click', () => allSwitch(false));
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') loadAll();
+    if (document.visibilityState === 'visible') {
+      loadAll();
+      loadAutomation();
+    }
   });
 
   loadAll();
+  loadAutomation();
 })();
