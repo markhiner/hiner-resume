@@ -28,14 +28,13 @@ row(*COLUMNS)
 row(*("-" * w for w in WIDTHS))
 
 for d in devices:
-    if not d["online"]:
-        row(d["name"], d["id"], "offline", "-", "-", "-", "-", "-", "-")
-        continue
-
+    # Tuya's device-list "online" flag is cached cloud-side and can be
+    # stale, so it's not used to decide whether to even try — every device
+    # gets a real status call, and only a failure counts as offline.
     try:
         info = client.describe(d["id"])
     except Exception as exc:
-        row(d["name"], d["id"], "error", str(exc), "", "", "", "", "")
+        row(d["name"], d["id"], "offline", str(exc), "", "", "", "", "")
         continue
 
     on_off = "-" if info["on"] is None else ("on" if info["on"] else "off")
