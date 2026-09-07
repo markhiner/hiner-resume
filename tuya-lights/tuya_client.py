@@ -158,6 +158,34 @@ class TuyaClient:
         commands.append({"code": spec["temp_code"], "value": value})
         self.send_command(device_id, commands)
 
+    def apply_setting(self, device_id, setting):
+        """Apply a scene-style setting ({on, brightness_pct, temp_pct}) in
+        a single combined command, rather than one call per field — matters
+        when a scene touches many lights at once and Tuya's rate limit is
+        only a few requests/second."""
+        spec = self.get_spec(device_id)
+        commands = []
+
+        wants_white_dp = "brightness_pct" in setting or "temp_pct" in setting
+        if wants_white_dp and spec["mode_code"] and spec["mode_white"]:
+            commands.append({"code": spec["mode_code"], "value": spec["mode_white"]})
+
+        if "on" in setting and spec["switch_code"]:
+            commands.append({"code": spec["switch_code"], "value": bool(setting["on"])})
+
+        if "brightness_pct" in setting and spec["bright_code"]:
+            pct = max(0, min(100, setting["brightness_pct"]))
+            value = round(spec["bright_min"] + (spec["bright_max"] - spec["bright_min"]) * pct / 100)
+            commands.append({"code": spec["bright_code"], "value": value})
+
+        if "temp_pct" in setting and spec["temp_code"]:
+            pct = max(0, min(100, setting["temp_pct"]))
+            value = round(spec["temp_min"] + (spec["temp_max"] - spec["temp_min"]) * pct / 100)
+            commands.append({"code": spec["temp_code"], "value": value})
+
+        if commands:
+            self.send_command(device_id, commands)
+
     def describe(self, device_id):
         """A snapshot of a device's current state, as plain percentages
         rather than raw DP values: on/off, white-vs-color mode, brightness,

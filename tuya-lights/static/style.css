@@ -91,6 +91,27 @@ h1 {
   color: #cfd4e0;
 }
 
+.scenes-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 16px 0;
+}
+
+.scene-btn {
+  appearance: none;
+  border: none;
+  border-radius: 999px;
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  background: #262a38;
+  color: #cfe0ff;
+  touch-action: manipulation;
+}
+
+.scene-btn:active { opacity: 0.7; }
+
 .banner {
   margin: 12px 16px 0;
   padding: 10px 14px;

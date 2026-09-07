@@ -1,0 +1,19 @@
+{
+  "scenes": [
+    {
+      "name": "Parlor Bright",
+      "settings": [
+        { "device": "Parlor Ceiling 1", "on": true, "brightness_pct": 49, "temp_pct": 82 },
+        { "device": "Parlor Ceiling 2", "on": true, "brightness_pct": 3, "temp_pct": 68 },
+        { "device": "Parlor Ceiling 3", "on": true, "brightness_pct": 3, "temp_pct": 68 },
+        { "device": "Parlor Ceiling 4", "on": true, "brightness_pct": 3, "temp_pct": 68 },
+        { "device": "Parlor Ceiling 5", "on": true, "brightness_pct": 3, "temp_pct": 68 },
+        { "device": "Parlor Reading", "on": true, "brightness_pct": 100, "temp_pct": 65 },
+        { "device": "Parlor spot", "on": true, "brightness_pct": 70, "temp_pct": 100 },
+        { "device": "Parlor Table", "on": false, "brightness_pct": 24, "temp_pct": 75 },
+        { "device": "Parlor Tall", "on": true, "brightness_pct": 56, "temp_pct": 70 },
+        { "device": "Parlor Tall 2", "on": true, "brightness_pct": 76, "temp_pct": 70 }
+      ]
+    }
+  ]
+}

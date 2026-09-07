@@ -114,6 +114,37 @@ list, since a group is only ever commanded as a whole. Group names also
 work inside `automation.json`'s `devices` lists, in place of listing every
 member individually.
 
+### Scenes (one-tap presets)
+
+Edit `scenes.json` to add a button — shown in a row below the header —
+that sets a specific list of lights to specific settings in one tap.
+Unlike a group, a scene's lights can each get *different* settings:
+
+```json
+{
+  "scenes": [
+    {
+      "name": "Parlor Bright",
+      "settings": [
+        { "device": "Parlor Ceiling 1", "on": true, "brightness_pct": 49, "temp_pct": 82 },
+        { "device": "Parlor Table", "on": false, "brightness_pct": 24, "temp_pct": 75 }
+      ]
+    }
+  ]
+}
+```
+
+- `device`: exact device name (from the Tuya app)
+- `on`: `true`/`false`
+- `brightness_pct` / `temp_pct` (optional): 0-100, only applied to devices
+  that support it
+
+Every field is optional except `device` — e.g. a setting with just `"on":
+false` just turns that light off and leaves everything else alone. A
+scene's whole button press goes out as one combined command per light
+(not one call per field), to stay well under Tuya's rate limit even when
+a scene touches many lights at once.
+
 Leave `python app.py` running in the background (e.g. via `pm2`,
 `systemd`, or `tmux`, or see the Cloudflare Tunnel section below) —
 that's also what runs the automation schedule below.

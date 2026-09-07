@@ -9,6 +9,7 @@
   const allOffBtn = document.getElementById('allOffBtn');
   const automationLabel = document.getElementById('automationLabel');
   const automationToggle = document.getElementById('automationToggle');
+  const scenesBar = document.getElementById('scenesBar');
 
   const cards = new Map(); // device id -> { el, refs, spec, controls, state }
 
@@ -452,6 +453,39 @@
     }
   });
 
+  // ---- scenes ----
+
+  async function applyScene(name) {
+    try {
+      const results = await api(`/api/scenes/${encodeURIComponent(name)}/apply`, { method: 'POST' });
+      const failures = Object.entries(results).filter(([, v]) => !String(v).startsWith('ok'));
+      if (failures.length) {
+        showBanner(`"${name}": ${failures.length} of ${Object.keys(results).length} light(s) failed`);
+      }
+    } catch (err) {
+      showBanner(`Couldn't apply "${name}": ${err.message}`);
+    } finally {
+      loadAll(); // resync every card to whatever actually happened
+    }
+  }
+
+  async function loadScenes() {
+    try {
+      const scenes = await api('/api/scenes');
+      scenesBar.innerHTML = '';
+      scenesBar.hidden = scenes.length === 0;
+      scenes.forEach(({ name }) => {
+        const btn = document.createElement('button');
+        btn.className = 'scene-btn';
+        btn.textContent = name;
+        btn.addEventListener('click', () => applyScene(name));
+        scenesBar.appendChild(btn);
+      });
+    } catch (err) {
+      showBanner(`Couldn't load scenes: ${err.message}`);
+    }
+  }
+
   refreshBtn.addEventListener('click', loadAll);
   allOnBtn.addEventListener('click', () => allSwitch(true));
   allOffBtn.addEventListener('click', () => allSwitch(false));
@@ -465,4 +499,5 @@
 
   loadAll();
   loadAutomation();
+  loadScenes();
 })();

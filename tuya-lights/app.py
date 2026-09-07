@@ -23,6 +23,7 @@ PORT = int(os.environ.get("PORT", 8000))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 AUTOMATION_FILE = os.path.join(BASE_DIR, "automation.json")
 GROUPS_FILE = os.path.join(BASE_DIR, "groups.json")
+SCENES_FILE = os.path.join(BASE_DIR, "scenes.json")
 AUTOMATION_CHECK_SECONDS = 30
 GROUP_PREFIX = "group:"
 
@@ -55,6 +56,15 @@ def load_groups():
             return json.load(f)
     except FileNotFoundError:
         return {}
+
+
+def load_scenes():
+    """{"scenes": [{"name": ..., "settings": [{"device": ..., "on": ..., ...}]}]}"""
+    try:
+        with open(SCENES_FILE) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"scenes": []}
 
 
 def resolve_names(names, name_to_id):
@@ -231,6 +241,36 @@ def api_all():
     body = request.get_json(force=True, silent=True) or {}
     on = bool(body.get("on"))
     return jsonify(client.set_all(on))
+
+
+@app.route("/api/scenes")
+def api_scenes():
+    return jsonify([{"name": s["name"]} for s in load_scenes().get("scenes", [])])
+
+
+@app.route("/api/scenes/<name>/apply", methods=["POST"])
+def api_apply_scene(name):
+    scenes = load_scenes().get("scenes", [])
+    scene = next((s for s in scenes if s["name"] == name), None)
+    if not scene:
+        return jsonify({"error": f"no such scene: {name!r}"}), 404
+
+    devices = client.list_devices()
+    name_to_id = {d["name"]: d["id"] for d in devices}
+
+    results = {}
+    for setting in scene.get("settings", []):
+        device_name = setting.get("device")
+        device_id = name_to_id.get(device_name)
+        if not device_id:
+            results[device_name] = "error: unknown device"
+            continue
+        try:
+            client.apply_setting(device_id, setting)
+            results[device_name] = "ok"
+        except Exception as exc:
+            results[device_name] = f"error: {exc}"
+    return jsonify(results)
 
 
 @app.route("/api/automation", methods=["GET", "POST"])
