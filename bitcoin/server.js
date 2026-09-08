@@ -4326,6 +4326,22 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .fl-flag.wide { background: rgba(90,200,250,0.15); color: #5ac8fa; }
 .fl-flag.longlay { background: rgba(245,197,24,0.15); color: var(--yellow); }
 
+/* tap to pick an itinerary for the compare/export bar below */
+.fl-pick { width: 21px; height: 21px; border-radius: 50%; flex-shrink: 0; padding: 0;
+  border: 1.5px solid var(--border); background: transparent;
+  display: flex; align-items: center; justify-content: center; }
+.fl-pick svg { width: 12px; height: 12px; color: #5ac8fa; opacity: 0; }
+.fl-item.picked { border-color: rgba(90,200,250,0.5); }
+.fl-item.picked .fl-pick { background: rgba(90,200,250,0.2); border-color: #5ac8fa; }
+.fl-item.picked .fl-pick svg { opacity: 1; }
+
+.fl-selectbar { display: flex; align-items: center; gap: 7px; padding: 2px 2px 10px; }
+.fl-selectbar .cnt { font-size: 11px; font-weight: 800; color: #5ac8fa; letter-spacing: 0.3px; margin-right: auto; }
+.fl-sb-btn { font-size: 10.5px; font-weight: 800; letter-spacing: 0.3px; padding: 7px 11px; border-radius: 8px;
+  border: 1px solid rgba(90,200,250,0.5); background: rgba(90,200,250,0.14); color: #5ac8fa; }
+.fl-sb-btn:active { background: rgba(90,200,250,0.24); }
+.fl-sb-btn.ghost { border-color: var(--border); background: transparent; color: var(--text2); }
+
 /* ── hotels ──
    Its own accent rather than the flights blue, so the two travel panels read
    as siblings instead of one long section. The key itself is shared. */
@@ -4787,6 +4803,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 (function () {
   "use strict";
@@ -6006,6 +6023,13 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   syncDate();
   refreshChips();
 
+  var CHECK_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    '<path d="M9 16.2l-3.5-3.5L4 14.2l5 5 11-11-1.5-1.5z"/></svg>';
+  // keyed by the itinerary's stable r.key (assigned once, not by sort order,
+  // so a selection survives switching between the price and arrival sorts)
+  var selected = {};
+  var compareMode = false;
+
   function flagHTML(r) {
     var out = [];
     // just "Lowest" — the row is already badged Economy or First beside the
@@ -6031,8 +6055,11 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       meta.push(r.aircraft.map(function (a) { return "<b>" + esc(a) + "</b>"; }).join(" &middot; "));
     }
 
-    return '<div class="fl-item' + (r.cabin === "first" ? " first-cabin" : "") + '" id="' + r.domId + '">' +
+    return '<div class="fl-item' + (r.cabin === "first" ? " first-cabin" : "") +
+      (selected[r.key] ? " picked" : "") + '" id="' + r.domId + '">' +
       '<div class="fl-top">' +
+        '<button class="fl-pick" data-key="' + esc(r.key) + '" aria-label="Select this flight to compare" ' +
+          'aria-pressed="' + (selected[r.key] ? "true" : "false") + '">' + CHECK_SVG + "</button>" +
         (r.logo ? '<img class="fl-logo" src="' + esc(r.logo) + '" alt="" loading="lazy">' : '<div class="fl-logo"></div>') +
         '<div class="fl-carrier">' +
           '<div class="nm">' + esc(r.airlines.join(" / ")) + "</div>" +
@@ -6116,16 +6143,36 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     var isNew = list !== results;
     if (isNew) {
       results = list.slice();
+      // assigned once, from the incoming order, before anything gets
+      // sorted — this is what lets a pick survive a re-sort
+      for (var k = 0; k < results.length; k++) results[k].key = "fl-" + k;
       sortBy = "price"; // reset to price when new results come in
+      selected = {};
+      compareMode = false;
     }
     results.sort(compareResults);
     for (var i = 0; i < results.length; i++) results[i].domId = "fl-it-" + i;
-    var econ = results.filter(function (r) { return r.cabin !== "first"; });
-    var first = results.filter(function (r) { return r.cabin === "first"; });
+
+    var selectedKeys = Object.keys(selected);
+    // nothing left picked is not a valid state to stay compared against
+    if (compareMode && !selectedKeys.length) compareMode = false;
+    var shown = compareMode ? results.filter(function (r) { return selected[r.key]; }) : results;
+
+    var econ = shown.filter(function (r) { return r.cabin !== "first"; });
+    var first = shown.filter(function (r) { return r.cabin === "first"; });
     var cheapE = econ.filter(function (r) { return r.cheapest; })[0] || econ[0];
     var cheapF = first.filter(function (r) { return r.cheapest; })[0] || first[0];
 
-    var html = '<div class="fl-sorts">' +
+    var html = "";
+    if (selectedKeys.length) {
+      html += '<div class="fl-selectbar">' +
+        '<span class="cnt">' + selectedKeys.length + " selected</span>" +
+        '<button class="fl-sb-btn" data-act="compare">' + (compareMode ? "Show all" : "Compare") + "</button>" +
+        '<button class="fl-sb-btn" data-act="export">Export PDF</button>' +
+        '<button class="fl-sb-btn ghost" data-act="clear">Clear</button>' +
+        "</div>";
+    }
+    html += '<div class="fl-sorts">' +
       '<button data-sort="price" class="fl-sort' + (sortBy === "price" ? " active" : "") + '">Price</button>' +
       '<button data-sort="arrival" class="fl-sort' + (sortBy === "arrival" ? " active" : "") + '">Earliest arrival</button>' +
       '</div>' +
@@ -6168,6 +6215,22 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       renderResults(results);
       return;
     }
+    var pick = e.target.closest(".fl-pick");
+    if (pick) {
+      var key = pick.getAttribute("data-key");
+      if (selected[key]) delete selected[key]; else selected[key] = true;
+      renderResults(results);
+      return;
+    }
+    var sbBtn = e.target.closest(".fl-sb-btn");
+    if (sbBtn) {
+      var act = sbBtn.getAttribute("data-act");
+      if (act === "compare") compareMode = !compareMode;
+      else if (act === "clear") { selected = {}; compareMode = false; }
+      else if (act === "export") exportSelectedFlights();
+      renderResults(results);
+      return;
+    }
     var tile = e.target.closest(".fl-tile[data-target]");
     if (!tile) return;
     var row = document.getElementById(tile.getAttribute("data-target"));
@@ -6177,6 +6240,53 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     void row.offsetWidth; // restart the animation on a repeat tap
     row.classList.add("flash");
   });
+
+  // Client-side, off the same data already on screen — no round trip, and
+  // no server involvement in what is otherwise a purely personal export.
+  function exportSelectedFlights() {
+    var picked = results.filter(function (r) { return selected[r.key]; });
+    if (!picked.length || !window.jspdf) return;
+    picked.sort(compareResults);
+
+    var from = normCodes(elFrom.value) || "?", to = normCodes(elTo.value) || "?";
+    var doc = new window.jspdf.jsPDF({ unit: "pt", format: "letter" });
+    var y = 50;
+
+    doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(20);
+    doc.text(from + " → " + to, 40, y);
+    y += 18;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10.5); doc.setTextColor(110);
+    doc.text(dayLabel(elDate.value) + "  ·  " + picked.length + " flight" + (picked.length === 1 ? "" : "s") +
+      "  ·  generated " + new Date().toLocaleString(), 40, y);
+    y += 24;
+
+    picked.forEach(function (r, idx) {
+      if (y > 700) { doc.addPage(); y = 50; }
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(20);
+      doc.text((idx + 1) + ". " + r.airlines.join(" / ") + "   $" +
+        (r.price != null ? r.price.toLocaleString("en-US") : "–") +
+        "  (" + (r.cabin === "first" ? "First" : "Economy") + ")", 40, y);
+      y += 16;
+
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(70);
+      doc.text(r.depTime + " " + r.depAirport + "  →  " + r.arrTime + (r.dayOffset ? " (+1 day)" : "") +
+        " " + r.arrAirport + "   ·   " + (r.totalDurationLabel || "") + "   ·   " +
+        (r.nonstop ? "Nonstop" : r.stops + " stop" + (r.stops > 1 ? "s" : "")), 40, y);
+      y += 14;
+
+      if (r.flightNumbers.length) { doc.text("Flight " + r.flightNumbers.join(", "), 40, y); y += 14; }
+      if (!r.nonstop && r.layovers.length) {
+        doc.text("Layover: " + r.layovers.map(function (l) {
+          return (l.durationLabel || "?") + " in " + (l.id || l.name) + (l.overnight ? " (overnight)" : "");
+        }).join("; "), 40, y);
+        y += 14;
+      }
+      if (r.aircraft.length) { doc.text("Aircraft: " + r.aircraft.join(", "), 40, y); y += 14; }
+      y += 12;
+    });
+
+    doc.save("flights-" + from + "-" + to + "-" + elDate.value + ".pdf");
+  }
 
   function setFlightMsg(text, isErr) {
     elMsg.textContent = text || "";
