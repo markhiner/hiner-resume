@@ -1868,18 +1868,35 @@ function dealPercent(deal) {
   return m ? Number(m[1]) : null;
 }
 
-// Google's own class floor: "4,5" for a 4★ floor, "5" for a 5★ floor. Sent
-// straight to SerpApi so the search itself only turns up matching hotels,
-// rather than us asking for everything and throwing rows away afterward.
-function hotelClassParam(minStars) {
-  if (!minStars) return null;
-  const classes = [];
-  for (let s = minStars; s <= 5; s++) classes.push(s);
-  return classes.join(",");
+// A hand-picked list of major chain brands. There is no SerpApi/Google
+// Hotels query parameter for "only these named brands" — hotel_class is a
+// star rating, not a brand — so this is matched against each property's
+// name after a real, single search rather than pretending an API-side
+// equivalent exists to call instead.
+const TOP_HOTEL_BRANDS = [
+  "four seasons", "ritz carlton", "edition", "st regis", "luxury collection",
+  "autograph", "le meridien", "renaissance", "westin", "marriott", "sheraton",
+  "element", "conrad", "hyatt", "park hyatt", "w", "grand hyatt",
+  "hyatt regency", "jw marriott", "doubletree", "embassy suites", "hilton",
+  "residence inn", "courtyard",
+];
+// \b-bounded so the lone "w" only matches the standalone word W — not
+// "Wyndham" or "Watergate" — and "element" only matches the brand, not
+// any other word that happens to contain it.
+const TOP_HOTEL_BRAND_RE = new RegExp(
+  "\\b(" + TOP_HOTEL_BRANDS.map((b) => b.replace(/\s+/g, "\\s+")).join("|") + ")\\b", "i"
+);
+function isTopBrand(name) {
+  // punctuation folds down to a space rather than disappearing, so
+  // "Ritz-Carlton" and "St. Regis" still read as two separate words for the
+  // \b boundaries above — collapsing it away entirely would turn "W" into a
+  // substring of "Wyndham" instead of two words that never share a boundary.
+  const norm = String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return TOP_HOTEL_BRAND_RE.test(norm);
 }
 
-async function serpHotels(q, checkIn, checkOut, adults, apiKey, minStars) {
-  const key = [q, checkIn, checkOut, adults, minStars || 0].join("|");
+async function serpHotels(q, checkIn, checkOut, adults, apiKey) {
+  const key = [q, checkIn, checkOut, adults].join("|");
   const hit = hotelCache.get(key);
   if (hit && Date.now() - hit.at < HOTEL_CACHE_MS) return hit.properties;
 
@@ -1893,8 +1910,6 @@ async function serpHotels(q, checkIn, checkOut, adults, apiKey, minStars) {
   url.searchParams.set("currency", "USD");
   url.searchParams.set("gl", "us");
   url.searchParams.set("hl", "en");
-  const classParam = hotelClassParam(minStars);
-  if (classParam) url.searchParams.set("hotel_class", classParam);
   url.searchParams.set("api_key", apiKey);
 
   const res = await fetch(url, { headers: { Accept: "application/json" } });
@@ -1934,17 +1949,18 @@ function flagProperties(list) {
   return list;
 }
 
-async function searchHotels(q, checkIn, checkOut, adults, apiKey, minStars) {
-  // The star floor is sent to SerpApi itself (hotel_class) so a 4-5★ search
-  // is a genuinely different query, not the same fetch filtered after the
-  // fact — a floor that only turned up 6 results unfiltered might turn up
-  // 15 once Google is doing the matching itself.
-  const properties = await serpHotels(q, checkIn, checkOut, adults, apiKey, minStars);
+async function searchHotels(q, checkIn, checkOut, adults, apiKey, brandsOnly) {
+  const all = await serpHotels(q, checkIn, checkOut, adults, apiKey);
+  // The brand allow-list runs on the cached, unfiltered fetch — toggling it
+  // costs no extra SerpApi credit — and BEFORE flagging, so "Lowest"/"Top
+  // rated" describe what is actually on screen rather than a property the
+  // filter just hid.
+  const properties = brandsOnly ? all.filter((p) => isTopBrand(p.name)) : all;
   flagProperties(properties);
   properties.sort((a, b) => (a.perNight || 1e9) - (b.perNight || 1e9));
   const nights = nightsBetween(checkIn, checkOut);
   logHotelSearch(q, checkIn, checkOut, adults, nights, properties);
-  return { properties, nights };
+  return { properties, nights, total: all.length };
 }
 
 // Every search, and the name of everything it turned up — nothing else, so
@@ -3061,10 +3077,7 @@ const server = http.createServer((req, res) => {
     const checkIn = String(url.searchParams.get("checkIn") || "");
     const checkOut = String(url.searchParams.get("checkOut") || "");
     const adults = Math.min(Math.max(parseInt(url.searchParams.get("adults"), 10) || 2, 1), 8);
-    // 0 = no filter; only 4 or 5 mean anything as a floor, so anything else
-    // collapses to "no filter" rather than silently matching nothing
-    const rawStars = parseInt(url.searchParams.get("minStars"), 10);
-    const minStars = rawStars === 4 || rawStars === 5 ? rawStars : 0;
+    const brandsOnly = url.searchParams.get("brandsOnly") === "1";
     const ymd = /^\d{4}-\d{2}-\d{2}$/;
     if (!q) return send(400, { enabled: true, error: "need somewhere to stay" });
     if (!ymd.test(checkIn) || !ymd.test(checkOut)) {
@@ -3073,9 +3086,9 @@ const server = http.createServer((req, res) => {
     if (nightsBetween(checkIn, checkOut) < 1) {
       return send(400, { enabled: true, error: "check-out must be after check-in" });
     }
-    searchHotels(q, checkIn, checkOut, adults, apiKey, minStars)
-      .then((r) => send(200, { enabled: true, q, checkIn, checkOut, adults, minStars, ...r }))
-      .catch((e) => send(200, { enabled: true, q, checkIn, checkOut, adults, minStars, properties: [], error: e.message }));
+    searchHotels(q, checkIn, checkOut, adults, apiKey, brandsOnly)
+      .then((r) => send(200, { enabled: true, q, checkIn, checkOut, adults, brandsOnly, ...r }))
+      .catch((e) => send(200, { enabled: true, q, checkIn, checkOut, adults, brandsOnly, properties: [], error: e.message }));
     return;
   }
   if (url.pathname === "/api/hotel") {
@@ -4773,8 +4786,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       </div>
 
       <div class="fl-field ht-guests">
-        <div class="fl-label">Class</div>
-        <div class="fl-chips" id="htStarsChips"></div>
+        <div class="fl-label">Brand</div>
+        <div class="fl-chips" id="htBrandChips"></div>
       </div>
 
       <button class="fl-go ht-go" id="htGo">Search</button>
@@ -6347,9 +6360,9 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     { label: "Miami", q: "Miami, FL" }
   ];
   var HOTEL_PARTY = [1, 2, 3, 4];
-  var HOTEL_CLASS = [
+  var HOTEL_BRAND_CHIPS = [
     { v: 0, label: "Any" },
-    { v: 4, label: "4–5 ★" }
+    { v: 1, label: "Top brands" }
   ];
 
   var elHtWhere = document.getElementById("htWhere");
@@ -6361,7 +6374,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   var elHtMsg = document.getElementById("htMsg");
   var elHtResults = document.getElementById("htResults");
   var htAdults = 2;
-  var htMinStars = 0;
+  var htBrandsOnly = 0;
 
   function setHotelMsg(text, isErr) {
     elHtMsg.textContent = text || "";
@@ -6390,8 +6403,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       return '<button class="fl-chip' + (n === htAdults ? " on" : "") + '" data-adults="' + n + '">' +
         n + (n === 1 ? " guest" : " guests") + "</button>";
     }).join("");
-    document.getElementById("htStarsChips").innerHTML = HOTEL_CLASS.map(function (c) {
-      return '<button class="fl-chip' + (c.v === htMinStars ? " on" : "") + '" data-stars="' + c.v + '">' +
+    document.getElementById("htBrandChips").innerHTML = HOTEL_BRAND_CHIPS.map(function (c) {
+      return '<button class="fl-chip' + (c.v === htBrandsOnly ? " on" : "") + '" data-brands="' + c.v + '">' +
         c.label + "</button>";
     }).join("");
   }
@@ -6409,10 +6422,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     refreshHotelChips();
     saveHotelPrefs();
   });
-  document.getElementById("htStarsChips").addEventListener("click", function (e) {
+  document.getElementById("htBrandChips").addEventListener("click", function (e) {
     var btn = e.target.closest(".fl-chip");
     if (!btn) return;
-    htMinStars = parseInt(btn.getAttribute("data-stars"), 10) || 0;
+    htBrandsOnly = parseInt(btn.getAttribute("data-brands"), 10) || 0;
     refreshHotelChips();
     saveHotelPrefs();
   });
@@ -6434,7 +6447,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   function saveHotelPrefs() {
     try {
       localStorage.setItem("hotelPrefs",
-        JSON.stringify({ q: elHtWhere.value, adults: htAdults, minStars: htMinStars }));
+        JSON.stringify({ q: elHtWhere.value, adults: htAdults, brandsOnly: htBrandsOnly }));
     } catch (e) {}
   }
   function loadHotelPrefs() {
@@ -6442,7 +6455,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       var p = JSON.parse(localStorage.getItem("hotelPrefs") || "{}");
       if (p.q) elHtWhere.value = p.q;
       if (p.adults) htAdults = p.adults;
-      if (p.minStars === 4 || p.minStars === 5) htMinStars = p.minStars;
+      if (p.brandsOnly === 1) htBrandsOnly = 1;
     } catch (e) {}
   }
 
@@ -6805,7 +6818,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
           "&checkIn=" + encodeURIComponent(elHtIn.value) +
           "&checkOut=" + encodeURIComponent(elHtOut.value) +
           "&adults=" + htAdults +
-          "&minStars=" + htMinStars, { headers: flightHeaders() })
+          "&brandsOnly=" + htBrandsOnly, { headers: flightHeaders() })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (d.enabled === false) {
@@ -6816,8 +6829,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
         }
         var list = d.properties || [];
         if (!list.length) {
-          if (d.minStars) {
-            setHotelMsg("No 4–5★ stays found for those dates", true);
+          if (d.brandsOnly && d.total) {
+            setHotelMsg("None of the " + d.total + " found are one of the top brands", true);
           } else if (d.error) {
             setHotelMsg(d.error, true);
           } else {
@@ -6826,10 +6839,11 @@ canvas#chart { width: 100%; height: 158px; display: block; }
           return;
         }
         renderHotels(list);
-        var starNote = d.minStars ? " · 4–5★ only" : "";
+        var brandNote = d.brandsOnly && d.total > list.length
+          ? " · top brands only (" + (d.total - list.length) + " hidden)" : "";
         setHotelMsg(list.length + (list.length === 1 ? " stay · " : " stays · ") + q + " · " +
           dayLabel(d.checkIn) + " → " + dayLabel(d.checkOut) + " · " + d.nights +
-          (d.nights === 1 ? " night" : " nights") + starNote);
+          (d.nights === 1 ? " night" : " nights") + brandNote);
       })
       .catch(function (e) { setHotelMsg("Search failed: " + e.message, true); })
       .then(function () { elHtGo.disabled = false; });
