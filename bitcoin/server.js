@@ -1895,10 +1895,13 @@ function isTopBrand(name) {
   return TOP_HOTEL_BRAND_RE.test(norm);
 }
 
-async function serpHotels(q, checkIn, checkOut, adults, apiKey) {
-  const key = [q, checkIn, checkOut, adults].join("|");
+// brandIds, when given, is sent as SerpApi's own `brands` parameter — a
+// genuinely different query, since Google does the brand matching itself
+// rather than us guessing from the name afterward.
+async function serpHotels(q, checkIn, checkOut, adults, apiKey, brandIds) {
+  const key = [q, checkIn, checkOut, adults, brandIds || ""].join("|");
   const hit = hotelCache.get(key);
-  if (hit && Date.now() - hit.at < HOTEL_CACHE_MS) return hit.properties;
+  if (hit && Date.now() - hit.at < HOTEL_CACHE_MS) return hit.result;
 
   const nights = nightsBetween(checkIn, checkOut);
   const url = new URL("https://serpapi.com/search.json");
@@ -1910,6 +1913,7 @@ async function serpHotels(q, checkIn, checkOut, adults, apiKey) {
   url.searchParams.set("currency", "USD");
   url.searchParams.set("gl", "us");
   url.searchParams.set("hl", "en");
+  if (brandIds) url.searchParams.set("brands", brandIds);
   url.searchParams.set("api_key", apiKey);
 
   const res = await fetch(url, { headers: { Accept: "application/json" } });
@@ -1919,8 +1923,25 @@ async function serpHotels(q, checkIn, checkOut, adults, apiKey) {
   }
   const raw = Array.isArray(json.properties) ? json.properties : [];
   const properties = raw.map((p) => normalizeProperty(p, nights)).filter(Boolean);
-  hotelCache.set(key, { at: Date.now(), properties });
-  return properties;
+  // Google's own brand taxonomy for this search — every chain it recognizes
+  // here, each with an id and (for a parent like Marriott or Hyatt) its own
+  // sub-brands nested as children. This is what lets a real `brands` value
+  // be built instead of guessing ids ahead of time.
+  const brands = Array.isArray(json.brands) ? json.brands : [];
+  const result = { properties, brands };
+  hotelCache.set(key, { at: Date.now(), result });
+  return result;
+}
+
+// Walks that taxonomy looking for the chains on our list, by name — the
+// same matcher used as the name-based fallback below — and collects their
+// ids so a second request can ask Google for exactly those brands.
+function collectTopBrandIds(nodes, out) {
+  for (const b of (Array.isArray(nodes) ? nodes : [])) {
+    if (b && b.id != null && isTopBrand(b.name)) out.push(b.id);
+    if (b && Array.isArray(b.children)) collectTopBrandIds(b.children, out);
+  }
+  return out;
 }
 
 // Dates are plain YYYY-MM-DD with no zone, so they are compared as UTC noon —
@@ -1950,17 +1971,27 @@ function flagProperties(list) {
 }
 
 async function searchHotels(q, checkIn, checkOut, adults, apiKey, brandsOnly) {
-  const all = await serpHotels(q, checkIn, checkOut, adults, apiKey);
-  // The brand allow-list runs on the cached, unfiltered fetch — toggling it
-  // costs no extra SerpApi credit — and BEFORE flagging, so "Lowest"/"Top
-  // rated" describe what is actually on screen rather than a property the
-  // filter just hid.
-  const properties = brandsOnly ? all.filter((p) => isTopBrand(p.name)) : all;
+  const first = await serpHotels(q, checkIn, checkOut, adults, apiKey);
+  let properties = first.properties;
+  if (brandsOnly) {
+    const ids = [...new Set(collectTopBrandIds(first.brands, []))];
+    if (ids.length) {
+      // a genuinely different query: Google matches the brands itself
+      const filtered = await serpHotels(q, checkIn, checkOut, adults, apiKey, ids.join(","));
+      properties = filtered.properties;
+    } else {
+      // this destination's own taxonomy didn't surface an id for any brand
+      // on the list (a market with none of them, or different naming) —
+      // fall back to matching the name directly rather than showing
+      // nothing when the fetch we already have does contain a match
+      properties = first.properties.filter((p) => isTopBrand(p.name));
+    }
+  }
   flagProperties(properties);
   properties.sort((a, b) => (a.perNight || 1e9) - (b.perNight || 1e9));
   const nights = nightsBetween(checkIn, checkOut);
   logHotelSearch(q, checkIn, checkOut, adults, nights, properties);
-  return { properties, nights, total: all.length };
+  return { properties, nights, total: first.properties.length };
 }
 
 // Every search, and the name of everything it turned up — nothing else, so
