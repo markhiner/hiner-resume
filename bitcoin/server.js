@@ -1692,7 +1692,7 @@ function serpKeyFrom(req) {
 async function serpFlights(from, to, date, cabin, apiKey) {
   const key = [from, to, date, cabin].join("|");
   const hit = flightCache.get(key);
-  if (hit && Date.now() - hit.at < FLIGHT_CACHE_MS) return hit.itineraries;
+  if (hit && Date.now() - hit.at < FLIGHT_CACHE_MS) return hit;
 
   const url = new URL("https://serpapi.com/search.json");
   url.searchParams.set("engine", "google_flights");
@@ -1712,8 +1712,11 @@ async function serpFlights(from, to, date, cabin, apiKey) {
   }
   const raw = [].concat(json.best_flights || [], json.other_flights || []);
   const itineraries = raw.map((it) => normalizeItinerary(it, cabin)).filter(Boolean);
-  flightCache.set(key, { at: Date.now(), itineraries });
-  return itineraries;
+  // the untouched upstream payload, kept only so ?debug=1 can hand it back
+  // for troubleshooting — normal searches never send it to the client
+  const entry = { at: Date.now(), itineraries, rawResponse: json };
+  flightCache.set(key, entry);
+  return entry;
 }
 
 // Flags are computed across the MERGED list, because "cheapest coach" only
@@ -1735,15 +1738,17 @@ async function searchFlights(from, to, date, apiKey) {
   ]);
   const list = [];
   const errors = [];
+  const raw = {};
   settled.forEach((r, i) => {
-    if (r.status === "fulfilled") list.push(...r.value);
-    else errors.push((i === 0 ? "economy: " : "first: ") + r.reason.message);
+    const cabin = i === 0 ? "economy" : "first";
+    if (r.status === "fulfilled") { list.push(...r.value.itineraries); raw[cabin] = r.value.rawResponse; }
+    else errors.push(cabin + ": " + r.reason.message);
   });
   // one cabin failing should not sink the whole search
   if (!list.length && errors.length) throw new Error(errors.join("; "));
   flagItineraries(list);
   list.sort((a, b) => (a.price || 1e9) - (b.price || 1e9) || (a.totalDuration || 0) - (b.totalDuration || 0));
-  return { itineraries: list, partialError: errors.length ? errors.join("; ") : null };
+  return { itineraries: list, partialError: errors.length ? errors.join("; ") : null, raw };
 }
 
 // ---------- hotels (SerpApi Google Hotels) ----------
@@ -3118,8 +3123,12 @@ const server = http.createServer((req, res) => {
     const date = String(url.searchParams.get("date") || "");
     if (!from || !to) return send(400, { enabled: true, error: "need both a departure and an arrival" });
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return send(400, { enabled: true, error: "need a date as YYYY-MM-DD" });
+    // ?debug=1 hands back SerpApi's untouched response alongside the normal
+    // result, for tracking down something that looks wrong upstream —
+    // never sent otherwise, so a normal search stays a normal-sized payload.
+    const debug = url.searchParams.get("debug") === "1";
     searchFlights(from, to, date, apiKey)
-      .then((r) => send(200, { enabled: true, from, to, date, ...r }))
+      .then((r) => { if (!debug) delete r.raw; send(200, { enabled: true, from, to, date, ...r }); })
       .catch((e) => send(200, { enabled: true, from, to, date, itineraries: [], error: e.message }));
     return;
   }
@@ -4333,6 +4342,9 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .fl-key-note { font-size: 9.5px; color: var(--text3); margin-top: 6px; line-height: 1.45; }
 .fl-msg { font-size: 11.5px; color: var(--text3); margin-top: 9px; text-align: center; font-style: italic; }
 .fl-msg.err { color: var(--red); font-style: normal; }
+.fl-raw-btn { display: block; margin: 6px auto 0; background: none; border: none;
+  font-size: 10px; color: var(--text3); text-decoration: underline; padding: 4px; }
+.fl-raw-btn:active { color: var(--text2); }
 
 .fl-results { display: flex; flex-direction: column; gap: 7px; margin-top: 9px; }
 
@@ -4790,6 +4802,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
       <button class="fl-go" id="flGo">Search</button>
       <div class="fl-msg" id="flMsg"></div>
+      <button class="fl-raw-btn" id="flRawBtn" type="button">View raw SerpApi response</button>
 
       <div class="fl-key" id="flKeyBox">
         <div class="fl-label">SerpApi key</div>
@@ -6408,6 +6421,23 @@ canvas#chart { width: 100%; height: 158px; display: block; }
       .then(function () { elGo.disabled = false; });
   }
   elGo.addEventListener("click", searchFlights);
+
+  // Opens SerpApi's untouched response in a new tab — the same search
+  // that's already cached server-side (searchFlights shares FLIGHT_CACHE_MS
+  // with the normal path), so this costs nothing extra as long as it's
+  // clicked soon after a real search, and only costs a real one otherwise.
+  document.getElementById("flRawBtn").addEventListener("click", function () {
+    var from = codesFor(elFrom), to = codesFor(elTo);
+    if (!from || !to) { setFlightMsg("Pick a departure and an arrival first", true); return; }
+    fetch("/api/flights?from=" + encodeURIComponent(from) + "&to=" + encodeURIComponent(to) +
+          "&date=" + encodeURIComponent(elDate.value) + "&debug=1", { headers: flightHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var blob = new Blob([JSON.stringify(d.raw || d, null, 2)], { type: "application/json" });
+        window.open(URL.createObjectURL(blob), "_blank");
+      })
+      .catch(function (e) { setFlightMsg("Raw fetch failed: " + e.message, true); });
+  });
 
   // is a key available from either side? cheap probe, no search burned
   function probeFlights() {
