@@ -4768,14 +4768,14 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     <div class="fl-card">
       <div class="fl-field">
         <div class="fl-label">From</div>
-        <input class="fl-input" id="flFrom" placeholder="airport code" autocomplete="off"
+        <input class="fl-input" id="flFrom" placeholder="tap a shortcut or type a code" autocomplete="off"
                autocapitalize="characters" spellcheck="false" inputmode="text">
         <div class="fl-chips" id="flFromChips"></div>
       </div>
 
       <div class="fl-field">
         <div class="fl-label">To</div>
-        <input class="fl-input" id="flTo" placeholder="airport code" autocomplete="off"
+        <input class="fl-input" id="flTo" placeholder="tap a shortcut or type a code" autocomplete="off"
                autocapitalize="characters" spellcheck="false" inputmode="text">
         <div class="fl-chips" id="flToChips"></div>
       </div>
