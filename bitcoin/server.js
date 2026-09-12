@@ -5984,7 +5984,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     { label: "NYC", codes: "LGA,JFK,EWR" },
     { label: "GSO", codes: "GSO" },
     { label: "RDU", codes: "RDU" },
-    { label: "OC", codes: "GSO,RDU" }
+    { label: "OC", codes: "GSO,RDU" },
+    { label: "PHL", codes: "PHL" },
+    { label: "WAS", codes: "DCA,IAD,BWI" },
+    { label: "!!!", codes: "SAN,LAX,BNA,STL,MIA,FLL,PBI,MCO,ORD,DAL,ILM,CHS,CAE,LAS,SEA,PDX,OAK,SFO,DEN,BOS" }
   ];
   var WD_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   var WD_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
