@@ -5979,15 +5979,19 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
   // ---------- flight search ----------
 
+  // "codes" is what actually gets searched; "display" is what the field
+  // shows once a chip fills it in — a city name reads better than a raw
+  // comma list, especially once a chip covers three or four airports.
   var AIRPORTS = [
-    { label: "LGA", codes: "LGA" },
-    { label: "NYC", codes: "LGA,JFK,EWR" },
-    { label: "GSO", codes: "GSO" },
-    { label: "RDU", codes: "RDU" },
-    { label: "OC", codes: "GSO,RDU" },
-    { label: "PHL", codes: "PHL" },
-    { label: "WAS", codes: "DCA,IAD,BWI" },
-    { label: "!!!", codes: "SAN,LAX,BNA,STL,MIA,FLL,PBI,MCO,ORD,DAL,ILM,CHS,CAE,LAS,SEA,PDX,OAK,SFO,DEN,BOS" }
+    { label: "LGA", codes: "LGA", display: "LAGUARDIA" },
+    { label: "NYC", codes: "LGA,JFK,EWR", display: "NEW YORK CITY" },
+    { label: "GSO", codes: "GSO", display: "GREENSBORO" },
+    { label: "RDU", codes: "RDU", display: "RALEIGH-DURHAM" },
+    { label: "OC", codes: "GSO,RDU", display: "OAK CIRCLE" },
+    { label: "PHL", codes: "PHL", display: "PHILADELPHIA" },
+    { label: "WAS", codes: "DCA,IAD,BWI", display: "WASHINGTON" },
+    { label: "!!!", codes: "SAN,LAX,BNA,STL,MIA,FLL,PBI,MCO,ORD,DAL,ILM,CHS,CAE,LAS,SEA,PDX,OAK,SFO,DEN,BOS",
+      display: "ANYWHERE" }
   ];
   var WD_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   var WD_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -6051,10 +6055,18 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     return String(v || "").toUpperCase().replace(/\\s+/g, "").replace(/,+/g, ",").replace(/^,|,$/g, "");
   }
 
+  // A chip swaps the field's displayed text for a city name, but the actual
+  // search still needs the real codes — stashed on the input itself rather
+  // than parsed back out of that display text. Typing directly clears it,
+  // so manual entry still works exactly as a raw code list, same as before.
+  function codesFor(input) {
+    return input.dataset.codes || normCodes(input.value);
+  }
   function renderChips(host, input) {
     host.innerHTML = AIRPORTS.map(function (a) {
-      var on = normCodes(input.value) === a.codes ? " on" : "";
-      return '<button class="fl-chip' + on + '" data-codes="' + a.codes + '">' + a.label + "</button>";
+      var on = codesFor(input) === a.codes ? " on" : "";
+      return '<button class="fl-chip' + on + '" data-codes="' + a.codes + '" data-display="' +
+        esc(a.display) + '">' + a.label + "</button>";
     }).join("");
   }
   function refreshChips() {
@@ -6065,29 +6077,35 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     document.getElementById(hostId).addEventListener("click", function (e) {
       var btn = e.target.closest(".fl-chip");
       if (!btn) return;
-      input.value = btn.getAttribute("data-codes");
+      input.value = btn.getAttribute("data-display");
+      input.dataset.codes = btn.getAttribute("data-codes");
       refreshChips();
       saveFlightPrefs();
     });
   }
   wireChips("flFromChips", elFrom);
   wireChips("flToChips", elTo);
-  elFrom.addEventListener("input", function () { refreshChips(); });
-  elTo.addEventListener("input", function () { refreshChips(); });
+  elFrom.addEventListener("input", function () { delete elFrom.dataset.codes; refreshChips(); });
+  elTo.addEventListener("input", function () { delete elTo.dataset.codes; refreshChips(); });
 
   function syncDate() { elDateDisplay.textContent = dayLabel(elDate.value); }
   elDate.addEventListener("change", function () { syncDate(); saveFlightPrefs(); });
 
   function saveFlightPrefs() {
     try {
-      localStorage.setItem("flightPrefs", JSON.stringify({ from: elFrom.value, to: elTo.value }));
+      localStorage.setItem("flightPrefs", JSON.stringify({
+        from: elFrom.value, fromCodes: codesFor(elFrom),
+        to: elTo.value, toCodes: codesFor(elTo),
+      }));
     } catch (e) {}
   }
   function loadFlightPrefs() {
     try {
       var p = JSON.parse(localStorage.getItem("flightPrefs") || "{}");
       if (p.from) elFrom.value = p.from;
+      if (p.fromCodes) elFrom.dataset.codes = p.fromCodes;
       if (p.to) elTo.value = p.to;
+      if (p.toCodes) elTo.dataset.codes = p.toCodes;
     } catch (e) {}
   }
 
@@ -6322,7 +6340,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     if (!picked.length || !window.jspdf) return;
     picked.sort(compareResults);
 
-    var from = normCodes(elFrom.value) || "?", to = normCodes(elTo.value) || "?";
+    var from = codesFor(elFrom) || "?", to = codesFor(elTo) || "?";
     var doc = new window.jspdf.jsPDF({ unit: "pt", format: "letter" });
     var y = 50;
 
@@ -6369,7 +6387,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
   function searchFlights() {
     if (!flightsEnabled) return;
-    var from = normCodes(elFrom.value), to = normCodes(elTo.value);
+    var from = codesFor(elFrom), to = codesFor(elTo);
     if (!from || !to) { setFlightMsg("Pick a departure and an arrival", true); return; }
     elGo.disabled = true;
     setFlightMsg("Searching economy and first\u2026");
