@@ -23,12 +23,19 @@ const MAX_MINUTE_BARS = 4320; // 3 days @ 1/min — long-range window
 const MAX_TRADES = 40; // rapid-fire trade ticker buffer
 const SAVE_INTERVAL_MS = 60_000;
 const STALE_MS = 20_000; // force-reconnect a feed that's gone quiet
+const PING_MS = 8_000; // proves the socket is alive even when nothing has traded
 
 // ---------- state ----------
 
+// ts is the last actual PRICE update — feedWeight() below decays a feed's
+// influence on the blended average the longer it's been since ts, which is
+// correct even while the socket is perfectly healthy but the market is
+// quiet. aliveAt is a separate "is this socket actually still there" clock,
+// kept fresh by protocol-level pings regardless of trade volume, so the
+// stale-socket watchdog stops mistaking a quiet market for a dead feed.
 const ex = {
-  coinbase: { price: null, prevPrice: null, bid: null, ask: null, high24: null, low24: null, ts: null, connected: false },
-  bitstamp: { price: null, prevPrice: null, ts: null, connected: false },
+  coinbase: { price: null, prevPrice: null, bid: null, ask: null, high24: null, low24: null, ts: null, aliveAt: null, connected: false },
+  bitstamp: { price: null, prevPrice: null, ts: null, aliveAt: null, connected: false },
 };
 
 let secondTicks = []; // { t, coinbase, bitstamp, avg, vol }
@@ -246,16 +253,25 @@ function brtiPublic() {
 
 // ---------- exchange connectors ----------
 
-let cbSocket = null, cbReconnectDelay = 1000;
+let cbSocket = null, cbReconnectDelay = 1000, cbPingTimer = null;
 function connectCoinbase() {
   cbSocket = new WebSocket(COINBASE_WS);
+  clearInterval(cbPingTimer);
   cbSocket.on("open", () => {
     cbReconnectDelay = 1000;
     ex.coinbase.connected = true;
+    ex.coinbase.aliveAt = Date.now();
     cbSocket.send(JSON.stringify({ type: "subscribe", product_ids: ["BTC-USD"], channels: ["ticker"] }));
     console.log("Coinbase connected");
+    // Trades can go quiet for a stretch without the socket being dead — a
+    // protocol ping proves the connection itself is still there regardless
+    // of how much BTC-USD is actually trading right now.
+    clearInterval(cbPingTimer);
+    cbPingTimer = setInterval(() => { try { cbSocket.ping(); } catch {} }, PING_MS);
   });
+  cbSocket.on("pong", () => { ex.coinbase.aliveAt = Date.now(); });
   cbSocket.on("message", (raw) => {
+    ex.coinbase.aliveAt = Date.now();
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type !== "ticker" || msg.product_id !== "BTC-USD") return;
@@ -270,7 +286,7 @@ function connectCoinbase() {
     ex.coinbase.ts = Date.now();
     recordTrade("coinbase", price, parseFloat(msg.last_size) || 0, msg.side || "");
   });
-  cbSocket.on("close", scheduleCoinbaseReconnect);
+  cbSocket.on("close", () => { clearInterval(cbPingTimer); scheduleCoinbaseReconnect(); });
   cbSocket.on("error", (err) => { console.error("Coinbase WS error:", err.message); try { cbSocket.terminate(); } catch {} });
 }
 function scheduleCoinbaseReconnect() {
@@ -280,16 +296,25 @@ function scheduleCoinbaseReconnect() {
   cbReconnectDelay = Math.min(cbReconnectDelay * 2, 30000);
 }
 
-let bsSocket = null, bsReconnectDelay = 1000;
+let bsSocket = null, bsReconnectDelay = 1000, bsPingTimer = null;
 function connectBitstamp() {
   bsSocket = new WebSocket(BITSTAMP_WS);
+  clearInterval(bsPingTimer);
   bsSocket.on("open", () => {
     bsReconnectDelay = 1000;
     ex.bitstamp.connected = true;
+    ex.bitstamp.aliveAt = Date.now();
     bsSocket.send(JSON.stringify({ event: "bts:subscribe", data: { channel: "live_trades_btcusd" } }));
     console.log("Bitstamp connected");
+    // Bitstamp's BTC/USD pair trades thin enough that it can go quiet for
+    // 20+ seconds with nothing wrong — a ping proves the socket is still
+    // alive without needing an actual trade to say so.
+    clearInterval(bsPingTimer);
+    bsPingTimer = setInterval(() => { try { bsSocket.ping(); } catch {} }, PING_MS);
   });
+  bsSocket.on("pong", () => { ex.bitstamp.aliveAt = Date.now(); });
   bsSocket.on("message", (raw) => {
+    ex.bitstamp.aliveAt = Date.now();
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.event !== "trade") return;
@@ -303,7 +328,7 @@ function connectBitstamp() {
     ex.bitstamp.ts = Date.now();
     recordTrade("bitstamp", price, parseFloat(data.amount) || 0, data.type === 0 ? "buy" : "sell");
   });
-  bsSocket.on("close", scheduleBitstampReconnect);
+  bsSocket.on("close", () => { clearInterval(bsPingTimer); scheduleBitstampReconnect(); });
   bsSocket.on("error", (err) => { console.error("Bitstamp WS error:", err.message); try { bsSocket.terminate(); } catch {} });
 }
 function scheduleBitstampReconnect() {
@@ -313,14 +338,16 @@ function scheduleBitstampReconnect() {
   bsReconnectDelay = Math.min(bsReconnectDelay * 2, 30000);
 }
 
-// watchdog: some dead sockets never fire "close" — force-kill if stale
+// watchdog: some dead sockets never fire "close" — force-kill if stale.
+// Checked against aliveAt (pings + any message), not ts (last real price),
+// so a quiet market never gets mistaken for a dead connection.
 setInterval(() => {
   const now = Date.now();
-  if (ex.coinbase.connected && ex.coinbase.ts && now - ex.coinbase.ts > STALE_MS) {
+  if (ex.coinbase.connected && ex.coinbase.aliveAt && now - ex.coinbase.aliveAt > STALE_MS) {
     console.log("Coinbase feed stale, forcing reconnect");
     try { cbSocket.terminate(); } catch {}
   }
-  if (ex.bitstamp.connected && ex.bitstamp.ts && now - ex.bitstamp.ts > STALE_MS) {
+  if (ex.bitstamp.connected && ex.bitstamp.aliveAt && now - ex.bitstamp.aliveAt > STALE_MS) {
     console.log("Bitstamp feed stale, forcing reconnect");
     try { bsSocket.terminate(); } catch {}
   }
