@@ -2697,6 +2697,9 @@ const AMTRAK_CITY_OVERRIDES = {
   // needed shortening because it can now show up as a to/from city too,
   // once a board is pointed at Philadelphia or DC instead of Penn itself.
   NYP: "New York",
+  // "30th Street" doesn't match any of the generic suffix rules below, and
+  // it's the only Amtrak station these boards ever point at in the city.
+  PHL: "Philadelphia",
 };
 // Everywhere else, Amtrak's own station names are the city name plus a
 // generic suffix ("Washington Union Station", "Trenton Transit Center") that
@@ -2727,7 +2730,7 @@ function amtrakNormalizeStations(stations) {
   return (Array.isArray(stations) ? stations : []).map((s) => {
     const coords = amtrakStationCoords.get(s.code);
     return {
-      code: s.code, name: s.name,
+      code: s.code, name: amtrakCityName(s.code, s.name),
       lat: coords ? coords.lat : null, lon: coords ? coords.lon : null,
       schedArrMs: amtrakParseMs(s.schArr), schedDepMs: amtrakParseMs(s.schDep),
       arrMs: amtrakParseMs(s.arr), depMs: amtrakParseMs(s.dep),
@@ -3764,7 +3767,13 @@ body {
     if (schedMs == null && atMs == null) return '<span class="st">\\u2014</span>';
     var now = Date.now();
     var use = atMs != null ? atMs : schedMs;
-    if (now >= use) return '<span class="st done">' + passedLabel + '</span>';
+    // The time column to its left still shows the scheduled clock time, so
+    // this is what makes a late departure visible at all — the same
+    // "actual next to scheduled" comparison a still-ahead stop already gets
+    // via "Now HH:MM", just in the past tense once it's behind you.
+    if (now >= use) {
+      return '<span class="st done">' + passedLabel + (atMs != null ? " " + fmtBoardTime(atMs) : "") + '</span>';
+    }
     if (atMs != null && schedMs != null && atMs - schedMs > 60000) return '<span class="st delayed">Now ' + fmtBoardTime(atMs) + '</span>';
     return '<span class="st">On Time</span>';
   }
@@ -3819,7 +3828,10 @@ body {
         var here = s.code === state.station;
         var isPast = nextIdx === -1 ? true : i < nextIdx;
         var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
-        return '<div class="tt-stop' + cls + '"><span class="nm">' + esc(s.name) + (here ? " (" + esc(STATION_NAMES[state.station] || "") + ")" : "") + '</span>' +
+        // the "(New York)"-style annotation this used to add for the board's
+        // own reference station is redundant now: s.name already goes through
+        // the same city-name cleanup as STATION_NAMES, so the two agree.
+        return '<div class="tt-stop' + cls + '"><span class="nm">' + esc(s.name) + '</span>' +
           '<span class="tm">' + fmtBoardTime(schedMs != null ? schedMs : timeMs) + '</span>' +
           stopStateHTML(schedMs, atMs, "Departed") + '</div>';
       }).join("");
