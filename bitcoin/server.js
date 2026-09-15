@@ -3753,6 +3753,11 @@ body {
   var elBody = document.getElementById("ttBody");
   var openTrain = null; // { kind: "amtrak"|"lirr", event, idx } — kept so a live poll can re-render it
   var ttMap = null, ttMarker = null;
+  // true only for the render that follows a fresh tap — reopenIfStillOpen()
+  // re-renders the same sheet every board refresh, and re-animating the
+  // zoom on each of those would yank the map out from under someone still
+  // looking at it.
+  var ttMapJustOpened = false;
 
   function closeTrain() {
     elSheet.classList.remove("on");
@@ -3842,6 +3847,7 @@ body {
         if (ttMap) { ttMap.remove(); ttMap = null; }
         ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
+        var wideZoom = null;
 
         if (routeStops.length >= 2) {
           var latlngs = routeStops.map(function (s) { return [s.lat, s.lon]; });
@@ -3880,6 +3886,7 @@ body {
           ttMap.on("zoomend moveend", declutterLabels);
           ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
           declutterLabels();
+          wideZoom = ttMap.getZoom();
         } else {
           ttMap.setView([row.lat, row.lon], 8);
         }
@@ -3891,6 +3898,21 @@ body {
           ttMarker = L.circleMarker([row.lat, row.lon], { radius: 9, color: "#000", weight: 2.5, fillColor: AMTRAK_LIVE_COLOR, fillOpacity: 1 })
             .bindTooltip("Live position", { direction: "top" })
             .addTo(ttMap);
+        }
+
+        // Whole route first, so it reads as a map before it reads as a
+        // train — then, once, in from there onto where it actually is.
+        // Only on the tap that opened the sheet: a periodic re-render of an
+        // already-open sheet must never yank the view out from under
+        // someone still looking at it.
+        if (ttMapJustOpened) {
+          ttMapJustOpened = false;
+          if (wideZoom != null && row.lat != null && row.lon != null) {
+            var mapAtOpen = ttMap;
+            setTimeout(function () {
+              if (ttMap === mapAtOpen) ttMap.flyTo([row.lat, row.lon], wideZoom + 2, { duration: 1.2 });
+            }, 1000);
+          }
         }
       }, 0);
     }
@@ -3931,6 +3953,7 @@ body {
     openTrain = { kind: kind, event: event, idx: idx };
     elSheet.classList.add("on");
     document.body.style.overflow = "hidden";
+    ttMapJustOpened = true;
     if (kind === "amtrak") {
       var row = (event === "dep" ? state.departures : state.arrivals)[idx];
       if (row) renderAmtrakDetail(row);
