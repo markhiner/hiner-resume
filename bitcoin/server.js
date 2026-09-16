@@ -2645,6 +2645,11 @@ const AMTRAK_STATIONS_URL = "https://api-v3.amtraker.com/v3/stations";
 const AMTRAK_REFRESH_MS = 30 * 1000;
 const AMTRAK_STATIONS_REFRESH_MS = 20 * 60 * 60 * 1000; // station locations don't move
 const AMTRAK_STATIC_GTFS_URL = "https://content.amtrak.com/content/gtfs/GTFS.zip";
+// Amtrak's published GTFS feed also bundles in other operators that run on
+// Amtrak-dispatched track under their own agency_id (MARC, Shore Line East,
+// Via Rail Canada, thruway-connecting buses, FLIX) — this is Amtrak's own
+// agency_id, the only one that means a train is actually Amtrak-operated.
+const AMTRAK_AGENCY_ID = "51";
 const AMTRAK_CACHE_DIR = path.join(__dirname, ".amtrak-gtfs-cache");
 const AMTRAK_STATIC_REFRESH_MS = 20 * 60 * 60 * 1000; // schedules don't change intraday
 // The boards can be pointed at any of these three stations (dropdown on the
@@ -2823,8 +2828,18 @@ function loadAmtrakModel() {
   // read again — dropping the rest here keeps the in-memory model to a
   // small fraction of Amtrak's full national stop_times.txt.
   const boardCodes = Object.keys(AMTRAK_BOARD_STATIONS);
+  // Amtrak's own published feed also carries other operators that share its
+  // dispatched track — MARC's Penn Line trains between Washington and
+  // Baltimore, Shore Line East, thruway-connecting buses run by outside
+  // charter companies, Via Rail Canada — all bundled in as their own
+  // agencies rather than filed under Amtrak itself. An "Amtrak" board
+  // showing one of those (as "9400 Commuter Rail", say) reads as a mistake,
+  // not a scheduling quirk, so only agency 51 ("Amtrak") makes the cut.
   const stByTrip = new Map();
   for (const [tripId, sts] of rawByTrip) {
+    const trip = tripById.get(tripId);
+    const route = trip && routeById.get(trip.route_id);
+    if (!route || route.agency_id !== AMTRAK_AGENCY_ID) continue;
     if (!sts.some((s) => boardCodes.includes(s.stop_id))) continue;
     sts.sort((a, b) => +a.stop_sequence - +b.stop_sequence);
     stByTrip.set(tripId, sts);
