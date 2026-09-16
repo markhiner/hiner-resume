@@ -3805,6 +3805,13 @@ body {
   // zoom on each of those would yank the map out from under someone still
   // looking at it.
   var ttMapJustOpened = false;
+  // The zoom level the wide->medium->tight animation last reached. A board
+  // refresh rebuilds #ttMap's whole DOM (elBody.innerHTML), so the Leaflet
+  // instance itself can't just be left alone — but the resulting view still
+  // starts wide again unless something puts it back where the user left it,
+  // which read as the map snapping back out every refresh. Reset to null on
+  // a fresh open so each newly-opened train still gets the full animation.
+  var ttLastZoom = null;
 
   function closeTrain() {
     elSheet.classList.remove("on");
@@ -3932,10 +3939,17 @@ body {
           }
           ttMap.on("zoomend moveend", declutterLabels);
           ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
-          declutterLabels();
           wideZoom = ttMap.getZoom();
+          // Recreated on every refresh, so without this it would land back on
+          // the wide fit above every time — jump straight to wherever the
+          // wide->medium->tight animation last left off instead, recentered
+          // on the train's current live position.
+          if (ttLastZoom != null && row.lat != null && row.lon != null) {
+            ttMap.setView([row.lat, row.lon], ttLastZoom);
+          }
+          declutterLabels();
         } else {
-          ttMap.setView([row.lat, row.lon], 8);
+          ttMap.setView([row.lat, row.lon], ttLastZoom != null ? ttLastZoom : 8);
         }
 
         // the train's own live GPS — bigger and higher-contrast than the
@@ -3959,11 +3973,13 @@ body {
             var mapAtOpen = ttMap;
             var liveLatLng = [row.lat, row.lon];
             setTimeout(function () {
-              if (ttMap === mapAtOpen) ttMap.flyTo(liveLatLng, wideZoom + 2, { duration: 0.8 });
+              if (ttMap === mapAtOpen) { ttMap.flyTo(liveLatLng, wideZoom + 2, { duration: 0.8 }); ttLastZoom = wideZoom + 2; }
             }, 1000);
+            // A real hold at the medium zoom before the final pull in, not
+            // just enough time for the previous flyTo's animation to finish.
             setTimeout(function () {
-              if (ttMap === mapAtOpen) ttMap.flyTo(liveLatLng, wideZoom + 4, { duration: 0.8 });
-            }, 2000);
+              if (ttMap === mapAtOpen) { ttMap.flyTo(liveLatLng, wideZoom + 4, { duration: 0.8 }); ttLastZoom = wideZoom + 4; }
+            }, 3400);
           }
         }
       }, 0);
@@ -4006,6 +4022,7 @@ body {
     elSheet.classList.add("on");
     document.body.style.overflow = "hidden";
     ttMapJustOpened = true;
+    ttLastZoom = null;
     if (kind === "amtrak") {
       var row = (event === "dep" ? state.departures : state.arrivals)[idx];
       if (row) renderAmtrakDetail(row);
