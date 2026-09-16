@@ -2916,8 +2916,22 @@ function amtrakLiveEntries(stationCode) {
 // hasn't picked up yet, and stays as the record for anything live tracking
 // never mentions at all (a schedule change amtraker.com hasn't caught, etc).
 function amtrakMergedEntries(now, stationCode) {
+  const nowMs = now.getTime();
   const merged = new Map();
-  for (const e of amtrakScheduleEntries(now, stationCode)) merged.set(e.trainNum + "|" + e.event, e);
+  // amtrakScheduleEntries checks yesterday/today/tomorrow's service calendar
+  // for each trip, so a train that runs daily shows up here three times —
+  // once per candidate day — under the same trainNum+event key. Naively
+  // keeping whichever came last always picked tomorrow's occurrence (last
+  // in that day order) even when today's later-this-day run was the one
+  // that actually belonged on the board, so this keeps whichever candidate
+  // is closest to right now instead.
+  for (const e of amtrakScheduleEntries(now, stationCode)) {
+    const key = e.trainNum + "|" + e.event;
+    const existing = merged.get(key);
+    const better = !existing || existing.schedMs == null ||
+      (e.schedMs != null && Math.abs(e.schedMs - nowMs) < Math.abs(existing.schedMs - nowMs));
+    if (better) merged.set(key, e);
+  }
   for (const e of amtrakLiveEntries(stationCode)) merged.set(e.trainNum + "|" + e.event, e);
   return [...merged.values()];
 }
