@@ -3919,17 +3919,22 @@ body {
         }
 
         // Whole route first, so it reads as a map before it reads as a
-        // train — then, once, in from there onto where it actually is.
-        // Only on the tap that opened the sheet: a periodic re-render of an
-        // already-open sheet must never yank the view out from under
-        // someone still looking at it.
+        // train — then in, in two holds rather than one long pull, so the
+        // eye can actually follow wide -> medium -> tight instead of losing
+        // the route partway through a single big zoom. Only on the tap that
+        // opened the sheet: a periodic re-render of an already-open sheet
+        // must never yank the view out from under someone still looking at it.
         if (ttMapJustOpened) {
           ttMapJustOpened = false;
           if (wideZoom != null && row.lat != null && row.lon != null) {
             var mapAtOpen = ttMap;
+            var liveLatLng = [row.lat, row.lon];
             setTimeout(function () {
-              if (ttMap === mapAtOpen) ttMap.flyTo([row.lat, row.lon], wideZoom + 2, { duration: 1.2 });
+              if (ttMap === mapAtOpen) ttMap.flyTo(liveLatLng, wideZoom + 2, { duration: 0.8 });
             }, 1000);
+            setTimeout(function () {
+              if (ttMap === mapAtOpen) ttMap.flyTo(liveLatLng, wideZoom + 4, { duration: 0.8 });
+            }, 2000);
           }
         }
       }, 0);
