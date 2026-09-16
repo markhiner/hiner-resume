@@ -2945,6 +2945,12 @@ function amtrakBoardRow(entry, nowMs) {
 }
 
 let amtrakTrainsJson = null; // last fetch's raw /v3/trains payload, not yet filtered to any station
+// The static-schedule load and the first live fetch both take a few real
+// seconds after a (re)start — long enough that a request can land in
+// between and see a board that's actually just not warmed up yet, not one
+// that's genuinely empty. Lets the client tell "still loading" from "there
+// really is nothing right now" instead of reporting the former as the latter.
+let amtrakBoardWarmedUp = false;
 async function refreshAmtrakBoard() {
   try {
     const res = await fetch(AMTRAK_TRAINS_URL);
@@ -2968,8 +2974,11 @@ function amtrakBoard(stationCode) {
   arrivals.sort((a, b) => a.schedMs - b.schedMs);
   // Below the floor means the static schedule isn't backing up the live feed
   // the way it's supposed to (failed to load, or genuinely ran dry) — worth
-  // knowing about, since the whole point of merging it in was to never see this.
-  if (departures.length < AMTRAK_BOARD_MIN_ROWS || arrivals.length < AMTRAK_BOARD_MIN_ROWS) {
+  // knowing about, since the whole point of merging it in was to never see
+  // this. Not worth knowing about during the few seconds after a (re)start
+  // before the first live fetch has even landed — every board is "below
+  // floor" then, and it says so below via `warming` instead.
+  if (amtrakBoardWarmedUp && (departures.length < AMTRAK_BOARD_MIN_ROWS || arrivals.length < AMTRAK_BOARD_MIN_ROWS)) {
     console.warn(`Amtrak board (${stationCode}) below the ${AMTRAK_BOARD_MIN_ROWS}-row floor: ${departures.length} departures, ${arrivals.length} arrivals`);
   }
   return {
@@ -2977,6 +2986,7 @@ function amtrakBoard(stationCode) {
     departures: departures.slice(0, AMTRAK_BOARD_MAX_ROWS),
     arrivals: arrivals.slice(0, AMTRAK_BOARD_MAX_ROWS),
     updatedAt: nowMs,
+    warming: !amtrakBoardWarmedUp,
   };
 }
 
@@ -2993,6 +3003,7 @@ async function startAmtrakBoard() {
     console.error("Amtrak static schedule failed to load (board will be live-only):", e.message);
   }
   await refreshAmtrakBoard();
+  amtrakBoardWarmedUp = true;
   setInterval(refreshAmtrakBoard, AMTRAK_REFRESH_MS);
 }
 
@@ -3632,7 +3643,13 @@ body {
   function renderBoard(bodyId, rows, kind) {
     var el = document.getElementById(bodyId);
     if (!rows.length) {
-      el.innerHTML = '<div class="board-empty">No ' + (kind === "dep" ? "departures" : "arrivals") + ' from Amtrak in this window.</div>';
+      // Right after a (re)start the server hasn't finished its own first
+      // live fetch yet — that's not the same fact as "nothing is running
+      // right now" and saying so as if it were reads as broken rather than
+      // just not caught up yet.
+      el.innerHTML = state.amtrakWarming
+        ? '<div class="board-empty">Loading Amtrak schedule&hellip;</div>'
+        : '<div class="board-empty">No ' + (kind === "dep" ? "departures" : "arrivals") + ' from Amtrak in this window.</div>';
       return;
     }
     var expanded = boardExpanded[kind];
@@ -3654,6 +3671,7 @@ body {
       if (d.station !== state.station) return;
       state.departures = d.departures || [];
       state.arrivals = d.arrivals || [];
+      state.amtrakWarming = !!d.warming;
       renderBoard("depBody", state.departures, "dep");
       renderBoard("arrBody", state.arrivals, "arr");
       // an open sheet should stay live rather than freeze at whatever it
