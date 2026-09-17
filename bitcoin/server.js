@@ -3576,12 +3576,15 @@ body {
 .tt-map-label::before { display: none; }
 .tt-stops { margin-top: 14px; border-top: 1px solid var(--border); }
 .tt-stop {
-  display: flex; align-items: center; gap: 8px; padding: 7px 0;
-  border-bottom: 1px solid var(--border); font-size: 12.5px;
+  display: flex; align-items: center; gap: 8px; padding: 5px 0;
+  border-bottom: 1px solid var(--border); font-size: 12px;
 }
 .tt-stop.here { background: rgba(245,197,24,0.08); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
-/* already behind the train — faded, not colored, so it reads as "done" */
-.tt-stop.past { opacity: 0.48; }
+/* already behind the train — faded, not colored, so it reads as "done";
+   the toggle above hides all but the most recent of these by default, so
+   this is no longer a whole wall of dimmed rows pushing the current stop
+   down the screen — just the one kept for continuity. */
+.tt-stop.past { opacity: 0.6; }
 .tt-stop.past .nm { color: var(--text2); }
 /* the very next stop ahead — the one color call-out on the whole list */
 .tt-stop.next-stop {
@@ -3591,9 +3594,15 @@ body {
 .tt-stop.next-stop .nm { color: var(--text1); font-weight: 700; }
 .tt-stop .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text1); }
 .tt-stop .tm { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text2); }
-.tt-stop .st { width: 74px; flex-shrink: 0; text-align: right; font-size: 10.5px; color: var(--text3); }
+.tt-stop .st { width: 74px; flex-shrink: 0; text-align: right; font-size: 10px; color: var(--text3); }
 .tt-stop .st.delayed { color: var(--yellow); }
 .tt-stop .st.done { color: var(--text3); font-style: italic; }
+.tt-stops-more {
+  display: block; width: 100%; text-align: center;
+  background: var(--panel2); color: var(--text2); border: none; border-bottom: 1px solid var(--border);
+  padding: 7px 14px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px;
+}
+.tt-stops-more:active { background: var(--panel); color: var(--text1); }
 .tt-empty { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 16px 0; }
 </style>
 </head>
@@ -3863,6 +3872,33 @@ body {
   // which read as the map snapping back out every refresh. Reset to null on
   // a fresh open so each newly-opened train still gets the full animation.
   var ttLastZoom = null;
+  // A long run's already-departed stops piling up above the current one
+  // pushed it halfway down the screen and read as a wall of empty, washed-
+  // out rows rather than useful context — collapsed behind a toggle by
+  // default (keeping only the single most recent one for continuity) so the
+  // current/next stop lands at or near the top of the list as soon as the
+  // sheet opens. Reset to false on a fresh open; stays expanded across a
+  // live re-render of the same open sheet once someone's asked to see more.
+  var ttStopsExpanded = false;
+  var TT_STOPS_COLLAPSE_KEEP = 1;
+  // the last rendered stop rows/cutoff, so the "show earlier stops" toggle
+  // can redraw just the stops list without touching the map or header
+  var lastStopsRowsHtml = null, lastStopsNextIdx = null;
+
+  function renderStopsList(rowsHtml, nextIdx) {
+    lastStopsRowsHtml = rowsHtml;
+    lastStopsNextIdx = nextIdx;
+    var stopsEl = document.getElementById("ttStops");
+    if (!stopsEl) return;
+    var visibleFrom = 0;
+    if (!ttStopsExpanded && nextIdx > TT_STOPS_COLLAPSE_KEEP) visibleFrom = nextIdx - TT_STOPS_COLLAPSE_KEEP;
+    var html = "";
+    if (visibleFrom > 0) {
+      html += '<button class="tt-stops-more" data-tt-stops-more>Show ' + visibleFrom + ' earlier stop' + (visibleFrom === 1 ? "" : "s") + '</button>';
+    }
+    html += rowsHtml.slice(visibleFrom).join("");
+    stopsEl.innerHTML = html;
+  }
 
   function closeTrain() {
     elSheet.classList.remove("on");
@@ -3930,7 +3966,7 @@ body {
         var ref = best.arr != null ? best.arr : best.dep;
         if (ref == null || now < ref) { nextIdx = ni; break; }
       }
-      stopsEl.innerHTML = row.stations.map(function (s, i) {
+      var rowsHtml = row.stations.map(function (s, i) {
         var best = amtrakStopBest(s);
         var timeMs = best.dep != null ? best.dep : best.arr;
         var schedMs = s.schedDepMs != null ? s.schedDepMs : s.schedArrMs;
@@ -3944,7 +3980,8 @@ body {
         return '<div class="tt-stop' + cls + '"><span class="nm">' + esc(s.name) + '</span>' +
           '<span class="tm">' + fmtBoardTime(schedMs != null ? schedMs : timeMs) + '</span>' +
           stopStateHTML(schedMs, atMs, "Departed") + '</div>';
-      }).join("");
+      });
+      renderStopsList(rowsHtml, nextIdx);
     }
 
     if (showMap && window.L) {
@@ -4065,7 +4102,7 @@ body {
       for (var ni = 0; ni < row.stops.length; ni++) {
         if (now < row.stops[ni].depMs) { nextIdx = ni; break; }
       }
-      stopsEl.innerHTML = row.stops.map(function (s, i) {
+      var rowsHtml = row.stops.map(function (s, i) {
         var here = s.stopId === "237";
         var passed = now >= s.depMs;
         var isPast = nextIdx === -1 ? true : i < nextIdx;
@@ -4075,7 +4112,8 @@ body {
           : (now >= s.arrMs ? '<span class="st delayed">Boarding</span>' : '<span class="st">Upcoming</span>');
         return '<div class="tt-stop' + cls + '"><span class="nm">' + esc(s.name) + '</span>' +
           '<span class="tm">' + fmtBoardTime(s.depMs) + '</span>' + stHtml + '</div>';
-      }).join("");
+      });
+      renderStopsList(rowsHtml, nextIdx);
     }
   }
 
@@ -4085,6 +4123,7 @@ body {
     document.body.style.overflow = "hidden";
     ttMapJustOpened = true;
     ttLastZoom = null;
+    ttStopsExpanded = false;
     if (kind === "amtrak") {
       var row = (event === "dep" ? state.departures : state.arrivals)[idx];
       if (row) renderAmtrakDetail(row);
@@ -4111,6 +4150,11 @@ body {
       var mkind = more.getAttribute("data-more");
       boardExpanded[mkind] = !boardExpanded[mkind];
       renderBoard(mkind === "dep" ? "depBody" : "arrBody", mkind === "dep" ? state.departures : state.arrivals, mkind);
+      return;
+    }
+    if (e.target.closest("[data-tt-stops-more]")) {
+      ttStopsExpanded = true;
+      if (lastStopsRowsHtml) renderStopsList(lastStopsRowsHtml, lastStopsNextIdx);
       return;
     }
     var row = e.target.closest("[data-kind]");
