@@ -4457,10 +4457,16 @@ body {
       if (Number.isFinite(n)) map[n] = { type: "confirmed", occ: o };
     });
     occupants.forEach(function (o) {
-      if (o.track || !o.predictedTracks) return;
-      // a prediction names a platform (one or two physical tracks), not a
-      // single side — both get the same dimmed, unconfirmed guess
-      o.predictedTracks.forEach(function (n) { if (!map[n]) map[n] = { type: "predicted", occ: o }; });
+      if (o.track || !o.predictedTracks || !o.predictedTracks.length) return;
+      // TrackRat names a prediction as a pair like "9 & 10" — but that pair
+      // doesn't reliably line up with this diagram's own platform groupings
+      // (a "9 & 10" guess can straddle two different real platforms), so
+      // placing the same predicted train on every named track made it look
+      // like one train sitting in two different places at once. Anchor it
+      // on a single track instead and just say which other one it might be.
+      var sorted = o.predictedTracks.slice().sort(function (a, b) { return a - b; });
+      var anchor = sorted[0];
+      if (!map[anchor]) map[anchor] = { type: "predicted", occ: o, altTracks: sorted.slice(1) };
     });
     return map;
   }
@@ -4471,10 +4477,15 @@ body {
     var trainNum = o.source === "AMTRAK" ? o.trainId.replace(/^A/i, "") : o.trainId;
     var color = o.lineColor || { bg: "#6b7280", text: "#ffffff" };
     var style = "background:" + color.bg + ";border-color:" + color.bg + ";color:" + color.text + ";";
+    var timeText = fmtTime(o.scheduledMs);
+    if (entry.type === "predicted") {
+      timeText += " est.";
+      if (entry.altTracks && entry.altTracks.length) timeText += " (or Tk " + entry.altTracks.join(", ") + ")";
+    }
     return '<span class="pt-chip' + (entry.type === "predicted" ? " predicted" : "") + '" style="' + esc(style) + '">' +
       '<span class="pt-chip-src">' + esc(o.source) + '</span>' +
       '<span class="pt-chip-label">' + esc(trainNum) + " " + esc(o.lineName) + '</span>' +
-      '<span class="pt-chip-time">' + fmtTime(o.scheduledMs) + (entry.type === "predicted" ? " est." : "") + '</span>' +
+      '<span class="pt-chip-time">' + esc(timeText) + '</span>' +
       '</span>';
   }
 
