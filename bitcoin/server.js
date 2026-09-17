@@ -3087,6 +3087,90 @@ async function startAmtrakBoard() {
   setInterval(refreshAmtrakBoard, AMTRAK_REFRESH_MS);
 }
 
+// ---------- Penn Station live track diagram ----------
+// Neither Amtrak's own live feed nor a public NJ Transit feed exposes a
+// train's assigned track without registered developer credentials this app
+// doesn't have — TrackRat (https://github.com/trackrat-dev/TrackRat) runs a
+// small public API that already aggregates NJT + Amtrak + LIRR real-time
+// data (from their own registered feeds) plus a historical model that
+// predicts a likely platform for a train before its track is posted. This
+// reuses that public API rather than re-solving a problem it already has a
+// good answer to.
+
+const TRACKRAT_BASE = "https://apiv2.trackrat.net/api/v2";
+const TRACKRAT_STATION = "NY"; // TrackRat's own code for New York Penn Station
+const PENN_TRACKS_REFRESH_MS = 30 * 1000;
+// A track is typically posted, and a train physically present, well before
+// its scheduled time — this is a real dwell/staging window, not a fetch
+// window, so it's generous on the "before" side and short after (a train
+// that's arrived doesn't linger at its platform for long before it either
+// continues on or is pulled to a yard).
+const PENN_TRACK_PRE_WINDOW_MS = 20 * 60 * 1000;
+const PENN_TRACK_POST_WINDOW_MS = 6 * 60 * 1000;
+
+let pennTracksCache = { updatedAt: 0, occupants: [] };
+
+async function refreshPennTracks() {
+  try {
+    const now = new Date();
+    const nowMs = now.getTime();
+    const timeFrom = new Date(nowMs - PENN_TRACK_PRE_WINDOW_MS - 10 * 60 * 1000).toISOString();
+    const timeTo = new Date(nowMs + 4 * 60 * 60 * 1000).toISOString();
+    const url = `${TRACKRAT_BASE}/trains/departures?from=${TRACKRAT_STATION}&data_sources=NJT,AMTRAK,LIRR&hide_departed=false&limit=300` +
+      `&time_from=${encodeURIComponent(timeFrom)}&time_to=${encodeURIComponent(timeTo)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`TrackRat fetch ${res.status}`);
+    const data = await res.json();
+
+    // "departures" here really means "activity at this station" in either
+    // direction (TrackRat's own `destination` field is not reliable for
+    // telling arrivals from departures — it defaults to the query station's
+    // own name whenever a `to` isn't given) — so rather than guess
+    // direction, every entry is judged the same way: is *a* recorded time
+    // for this stop close enough to right now that the train is plausibly
+    // still sitting at whatever track it was posted to.
+    const active = [];
+    for (const t of data.departures || []) {
+      if (t.is_cancelled || !t.departure) continue;
+      const atMs = Date.parse(t.departure.actual_time || t.departure.scheduled_time || "");
+      if (!Number.isFinite(atMs)) continue;
+      if (nowMs < atMs - PENN_TRACK_PRE_WINDOW_MS || nowMs > atMs + PENN_TRACK_POST_WINDOW_MS) continue;
+      active.push({
+        trainId: t.train_id, source: t.data_source,
+        lineName: (t.line && t.line.name) || t.data_source,
+        journeyDate: (t.journey_date || "").slice(0, 10),
+        scheduledMs: atMs, track: t.departure.track || null,
+      });
+    }
+
+    // Real track numbers always win; only ask TrackRat's prediction model to
+    // fill in a best guess for whichever active trains don't have one yet
+    // (it can't predict for a train whose stop here is an arrival with
+    // nothing further to depart toward — that's an expected miss, not an
+    // error, and just leaves that train's track blank below).
+    await Promise.all(active.filter((a) => !a.track).map(async (a) => {
+      try {
+        const purl = `${TRACKRAT_BASE}/predictions/track?station_code=${TRACKRAT_STATION}` +
+          `&train_id=${encodeURIComponent(a.trainId)}&journey_date=${a.journeyDate}`;
+        const pres = await fetch(purl);
+        if (!pres.ok) return;
+        const pj = await pres.json();
+        const nums = (pj.primary_prediction || "").match(/\d+/g);
+        if (nums) { a.predictedTracks = nums.map(Number); a.predictedConfidence = pj.confidence; }
+      } catch {}
+    }));
+
+    pennTracksCache = { updatedAt: nowMs, occupants: active };
+  } catch (e) {
+    console.error("Penn tracks refresh failed (keeping last good data):", e.message);
+  }
+}
+
+async function startPennTracks() {
+  await refreshPennTracks();
+  setInterval(refreshPennTracks, PENN_TRACKS_REFRESH_MS);
+}
+
 // ---------- HTTP + WebSocket server ----------
 
 const clients = new Set();
@@ -3293,6 +3377,16 @@ const server = http.createServer((req, res) => {
     res.end(trainsPage);
     return;
   }
+  if (url.pathname === "/penn-tracks") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(pennTracksPage);
+    return;
+  }
+  if (url.pathname === "/api/penn-tracks") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(pennTracksCache));
+    return;
+  }
   if (url.pathname === "/api/portfolio") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(portfolioState));
@@ -3471,6 +3565,11 @@ body {
   margin-left: auto; background: var(--panel2); color: var(--text1); border: 1px solid var(--border);
   border-radius: 8px; padding: 5px 8px; font-size: 12px; font-weight: 700;
 }
+.tp-tracks-link {
+  background: var(--panel2); color: var(--yellow); border: 1px solid var(--border);
+  border-radius: 8px; padding: 5px 10px; font-size: 12px; font-weight: 800; text-decoration: none;
+}
+.tp-tracks-link:active { background: var(--panel); }
 
 /* ── the departures/arrivals board — styled after the physical Solari
    board at Penn Station: light header, solid blue rows, dark gaps ── */
@@ -3617,6 +3716,7 @@ body {
         `<option value="${code}"${code === AMTRAK_DEFAULT_STATION ? " selected" : ""}>${name}</option>`
       ).join("")}
     </select>
+    <a class="tp-tracks-link" href="/penn-tracks" aria-label="Penn Station live track diagram">Tracks</a>
   </div>
 
   <div class="board-card">
@@ -4163,6 +4263,202 @@ body {
     var idx = +row.getAttribute("data-idx");
     openDetail(kind, row.getAttribute("data-event"), idx);
   });
+})();
+</script>
+</body>
+</html>`;
+
+const pennTracksPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<title>Penn Station Live Tracks</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
+  --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --yellow: #f5c518;
+  --amtrak: #c60c30; --njt: #8a4fc4; --lirr: #12a3af;
+}
+html, body { background: var(--bg); color: var(--text1); height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  min-height: 100%;
+}
+#app { max-width: 480px; margin: 0 auto; padding: 14px 14px 32px; }
+.tp-topbar { display: flex; align-items: center; gap: 10px; padding: 4px 2px 16px; }
+.tp-back {
+  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text1);
+  display: flex; align-items: center; justify-content: center; font-size: 16px; text-decoration: none;
+}
+.tp-back:active { background: var(--panel); }
+.tp-brand { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--text2); text-transform: uppercase; }
+.pt-updated { margin-left: auto; font-size: 10.5px; color: var(--text3); font-variant-numeric: tabular-nums; }
+
+.pt-legend {
+  display: flex; flex-wrap: wrap; gap: 6px 12px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px;
+  font-size: 10.5px; color: var(--text2);
+}
+.pt-legend-item { display: flex; align-items: center; gap: 5px; }
+.pt-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.pt-swatch.zone-njt { background: var(--njt); }
+.pt-swatch.zone-shared { background: var(--yellow); }
+.pt-swatch.zone-lirr { background: var(--lirr); }
+.pt-swatch.predicted { background: transparent; border: 1.5px dashed var(--text2); }
+
+.pt-diagram { display: flex; flex-direction: column; gap: 3px; }
+.pt-endcap {
+  text-align: center; font-size: 9.5px; color: var(--text3); letter-spacing: 0.4px;
+  padding: 2px 0; text-transform: uppercase; font-weight: 700;
+}
+.pt-platform {
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel);
+}
+.pt-platform-lbl {
+  font-size: 9.5px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase;
+  color: var(--text3); padding: 4px 10px 2px;
+}
+.pt-track { display: flex; align-items: stretch; gap: 8px; padding: 3px 10px 5px; }
+.pt-track.zone-njt { background: rgba(138,79,196,0.14); }
+.pt-track.zone-shared { background: rgba(245,197,24,0.08); }
+.pt-track.zone-lirr { background: rgba(18,163,175,0.13); }
+.pt-track-num {
+  width: 20px; flex-shrink: 0; font-size: 11px; font-weight: 800; color: var(--text2);
+  display: flex; align-items: center; justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+.pt-track-bar {
+  flex: 1; min-width: 0; min-height: 26px; border-radius: 7px;
+  background: rgba(255,255,255,0.03); display: flex; align-items: center; padding: 0 2px;
+}
+.pt-chip {
+  display: flex; align-items: baseline; gap: 6px; width: 100%;
+  border-radius: 6px; padding: 4px 8px; font-size: 11.5px;
+  border: 1px solid transparent;
+}
+.pt-chip.src-AMTRAK { background: rgba(198,12,48,0.22); border-color: var(--amtrak); }
+.pt-chip.src-NJT { background: rgba(138,79,196,0.26); border-color: var(--njt); }
+.pt-chip.src-LIRR { background: rgba(18,163,175,0.24); border-color: var(--lirr); }
+.pt-chip.predicted { opacity: 0.62; border-style: dashed; }
+.pt-chip-src { font-size: 8.5px; font-weight: 900; letter-spacing: 0.5px; color: var(--text2); flex-shrink: 0; }
+.pt-chip-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; color: var(--text1); }
+.pt-chip-time { flex-shrink: 0; font-size: 10px; color: var(--text2); font-variant-numeric: tabular-nums; }
+.pt-empty { color: var(--text3); font-size: 11px; font-style: italic; padding: 3px 6px; }
+.pt-note {
+  margin-top: 14px; font-size: 10.5px; color: var(--text3); line-height: 1.5; text-align: center; padding: 0 8px;
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="tp-topbar">
+    <a class="tp-back" href="/trains" aria-label="Back to departures &amp; arrivals">&larr;</a>
+    <span class="tp-brand">Penn Station Live Tracks</span>
+    <span class="pt-updated" id="ptUpdated">&mdash;</span>
+  </div>
+
+  <div class="pt-legend">
+    <span class="pt-legend-item"><span class="pt-swatch zone-njt"></span>Tracks 1&ndash;4 &middot; NJ Transit</span>
+    <span class="pt-legend-item"><span class="pt-swatch zone-shared"></span>Tracks 5&ndash;12 &middot; Shared Amtrak/NJT</span>
+    <span class="pt-legend-item"><span class="pt-swatch zone-lirr"></span>Tracks 13&ndash;21 &middot; LIRR</span>
+    <span class="pt-legend-item"><span class="pt-swatch predicted"></span>Estimated (not yet posted)</span>
+  </div>
+
+  <div class="pt-endcap">&larr; Hudson River Tunnel / New Jersey</div>
+  <div class="pt-diagram" id="ptDiagram"></div>
+  <div class="pt-endcap">East River Tunnels / Queens &amp; Long Island &rarr;</div>
+
+  <div class="pt-note">
+    Amtrak and NJ Transit rarely post a track more than a few minutes before departure &mdash;
+    an "Estimated" chip is this app's own best guess (via <a href="https://github.com/trackrat-dev/TrackRat" style="color:var(--text2)">TrackRat</a>'s
+    historical model), not a confirmed assignment. Always confirm on the actual station board before boarding.
+  </div>
+</div>
+<script>
+(function () {
+  var PLATFORM_TRACKS = [
+    { platform: 11, tracks: [21, 20] },
+    { platform: 10, tracks: [19, 18] },
+    { platform: 9, tracks: [17, 16] },
+    { platform: 8, tracks: [15, 14] },
+    { platform: 7, tracks: [13, 12] },
+    { platform: 6, tracks: [11, 10] },
+    { platform: 5, tracks: [9, 8] },
+    { platform: 4, tracks: [7, 6] },
+    { platform: 3, tracks: [5, 4] },
+    { platform: 2, tracks: [3, 2] },
+    { platform: 1, tracks: [1] },
+  ];
+  function trackZone(n) { return n <= 4 ? "njt" : n <= 12 ? "shared" : "lirr"; }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  function fmtTime(ms) {
+    var d = new Date(ms);
+    var h = d.getHours(), m = d.getMinutes();
+    return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
+  }
+
+  function buildTrackMap(occupants) {
+    var map = {};
+    // real, posted tracks always win over a guess
+    occupants.forEach(function (o) {
+      if (!o.track) return;
+      var n = +o.track;
+      if (Number.isFinite(n)) map[n] = { type: "confirmed", occ: o };
+    });
+    occupants.forEach(function (o) {
+      if (o.track || !o.predictedTracks) return;
+      // a prediction names a platform (one or two physical tracks), not a
+      // single side — both get the same dimmed, unconfirmed guess
+      o.predictedTracks.forEach(function (n) { if (!map[n]) map[n] = { type: "predicted", occ: o }; });
+    });
+    return map;
+  }
+
+  function chipHtml(entry) {
+    if (!entry) return '<span class="pt-empty">&mdash;</span>';
+    var o = entry.occ;
+    var trainNum = o.source === "AMTRAK" ? o.trainId.replace(/^A/i, "") : o.trainId;
+    return '<span class="pt-chip src-' + esc(o.source) + (entry.type === "predicted" ? " predicted" : "") + '">' +
+      '<span class="pt-chip-src">' + esc(o.source) + '</span>' +
+      '<span class="pt-chip-label">' + esc(trainNum) + " " + esc(o.lineName) + '</span>' +
+      '<span class="pt-chip-time">' + fmtTime(o.scheduledMs) + (entry.type === "predicted" ? " est." : "") + '</span>' +
+      '</span>';
+  }
+
+  function render(occupants) {
+    var trackMap = buildTrackMap(occupants || []);
+    document.getElementById("ptDiagram").innerHTML = PLATFORM_TRACKS.map(function (p) {
+      var rows = p.tracks.map(function (n) {
+        return '<div class="pt-track zone-' + trackZone(n) + '">' +
+          '<span class="pt-track-num">' + n + '</span>' +
+          '<span class="pt-track-bar">' + chipHtml(trackMap[n]) + '</span>' +
+          '</div>';
+      }).join("");
+      return '<div class="pt-platform"><div class="pt-platform-lbl">Platform ' + p.platform + '</div>' + rows + '</div>';
+    }).join("");
+  }
+
+  function load() {
+    fetch("/api/penn-tracks").then(function (r) { return r.json(); }).then(function (d) {
+      render(d.occupants);
+      var el = document.getElementById("ptUpdated");
+      if (d.updatedAt) {
+        var secs = Math.max(0, Math.round((Date.now() - d.updatedAt) / 1000));
+        el.textContent = "Updated " + secs + "s ago";
+      }
+    }).catch(function () {});
+  }
+
+  load();
+  setInterval(load, 30000);
 })();
 </script>
 </body>
@@ -7659,6 +7955,7 @@ connectCoinbase();
 connectBitstamp();
 startLirrBoard();
 startAmtrakBoard();
+startPennTracks();
 server.listen(PORT, () => {
   console.log(`\nBitcoin ticker running at http://localhost:${PORT}\n`);
 });
