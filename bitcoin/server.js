@@ -2804,7 +2804,42 @@ async function ensureAmtrakStaticGTFS() {
   console.log("Amtrak: static GTFS refreshed");
 }
 
-let amtrakModel = null; // { stopNameById, routeById, tripById, stByTrip, calendarById }
+let amtrakModel = null; // { stopNameById, routeById, tripById, stByTrip, calendarById, shapeById }
+
+// A spline drawn through just a trip's stops cuts corners a real train never
+// does — visibly off to one side of the actual track on a curvy stretch like
+// the Hudson Line, with the live GPS dot sitting off the line instead of on
+// it. Amtrak's shapes.txt has the real rail alignment per trip, but it's
+// national (hundreds of thousands of points) and shape_id isn't in the same
+// file as the stop times that already got filtered down to board-relevant
+// trips — so this only builds full row objects for the handful of shape_ids
+// those trips actually reference, via a cheap prefix check (shape_id is
+// always the unquoted first field) before paying for a full CSV-line parse.
+function loadAmtrakShapes(shapeIds) {
+  const shapeById = new Map();
+  if (!shapeIds.size) return shapeById;
+  const lines = fs.readFileSync(path.join(AMTRAK_CACHE_DIR, "shapes.txt"), "utf8").split("\n");
+  const header = splitCSVLine(lines[0]);
+  const latIdx = header.indexOf("shape_pt_lat");
+  const lonIdx = header.indexOf("shape_pt_lon");
+  const seqIdx = header.indexOf("shape_pt_sequence");
+  const pointsById = new Map();
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    const commaIdx = line.indexOf(",");
+    const shapeId = commaIdx === -1 ? line : line.slice(0, commaIdx);
+    if (!shapeIds.has(shapeId)) continue;
+    const vals = splitCSVLine(line);
+    if (!pointsById.has(shapeId)) pointsById.set(shapeId, []);
+    pointsById.get(shapeId).push({ lat: +vals[latIdx], lon: +vals[lonIdx], seq: +vals[seqIdx] });
+  }
+  for (const [id, pts] of pointsById) {
+    pts.sort((a, b) => a.seq - b.seq);
+    shapeById.set(id, pts.map((p) => [p.lat, p.lon]));
+  }
+  return shapeById;
+}
 
 function loadAmtrakModel() {
   const read = (f) => fs.readFileSync(path.join(AMTRAK_CACHE_DIR, f), "utf8");
@@ -2845,8 +2880,15 @@ function loadAmtrakModel() {
     stByTrip.set(tripId, sts);
   }
 
-  amtrakModel = { stopNameById, routeById, tripById, stByTrip, calendarById };
-  console.log(`Amtrak: loaded ${stByTrip.size} trips touching a board station (of ${trips.length} nationwide)`);
+  const usedShapeIds = new Set();
+  for (const tripId of stByTrip.keys()) {
+    const trip = tripById.get(tripId);
+    if (trip && trip.shape_id) usedShapeIds.add(trip.shape_id);
+  }
+  const shapeById = loadAmtrakShapes(usedShapeIds);
+
+  amtrakModel = { stopNameById, routeById, tripById, stByTrip, calendarById, shapeById };
+  console.log(`Amtrak: loaded ${stByTrip.size} trips touching a board station (of ${trips.length} nationwide), ${shapeById.size} route shapes`);
 }
 
 const DOW_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -2898,6 +2940,7 @@ function amtrakScheduleEntries(now, stationCode) {
         trainNum: trip.trip_short_name, trainID: null, routeName: route ? route.route_long_name : "",
         color: (route && route.route_color) || "0039a6", textColor: (route && route.route_text_color) || "ffffff",
         lat: null, lon: null, velocity: null, heading: null, stations, live: false,
+        shape: amtrakModel.shapeById.get(trip.shape_id) || null,
       };
       if (idx > 0) {
         const from = stations[0];
@@ -2947,7 +2990,15 @@ function amtrakMergedEntries(now, stationCode) {
       (e.schedMs != null && Math.abs(e.schedMs - nowMs) < Math.abs(existing.schedMs - nowMs));
     if (better) merged.set(key, e);
   }
-  for (const e of amtrakLiveEntries(stationCode)) merged.set(e.trainNum + "|" + e.event, e);
+  // amtraker.com's live feed has no route-shape data of its own, so a live
+  // entry overwriting a schedule entry would otherwise silently drop the
+  // real rail-alignment shape the schedule side already looked up — carry it
+  // forward whenever the live entry doesn't have one of its own.
+  for (const e of amtrakLiveEntries(stationCode)) {
+    const key = e.trainNum + "|" + e.event;
+    const prevShape = merged.get(key) && merged.get(key).shape;
+    merged.set(key, prevShape && !e.shape ? { ...e, shape: prevShape } : e);
+  }
   return [...merged.values()];
 }
 
@@ -2969,7 +3020,7 @@ function amtrakBoardRow(entry, nowMs) {
     color: entry.color, textColor: entry.textColor, lat: entry.lat, lon: entry.lon,
     velocity: entry.velocity, heading: entry.heading,
     other: entry.other, schedMs: entry.schedMs, atMs: entry.atMs, track: entry.track,
-    state, stations: entry.stations,
+    state, stations: entry.stations, shape: entry.shape || null,
   };
 }
 
@@ -3905,7 +3956,12 @@ body {
 
         if (routeStops.length >= 2) {
           var latlngs = routeStops.map(function (s) { return [s.lat, s.lon]; });
-          var curvedLatlngs = smoothRoute(latlngs, 12);
+          // row.shape is Amtrak's own real rail alignment for this trip, when
+          // we have it — the interpolated spline through just the stops
+          // otherwise used cuts corners a real train never does, visibly off
+          // to one side of the actual track on a curvy stretch, with the
+          // live GPS dot sitting off the line instead of on it.
+          var curvedLatlngs = (row.shape && row.shape.length >= 2) ? row.shape : smoothRoute(latlngs, 12);
           // A plain colored line/dot can vanish into OSM's pale basemap
           // depending on the route's own color, so everything gets a solid
           // white halo underneath — a wider white line, and a white disc
@@ -3927,11 +3983,17 @@ body {
           var MIN_LABEL_PX = 46;
           function declutterLabels() {
             var shown = [];
+            // A station label sitting on top of the live train marker hides
+            // the one thing on this map that actually moves — checked even
+            // for endpoints/here-station labels that would otherwise always
+            // force-show, since covering the train is never the right call.
+            var livePt = (row.lat != null && row.lon != null) ? ttMap.latLngToContainerPoint([row.lat, row.lon]) : null;
             routeMarkers.forEach(function (rm) {
               rm.marker.unbindTooltip();
               var pt = ttMap.latLngToContainerPoint(rm.marker.getLatLng());
+              var tooCloseToTrain = livePt && Math.hypot(pt.x - livePt.x, pt.y - livePt.y) < MIN_LABEL_PX;
               var tooClose = shown.some(function (p) { return Math.hypot(pt.x - p.x, pt.y - p.y) < MIN_LABEL_PX; });
-              if (rm.forceLabel || !tooClose) {
+              if (!tooCloseToTrain && (rm.forceLabel || !tooClose)) {
                 shown.push(pt);
                 rm.marker.bindTooltip(rm.name, { permanent: true, direction: "top", className: "tt-map-label", offset: [0, -4] });
               }
