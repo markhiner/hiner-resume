@@ -3108,6 +3108,44 @@ const PENN_TRACKS_REFRESH_MS = 30 * 1000;
 const PENN_TRACK_PRE_WINDOW_MS = 20 * 60 * 1000;
 const PENN_TRACK_POST_WINDOW_MS = 6 * 60 * 1000;
 
+// Amtrak doesn't brand by route the way commuter rail does, so every Amtrak
+// train gets the same official Amtrak blue rather than a per-line color.
+const AMTRAK_BRAND_BLUE = "#00537E";
+// NJ Transit's real per-line brand colors (only the lines that actually
+// reach New York Penn are likely to show up here — NEC, NJCL, M&E,
+// Montclair-Boonton — the rest are included for completeness/robustness).
+const NJT_LINE_COLORS = {
+  "Northeast Corridor Line": { bg: "#EF3E42", text: "#ffffff" },
+  "North Jersey Coast Line": { bg: "#00A4E4", text: "#ffffff" },
+  "Morris & Essex Line": { bg: "#00A94F", text: "#ffffff" },
+  "Gladstone Branch": { bg: "#A2D5AE", text: "#12181f" },
+  "Montclair-Boonton Line": { bg: "#E66B5B", text: "#ffffff" },
+  "Raritan Valley Line": { bg: "#FAA634", text: "#12181f" },
+  "Main Line": { bg: "#FFCF01", text: "#12181f" },
+  "Bergen County Line": { bg: "#B9C9DF", text: "#12181f" },
+  "Pascack Valley Line": { bg: "#8e258d", text: "#ffffff" },
+  "Atlantic City Line": { bg: "#005DAA", text: "#ffffff" },
+};
+const FALLBACK_LINE_COLOR = { bg: "#6b7280", text: "#ffffff" };
+
+// LIRR's own GTFS already carries its real per-branch brand colors (used
+// elsewhere for the LIRR board) — reused here by name rather than
+// hardcoding a second copy that could drift from the source of truth.
+function lirrLineColor(name) {
+  if (!lirrModel || !name) return null;
+  for (const r of lirrModel.routeById.values()) {
+    if (r.route_long_name === name) return { bg: "#" + r.route_color, text: "#" + r.route_text_color };
+  }
+  return null;
+}
+
+function pennTrackLineColor(source, lineName) {
+  if (source === "AMTRAK") return { bg: AMTRAK_BRAND_BLUE, text: "#ffffff" };
+  if (source === "NJT") return NJT_LINE_COLORS[lineName] || FALLBACK_LINE_COLOR;
+  if (source === "LIRR") return lirrLineColor(lineName) || FALLBACK_LINE_COLOR;
+  return FALLBACK_LINE_COLOR;
+}
+
 let pennTracksCache = { updatedAt: 0, occupants: [] };
 
 async function refreshPennTracks() {
@@ -3135,9 +3173,10 @@ async function refreshPennTracks() {
       const atMs = Date.parse(t.departure.actual_time || t.departure.scheduled_time || "");
       if (!Number.isFinite(atMs)) continue;
       if (nowMs < atMs - PENN_TRACK_PRE_WINDOW_MS || nowMs > atMs + PENN_TRACK_POST_WINDOW_MS) continue;
+      const lineName = (t.line && t.line.name) || t.data_source;
       active.push({
-        trainId: t.train_id, source: t.data_source,
-        lineName: (t.line && t.line.name) || t.data_source,
+        trainId: t.train_id, source: t.data_source, lineName,
+        lineColor: pennTrackLineColor(t.data_source, lineName),
         journeyDate: (t.journey_date || "").slice(0, 10),
         scheduledMs: atMs, track: t.departure.track || null,
       });
@@ -4282,7 +4321,7 @@ const pennTracksPage = `<!DOCTYPE html>
 :root {
   --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
   --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --yellow: #f5c518;
-  --amtrak: #c60c30; --njt: #8a4fc4; --lirr: #12a3af;
+  --njt: #8a4fc4; --lirr: #12a3af;
 }
 html, body { background: var(--bg); color: var(--text1); height: 100%; }
 body {
@@ -4339,18 +4378,22 @@ body {
   flex: 1; min-width: 0; min-height: 26px; border-radius: 7px;
   background: rgba(255,255,255,0.03); display: flex; align-items: center; padding: 0 2px;
 }
+/* colored per the train's actual route/line (set inline per chip — Amtrak
+   is always brand blue, NJT and LIRR each get their own real line color)
+   rather than a generic per-agency color, so two trains sharing a track
+   zone still read as different services at a glance. */
 .pt-chip {
   display: flex; align-items: baseline; gap: 6px; width: 100%;
   border-radius: 6px; padding: 4px 8px; font-size: 11.5px;
-  border: 1px solid transparent;
+  border: 1px solid rgba(0,0,0,0.4);
 }
-.pt-chip.src-AMTRAK { background: rgba(198,12,48,0.22); border-color: var(--amtrak); }
-.pt-chip.src-NJT { background: rgba(138,79,196,0.26); border-color: var(--njt); }
-.pt-chip.src-LIRR { background: rgba(18,163,175,0.24); border-color: var(--lirr); }
 .pt-chip.predicted { opacity: 0.62; border-style: dashed; }
-.pt-chip-src { font-size: 8.5px; font-weight: 900; letter-spacing: 0.5px; color: var(--text2); flex-shrink: 0; }
-.pt-chip-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; color: var(--text1); }
-.pt-chip-time { flex-shrink: 0; font-size: 10px; color: var(--text2); font-variant-numeric: tabular-nums; }
+.pt-chip-src {
+  font-size: 8.5px; font-weight: 900; letter-spacing: 0.5px; flex-shrink: 0;
+  background: rgba(0,0,0,0.28); padding: 1px 4px; border-radius: 4px;
+}
+.pt-chip-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.pt-chip-time { flex-shrink: 0; font-size: 10px; font-variant-numeric: tabular-nums; opacity: 0.85; }
 .pt-empty { color: var(--text3); font-size: 11px; font-style: italic; padding: 3px 6px; }
 .pt-note {
   margin-top: 14px; font-size: 10.5px; color: var(--text3); line-height: 1.5; text-align: center; padding: 0 8px;
@@ -4426,7 +4469,9 @@ body {
     if (!entry) return '<span class="pt-empty">&mdash;</span>';
     var o = entry.occ;
     var trainNum = o.source === "AMTRAK" ? o.trainId.replace(/^A/i, "") : o.trainId;
-    return '<span class="pt-chip src-' + esc(o.source) + (entry.type === "predicted" ? " predicted" : "") + '">' +
+    var color = o.lineColor || { bg: "#6b7280", text: "#ffffff" };
+    var style = "background:" + color.bg + ";border-color:" + color.bg + ";color:" + color.text + ";";
+    return '<span class="pt-chip' + (entry.type === "predicted" ? " predicted" : "") + '" style="' + esc(style) + '">' +
       '<span class="pt-chip-src">' + esc(o.source) + '</span>' +
       '<span class="pt-chip-label">' + esc(trainNum) + " " + esc(o.lineName) + '</span>' +
       '<span class="pt-chip-time">' + fmtTime(o.scheduledMs) + (entry.type === "predicted" ? " est." : "") + '</span>' +
