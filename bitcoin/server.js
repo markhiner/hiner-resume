@@ -4456,17 +4456,32 @@ body {
       var n = +o.track;
       if (Number.isFinite(n)) map[n] = { type: "confirmed", occ: o };
     });
-    occupants.forEach(function (o) {
-      if (o.track || !o.predictedTracks || !o.predictedTracks.length) return;
+    // Highest-confidence guesses claim their preferred track first — two
+    // trains can easily share the same top-guessed pair (seen live: two
+    // NJT trains both came back "1 & 2" as their best guess, one at 87%
+    // confidence and one at 43%), and resolving them in whatever order the
+    // API happened to return them let the weaker guess win the track and
+    // silently bumped the other train off the diagram entirely.
+    var needsPrediction = occupants
+      .filter(function (o) { return !o.track && o.predictedTracks && o.predictedTracks.length; })
+      .sort(function (a, b) { return (b.predictedConfidence || 0) - (a.predictedConfidence || 0); });
+    needsPrediction.forEach(function (o) {
       // TrackRat names a prediction as a pair like "9 & 10" — but that pair
       // doesn't reliably line up with this diagram's own platform groupings
       // (a "9 & 10" guess can straddle two different real platforms), so
       // placing the same predicted train on every named track made it look
       // like one train sitting in two different places at once. Anchor it
-      // on a single track instead and just say which other one it might be.
+      // on the first of its own candidate tracks that isn't already taken
+      // (by a real posting or a more confident guess) instead of vanishing
+      // the moment its top choice is spoken for.
       var sorted = o.predictedTracks.slice().sort(function (a, b) { return a - b; });
-      var anchor = sorted[0];
-      if (!map[anchor]) map[anchor] = { type: "predicted", occ: o, altTracks: sorted.slice(1) };
+      for (var i = 0; i < sorted.length; i++) {
+        var candidate = sorted[i];
+        if (!map[candidate]) {
+          map[candidate] = { type: "predicted", occ: o, altTracks: sorted.filter(function (n) { return n !== candidate; }) };
+          break;
+        }
+      }
     });
     return map;
   }
@@ -4479,7 +4494,11 @@ body {
     var style = "background:" + color.bg + ";border-color:" + color.bg + ";color:" + color.text + ";";
     var timeText = fmtTime(o.scheduledMs);
     if (entry.type === "predicted") {
-      timeText += " est.";
+      // the confidence number is what actually tells someone whether to
+      // trust this guess or not — "est." alone reads the same whether the
+      // model is 90% sure or basically guessing.
+      var pct = o.predictedConfidence != null ? Math.round(o.predictedConfidence * 100) + "% " : "";
+      timeText += " " + pct + "est.";
       if (entry.altTracks && entry.altTracks.length) timeText += " (or Tk " + entry.altTracks.join(", ") + ")";
     }
     return '<span class="pt-chip' + (entry.type === "predicted" ? " predicted" : "") + '" style="' + esc(style) + '">' +
