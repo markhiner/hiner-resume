@@ -3087,6 +3087,189 @@ async function startAmtrakBoard() {
   setInterval(refreshAmtrakBoard, AMTRAK_REFRESH_MS);
 }
 
+// ---------- Amtrak Northeast Corridor map ----------
+
+function amtrakServiceType(routeName) {
+  if (!routeName) return "other";
+  const name = routeName.toLowerCase();
+  if (name.includes("acela")) return "acela";
+  if (name.includes("keystone")) return "keystone";
+  if (name.includes("empire") || name.includes("adirondack")) return "empire";
+  if (name.includes("northeast regional")) return "regional";
+  if (name.includes("northeast direct")) return "regional";
+  if (name.includes("long distance")) return "longdist";
+  return "other";
+}
+
+const NEC_SERVICE_COLORS = {
+  acela: "#1e90ff",    // teal/bright blue
+  regional: "#0066cc",  // blue
+  keystone: "#ffeb3b", // yellow
+  empire: "#228b22",   // hunter green
+  longdist: "#dc143c", // red
+  other: "#808080",
+};
+
+// NEC stations between DC and NYC (Northeast Corridor)
+const NEC_STATIONS = ["WAS", "BAL", "BWI", "TRE", "PHL", "NRK", "NB", "NYP", "BOS", "BBY", "PRV", "RTE"];
+
+function isNECTrain(stations) {
+  if (!stations || stations.length === 0) return false;
+  const stationCodes = new Set(stations.map(s => s.code));
+  return NEC_STATIONS.some(code => stationCodes.has(code));
+}
+
+// Position a train along its shape at the given time, interpolating between stops
+function trainPositionOnShape(entry, nowMs) {
+  if (!entry.stations || entry.stations.length < 2) return null;
+  if (!entry.shape || entry.shape.length < 2) return null;
+
+  // Find the train's current segment
+  let fromIdx = -1, toIdx = -1;
+  for (let i = 0; i < entry.stations.length - 1; i++) {
+    const from = entry.stations[i];
+    const to = entry.stations[i + 1];
+    if (from.depMs == null || to.arrMs == null) continue;
+    if (nowMs >= from.depMs && nowMs <= to.arrMs) {
+      fromIdx = i;
+      toIdx = i + 1;
+      break;
+    }
+  }
+
+  if (fromIdx === -1) return null;
+
+  const fromStop = entry.stations[fromIdx];
+  const toStop = entry.stations[toIdx];
+  const totalMs = toStop.arrMs - fromStop.depMs;
+  const elapsedMs = nowMs - fromStop.depMs;
+  const progress = Math.max(0, Math.min(1, elapsedMs / totalMs));
+
+  // Interpolate along shape between from and to coordinates
+  const fromCoord = fromStop.lat != null && fromStop.lon != null ? [fromStop.lat, fromStop.lon] : null;
+  const toCoord = toStop.lat != null && toStop.lon != null ? [toStop.lat, toStop.lon] : null;
+
+  if (fromCoord && toCoord) {
+    return [
+      fromCoord[0] + (toCoord[0] - fromCoord[0]) * progress,
+      fromCoord[1] + (toCoord[1] - fromCoord[1]) * progress,
+    ];
+  }
+
+  return null;
+}
+
+// Convert compass direction to bearing (0-360 degrees)
+function compassToBearing(compass) {
+  if (!compass) return 0;
+  const map = { N: 0, NNE: 22.5, NE: 45, ENE: 67.5, E: 90, ESE: 112.5, SE: 135, SSE: 157.5, S: 180, SSW: 202.5, SW: 225, WSW: 247.5, W: 270, WNW: 292.5, NW: 315, NNW: 337.5 };
+  return map[compass.toUpperCase()] || 0;
+}
+
+// Calculate bearing (0-360 degrees) from two points
+function calculateBearing(from, to) {
+  const lat1 = from[0] * Math.PI / 180;
+  const lat2 = to[0] * Math.PI / 180;
+  const dlon = (to[1] - from[1]) * Math.PI / 180;
+
+  const y = Math.sin(dlon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dlon);
+  let bearing = Math.atan2(y, x) * 180 / Math.PI;
+  bearing = (bearing + 360) % 360;
+  return bearing;
+}
+
+function getActivENECTrains() {
+  if (!amtrakTrainsJson) return [];
+
+  const now = new Date();
+  const nowMs = now.getTime();
+  const trains = [];
+
+  for (const num of Object.keys(amtrakTrainsJson)) {
+    for (const train of amtrakTrainsJson[num]) {
+      const stations = amtrakNormalizeStations(train.stations);
+      if (!isNECTrain(stations)) continue;
+
+      // Find the segment the train is currently in, or will be in next
+      let fromIdx = -1;
+      let lat, lon, bearing = train.heading;
+
+      for (let i = 0; i < stations.length - 1; i++) {
+        const from = stations[i];
+        const to = stations[i + 1];
+        if (from.depMs == null || to.arrMs == null) continue;
+
+        if (nowMs >= from.depMs && nowMs <= to.arrMs) {
+          // Currently in transit between these stops
+          fromIdx = i;
+          break;
+        } else if (nowMs < from.depMs) {
+          // Future train, show from current position
+          if (train.lat != null && train.lon != null) {
+            lat = train.lat;
+            lon = train.lon;
+          }
+          break;
+        }
+      }
+
+      // If we didn't find a position yet (train hasn't started or is completed), use actual position
+      if (lat == null && train.lat != null && train.lon != null) {
+        lat = train.lat;
+        lon = train.lon;
+      }
+
+      // If we're in a segment, interpolate
+      if (fromIdx >= 0 && lat == null) {
+        const from = stations[fromIdx];
+        const to = stations[fromIdx + 1];
+        const totalMs = to.arrMs - from.depMs;
+        const elapsedMs = nowMs - from.depMs;
+        const progress = Math.max(0, Math.min(1, elapsedMs / totalMs));
+
+        if (from.lat != null && from.lon != null && to.lat != null && to.lon != null) {
+          lat = from.lat + (to.lat - from.lat) * progress;
+          lon = from.lon + (to.lon - from.lon) * progress;
+
+          if (!bearing) {
+            bearing = calculateBearing([lat, lon], [to.lat, to.lon]);
+          }
+        } else if (train.lat != null && train.lon != null) {
+          lat = train.lat;
+          lon = train.lon;
+        }
+      }
+
+      if (lat == null || lon == null) continue;
+
+      // Convert heading to numeric bearing if it's a compass direction
+      const numericBearing = typeof bearing === 'string' ? compassToBearing(bearing) : bearing;
+
+      trains.push({
+        trainNum: train.trainNum,
+        routeName: train.routeName,
+        serviceType: amtrakServiceType(train.routeName),
+        lat,
+        lon,
+        heading: numericBearing,
+        color: train.iconColor || "0039a6",
+        textColor: train.textColor || "ffffff",
+        stations: stations.map(s => ({
+          code: s.code,
+          name: amtrakCityName(s.code, s.name),
+          schedArrMs: s.schedArrMs,
+          schedDepMs: s.schedDepMs,
+          arrMs: s.arrMs,
+          depMs: s.depMs,
+        })),
+      });
+    }
+  }
+
+  return trains;
+}
+
 // ---------- Penn Station live track diagram ----------
 // Neither Amtrak's own live feed nor a public NJ Transit feed exposes a
 // train's assigned track without registered developer credentials this app
@@ -3411,9 +3594,19 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(amtrakBoard(station)));
     return;
   }
+  if (url.pathname === "/api/amtrak-nec-trains") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(getActivENECTrains()));
+    return;
+  }
   if (url.pathname === "/trains") {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(trainsPage);
+    return;
+  }
+  if (url.pathname === "/amtrak-nec-map") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(amtrakNECMapPage);
     return;
   }
   if (url.pathname === "/penn-tracks") {
@@ -3756,6 +3949,7 @@ body {
       ).join("")}
     </select>
     <a class="tp-tracks-link" href="/penn-tracks" aria-label="Penn Station live track diagram">Tracks</a>
+    <a class="tp-tracks-link" href="/amtrak-nec-map" aria-label="NEC train map" style="margin-left: 8px;">NEC Map</a>
   </div>
 
   <div class="board-card">
@@ -4539,7 +4733,148 @@ body {
 </body>
 </html>`;
 
-const htmlPage = `<!DOCTYPE html>
+const amtrakNECMapPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>NEC Trains</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; }
+  #map { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
+  .back-btn { position: absolute; top: 16px; left: 16px; z-index: 1000; width: 44px; height: 44px; border-radius: 50%; background: white; border: none; cursor: pointer; font-size: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: flex; align-items: center; justify-content: center; }
+  .back-btn:active { background: #f0f0f0; }
+  .train-detail { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-radius: 16px 16px 0 0; box-shadow: 0 -2px 16px rgba(0,0,0,0.1); max-height: 70vh; overflow-y: auto; transform: translateY(100%); transition: transform 0.3s ease; z-index: 900; }
+  .train-detail.open { transform: translateY(0); }
+  .train-detail-header { padding: 16px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+  .train-detail-title { font-size: 18px; font-weight: bold; }
+  .train-detail-close { background: none; border: none; cursor: pointer; font-size: 24px; }
+  .stops-list { padding: 12px; }
+  .stop-item { padding: 12px; border-bottom: 1px solid #f0f0f0; }
+  .stop-item:last-child { border-bottom: none; }
+  .stop-time { font-weight: bold; font-size: 14px; }
+  .stop-name { color: #666; font-size: 13px; margin-top: 4px; }
+  .legend { position: absolute; top: 72px; left: 16px; background: white; border-radius: 8px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 800; font-size: 12px; }
+  .legend-item { display: flex; align-items: center; margin: 6px 0; }
+  .legend-dot { width: 20px; height: 20px; border-radius: 50%; margin-right: 8px; }
+</style>
+</head>
+<body>
+  <button class="back-btn" onclick="window.location.href='/trains'" title="Back">←</button>
+  <div id="map"></div>
+  <div class="legend">
+    <div style="font-weight: bold; margin-bottom: 8px;">Service Types</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #1e90ff;"></div> Acela</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #0066cc;"></div> Regional</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #ffeb3b;"></div> Keystone</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #228b22;"></div> Empire/Adirondack</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #dc143c;"></div> Long Distance</div>
+  </div>
+  <div class="train-detail" id="trainDetail">
+    <div class="train-detail-header">
+      <div class="train-detail-title" id="trainTitle">Train</div>
+      <button class="train-detail-close" onclick="document.getElementById('trainDetail').classList.remove('open')">×</button>
+    </div>
+    <div class="stops-list" id="stopsList"></div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script>
+    let map = null;
+    let markers = new Map();
+    let selectedTrain = null;
+
+    function formatTime(ms) {
+      if (!ms) return "—";
+      const d = new Date(ms);
+      const h = String(d.getHours()).padStart(2, "0");
+      const m = String(d.getMinutes()).padStart(2, "0");
+      return h + ":" + m;
+    }
+
+    function createArrowMarker(lat, lon, bearing, color) {
+      const b = bearing || 0;
+      const svgString = '<svg width="30" height="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">' +
+        '<g transform="rotate(' + b + ' 15 15)">' +
+        '<circle cx="15" cy="15" r="12" fill="' + color + '" stroke="white" stroke-width="1.5"/>' +
+        '<polygon points="15,6 20,15 15,13 10,15" fill="white"/>' +
+        '</g></svg>';
+
+      const img = new Image();
+      img.src = "data:image/svg+xml;base64," + btoa(svgString);
+      return new L.Icon({ iconUrl: img.src, iconSize: [30, 30], iconAnchor: [15, 15] });
+    }
+
+    function showTrain(train) {
+      selectedTrain = train;
+      document.getElementById("trainTitle").textContent = train.trainNum + " " + train.routeName;
+
+      const stopsList = document.getElementById("stopsList");
+      stopsList.innerHTML = "";
+
+      for (const stop of train.stations) {
+        const item = document.createElement("div");
+        item.className = "stop-item";
+        const html = '<div class="stop-name">' + stop.name + '</div>' +
+          '<div class="stop-time">Arr: ' + formatTime(stop.arrMs) + ' | Dep: ' + formatTime(stop.depMs) + '</div>';
+        item.innerHTML = html;
+        stopsList.appendChild(item);
+      }
+
+      document.getElementById("trainDetail").classList.add("open");
+    }
+
+    async function updateTrains() {
+      try {
+        const res = await fetch("/api/amtrak-nec-trains");
+        const trains = await res.json();
+
+        // Clear old markers
+        markers.forEach(m => map.removeLayer(m));
+        markers.clear();
+
+        // Add new markers
+        for (const train of trains) {
+          const color = {
+            acela: "#1e90ff",
+            regional: "#0066cc",
+            keystone: "#ffeb3b",
+            empire: "#228b22",
+            longdist: "#dc143c",
+            other: "#808080",
+          }[train.serviceType] || "#808080";
+
+          const icon = createArrowMarker(train.lat, train.lon, train.heading, color);
+          const marker = L.marker([train.lat, train.lon], { icon })
+            .addTo(map)
+            .on("click", () => showTrain(train));
+
+          markers.set(train.trainNum, marker);
+        }
+      } catch (e) {
+        console.error("Failed to fetch trains:", e);
+      }
+    }
+
+    function initMap() {
+      map = L.map("map").setView([39.5, -76], 7);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap contributors",
+        maxZoom: 13,
+      }).addTo(map);
+
+      updateTrains();
+      setInterval(updateTrains, 10000); // Update every 10 seconds
+    }
+
+    window.addEventListener("load", initMap);
+  </script>
+</body>
+</html>\`;
+
+const htmlPage = \`<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
