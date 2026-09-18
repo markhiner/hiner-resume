@@ -3229,17 +3229,6 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === "/favicon.ico") { res.writeHead(204); res.end(); return; }
 
-  // Whitelisted by exact name — the two custom fonts dropped in beside this
-  // file, nothing else in the directory is reachable through this route.
-  if (url.pathname === "/Solari.ttf" || url.pathname === "/Ticketing.ttf") {
-    fs.readFile(path.join(__dirname, path.basename(url.pathname)), (err, buf) => {
-      if (err) { res.writeHead(404); res.end(); return; }
-      res.writeHead(200, { "Content-Type": "font/ttf", "Cache-Control": "public, max-age=604800" });
-      res.end(buf);
-    });
-    return;
-  }
-
   // Places a real order against a real account. Requires the server-side
   // PIN on every call; no PIN configured means the route does not exist.
   if ((url.pathname === "/api/sell" || url.pathname === "/api/buy") && req.method === "POST") {
@@ -3580,7 +3569,6 @@ const trainsPage = `<!DOCTYPE html>
 <title>NY Penn Departures</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
-@font-face { font-family: "Solari"; src: url("/Solari.ttf") format("truetype"); font-display: swap; }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
@@ -3641,7 +3629,7 @@ body {
   display: flex; align-items: center; gap: 8px;
   background: #1e4fce; color: #fff; padding: 9px 14px;
   border-bottom: 3px solid #050914; font-weight: 700; font-size: 12.5px;
-  text-align: left; font-family: "Solari", "Helvetica Neue", sans-serif;
+  text-align: left;
 }
 .board-row:last-child { border-bottom: none; }
 .board-row:active { background: #2a5cdc; }
