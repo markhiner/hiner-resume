@@ -4422,7 +4422,7 @@ body {
   <div class="pt-note">
     Amtrak and NJ Transit rarely post a track more than a few minutes before departure &mdash;
     an "Estimated" chip is this app's own best guess (via <a href="https://github.com/trackrat-dev/TrackRat" style="color:var(--text2)">TrackRat</a>'s
-    historical model), not a confirmed assignment. Always confirm on the actual station board before boarding.
+    historical model), not a confirmed assignment.
   </div>
 </div>
 <script>
