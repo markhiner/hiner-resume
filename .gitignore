@@ -4,3 +4,14 @@
 *.idlk
 video/
 saved-index.html
+bitcoin/node_modules/
+bitcoin/history.json
+bitcoin/calibration.json
+bitcoin/lab/.venv/
+bitcoin/lab/__pycache__/
+bitcoin/lab/edge_ledger.sqlite
+bitcoin/lab/*.csv
+kalshi_private_key
+trains/.lirr-gtfs-cache/
+bitcoin/.lirr-gtfs-cache/
+bitcoin/.amtrak-gtfs-cache/
