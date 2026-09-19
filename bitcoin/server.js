@@ -2597,7 +2597,7 @@ async function refreshLirrRealtime() {
 // off that stop, and layers on realtime delay/track posted for that exact
 // stop — track assignments are per-boarding-station, not just Penn.
 function computeStationDepartures(candidates, model, stationId, nowMs, realtimeByTrip, limit) {
-  const stopNameById = new Map(model.stops.map((s) => [s.stop_id, s.stop_name]));
+  const stopInfoById = new Map(model.stops.map((s) => [s.stop_id, { name: s.stop_name, lat: +s.stop_lat, lon: +s.stop_lon }]));
   const out = [];
   for (const c of candidates) {
     const stop = c.stops.find((s) => s.stopId === stationId);
@@ -2609,8 +2609,9 @@ function computeStationDepartures(candidates, model, stationId, nowMs, realtimeB
     const rt = realtimeByTrip.get(c.tripId);
     let depMs = stop.depMs;
     let track = null;
+    let delayMs = 0;
     if (rt) {
-      if (rt.delaySec) depMs += rt.delaySec * 1000;
+      if (rt.delaySec) { depMs += rt.delaySec * 1000; delayMs = rt.delaySec * 1000; }
       const t = rt.tracks.get(stationId);
       if (t) track = t;
     }
@@ -2618,14 +2619,30 @@ function computeStationDepartures(candidates, model, stationId, nowMs, realtimeB
     // Port Washington stops there, so whether THIS trip does is what tells
     // a rider "you can reach JFK from this train" vs "this one skips it".
     const stopsJamaica = stationId !== JAMAICA_STOP_ID && later.some((s) => s.stopId === JAMAICA_STOP_ID);
+    // Full ride from the boarding station onward, for the tap-through detail
+    // view (stop list + map) — same one-delay-figure-shifts-every-stop
+    // assumption as lirrTripStops(), since the realtime feed only posts one
+    // delay per trip, not one per stop.
+    const rideStops = [stop, ...later].map((s) => {
+      const info = stopInfoById.get(s.stopId) || {};
+      return {
+        stopId: s.stopId,
+        name: info.name || s.stopId,
+        lat: Number.isFinite(info.lat) ? info.lat : null,
+        lon: Number.isFinite(info.lon) ? info.lon : null,
+        arrMs: s.arrMs + delayMs,
+        depMs: s.depMs + delayMs,
+      };
+    });
     out.push({
       tripId: c.tripId,
       depMs,
-      destName: stopNameById.get(finalStop.stopId) || finalStop.stopId,
+      destName: stopInfoById.get(finalStop.stopId)?.name || finalStop.stopId,
       route: route ? { name: route.route_long_name, color: route.route_color, textColor: route.route_text_color } : null,
       track,
       viaJamaica: stopsJamaica,
       skipsJamaica: stationId !== JAMAICA_STOP_ID && !stopsJamaica,
+      stops: rideStops,
     });
   }
   out.sort((a, b) => a.depMs - b.depMs);
@@ -4955,6 +4972,7 @@ const lirrBoardPage = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>LIRR Departures</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; background: #000; }
@@ -4994,6 +5012,21 @@ const lirrBoardPage = `<!DOCTYPE html>
   .dep-note { font-size: 12px; color: #ccc; }
   .dep-note b { color: white; }
   .dep-badge { display: inline-block; background: #3a3a3c; color: #ddd; padding: 2px 7px; border-radius: 3px; font-size: 11px; font-weight: bold; }
+  .dep { cursor: pointer; }
+  .dep:active { filter: brightness(0.85); }
+
+  .detail-overlay { position: fixed; inset: 0; background: #000; z-index: 2000; display: none; flex-direction: column; }
+  .detail-overlay.show { display: flex; }
+  .detail-head { padding: 10px 14px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #333; flex-shrink: 0; }
+  .detail-close { background: none; border: none; color: white; font-size: 26px; cursor: pointer; padding: 0; line-height: 1; }
+  .detail-title { color: white; font-size: 16px; font-weight: bold; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-map { height: 38vh; flex-shrink: 0; background: #111; }
+  .detail-stops { flex: 1; overflow-y: auto; }
+  .detail-stop { display: grid; grid-template-columns: 60px 1fr; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #1c1c1e; color: white; }
+  .detail-stop.origin .detail-stop-name { color: #4ade80; }
+  .detail-stop-time { font-size: 15px; font-weight: bold; font-variant-numeric: tabular-nums; color: #ccc; }
+  .detail-stop.origin .detail-stop-time { color: #4ade80; }
+  .detail-stop-name { font-size: 15px; }
 </style>
 </head>
 <body>
@@ -5026,6 +5059,16 @@ const lirrBoardPage = `<!DOCTYPE html>
 
   <div class="board" id="board"></div>
 
+  <div class="detail-overlay" id="detailOverlay">
+    <div class="detail-head">
+      <button class="detail-close" onclick="closeDetail()">&times;</button>
+      <div class="detail-title" id="detailTitle"></div>
+    </div>
+    <div class="detail-map" id="detailMap"></div>
+    <div class="detail-stops" id="detailStops"></div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script>
     let allStations = [];
     let currentStation = "Penn Station";
@@ -5093,37 +5136,103 @@ const lirrBoardPage = `<!DOCTYPE html>
       return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
+    let currentDepartures = [];
+    let detailMapInstance = null;
+    let openTripId = null;
+
     async function loadBoard() {
       try {
         const res = await fetch("/api/lirr-board?station=" + encodeURIComponent(currentStation));
         const data = await res.json();
         const rows = (data.rows || []).filter(r => r.depMs != null && r.depMs > Date.now());
+        currentDepartures = rows;
 
         const board = document.getElementById("board");
         if (rows.length === 0) {
           board.innerHTML = '<div class="board-empty">No upcoming departures</div>';
-          return;
+        } else {
+          board.innerHTML = rows.map(row => {
+            const route = row.route || {};
+            const bg = route.color || "666666";
+            const fg = route.textColor || "ffffff";
+            const track = row.track ? esc(row.track) : "";
+            let note = "";
+            if (row.skipsJamaica) note = '<div class="dep-note">Will <b>not</b> stop at Jamaica</div>';
+            else if (row.viaJamaica) note = '<span class="dep-badge">JFK &#9992;</span>';
+            return '<div class="dep" onclick="openDetail(' + JSON.stringify(row.tripId) + ')">' +
+              '<div class="dep-bar" style="background:#' + bg + '; color:#' + fg + ';">' +
+              '<div class="dep-time">' + formatTime(row.depMs) + '</div>' +
+              '<div class="dep-dest">' + esc(row.destName) + '</div>' +
+              '<div class="dep-track">' + track + '</div>' +
+              '</div>' +
+              (note ? '<div class="dep-note-row">' + note + '</div>' : '') +
+              '</div>';
+          }).join("");
         }
-        board.innerHTML = rows.map(row => {
-          const route = row.route || {};
-          const bg = route.color || "666666";
-          const fg = route.textColor || "ffffff";
-          const track = row.track ? esc(row.track) : "";
-          let note = "";
-          if (row.skipsJamaica) note = '<div class="dep-note">Will <b>not</b> stop at Jamaica</div>';
-          else if (row.viaJamaica) note = '<span class="dep-badge">JFK &#9992;</span>';
-          return '<div class="dep">' +
-            '<div class="dep-bar" style="background:#' + bg + '; color:#' + fg + ';">' +
-            '<div class="dep-time">' + formatTime(row.depMs) + '</div>' +
-            '<div class="dep-dest">' + esc(row.destName) + '</div>' +
-            '<div class="dep-track">' + track + '</div>' +
-            '</div>' +
-            (note ? '<div class="dep-note-row">' + note + '</div>' : '') +
-            '</div>';
-        }).join("");
+
+        // If the detail sheet is open for a trip still on the board, refresh
+        // it in place (delay/track can change while the rider is looking).
+        if (openTripId) {
+          const row = currentDepartures.find(r => r.tripId === openTripId);
+          if (row) renderDetail(row); else closeDetail();
+        }
       } catch (e) {
         document.getElementById("board").innerHTML = '<div class="board-empty">Error loading departures</div>';
       }
+    }
+
+    function openDetail(tripId) {
+      const row = currentDepartures.find(r => r.tripId === tripId);
+      if (!row) return;
+      openTripId = tripId;
+      document.getElementById("detailOverlay").classList.add("show");
+      renderDetail(row);
+    }
+
+    function closeDetail() {
+      openTripId = null;
+      document.getElementById("detailOverlay").classList.remove("show");
+      if (detailMapInstance) { detailMapInstance.remove(); detailMapInstance = null; }
+    }
+
+    function renderDetail(row) {
+      const route = row.route || {};
+      document.getElementById("detailTitle").textContent =
+        formatTime(row.depMs) + " to " + row.destName + (route.name ? " \\u2014 " + route.name : "");
+
+      const stops = row.stops || [];
+      document.getElementById("detailStops").innerHTML = stops.map((s, i) => {
+        const t = s.depMs != null ? s.depMs : s.arrMs;
+        return '<div class="detail-stop' + (i === 0 ? ' origin' : '') + '">' +
+          '<div class="detail-stop-time">' + formatTime(t) + '</div>' +
+          '<div class="detail-stop-name">' + esc(s.name) + (i === 0 ? " (boarding)" : "") + '</div>' +
+          '</div>';
+      }).join("");
+
+      if (detailMapInstance) { detailMapInstance.remove(); detailMapInstance = null; }
+      detailMapInstance = L.map("detailMap", { zoomControl: false, attributionControl: false });
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(detailMapInstance);
+
+      const routeColor = "#" + (route.color || "888888");
+      const pts = stops.filter(s => s.lat != null && s.lon != null).map(s => [s.lat, s.lon]);
+      if (pts.length) {
+        L.polyline(pts, { color: routeColor, weight: 4 }).addTo(detailMapInstance);
+        stops.forEach((s, i) => {
+          if (s.lat == null || s.lon == null) return;
+          const isEnds = i === 0 || i === stops.length - 1;
+          L.circleMarker([s.lat, s.lon], {
+            radius: isEnds ? 7 : 5,
+            color: "#fff",
+            weight: 2,
+            fillColor: i === 0 ? "#4ade80" : routeColor,
+            fillOpacity: 1,
+          }).bindPopup(esc(s.name)).addTo(detailMapInstance);
+        });
+        detailMapInstance.fitBounds(L.latLngBounds(pts), { padding: [24, 24] });
+      } else {
+        detailMapInstance.setView([40.75, -73.5], 9);
+      }
+      setTimeout(() => { if (detailMapInstance) detailMapInstance.invalidateSize(); }, 60);
     }
 
     loadStations().then(() => {
