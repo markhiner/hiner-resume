@@ -4973,9 +4973,9 @@ const lirrBoardPage = `<!DOCTYPE html>
     </div>
 
     <div class="quick-links">
-      <button class="quick-link" onclick="selectStation('Penn Station', 'penn-station')">NY Penn</button>
-      <button class="quick-link" onclick="selectStation('Grand Central Terminal', 'grand-central')">GCT</button>
-      <button class="quick-link" onclick="selectStation('Jamaica Station', 'jamaica')">Jamaica</button>
+      <button class="quick-link" onclick="selectStation('Jamaica', 'jamaica')">Jamaica</button>
+      <button class="quick-link" onclick="selectStation('Grand Central', 'grand-central')">GCT</button>
+      <button class="quick-link" onclick="selectStation('Long Beach', 'long-beach')">Long Beach</button>
     </div>
   </div>
 
@@ -4986,8 +4986,8 @@ const lirrBoardPage = `<!DOCTYPE html>
 
   <script>
     let allStations = [];
-    let currentStation = "Penn Station";
-    let currentStationId = "penn-station";
+    let currentStation = "Jamaica";
+    let currentStationId = "jamaica";
     let updateInterval = null;
 
     // Format time as HH:MM
@@ -5099,7 +5099,7 @@ const lirrBoardPage = `<!DOCTYPE html>
 
     // Initialize
     loadStations().then(() => {
-      selectStation("Penn Station", "penn-station");
+      selectStation("Jamaica", "jamaica");
       setInterval(loadBoard, 30000); // Auto-refresh every 30 seconds
     });
   </script>
