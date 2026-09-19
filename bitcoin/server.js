@@ -5850,6 +5850,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     <span class="status-dot" id="statusDot"></span>
     <span class="status-word" id="statusWord">LIVE</span>
     <a class="jump-flights jump-trains" href="/trains" aria-label="Open NY Penn / LIRR trains page">&#128646;</a>
+    <a class="jump-flights jump-trains" href="/lirr-board" aria-label="Open LIRR departure board" title="LIRR Board">🚆</a>
     <button class="jump-flights" id="jumpFlights" aria-label="Jump to flight search">&#9992;</button>
     <button class="jump-flights stealth-btn" id="stealthBtn" aria-label="Stealth mode">&#9680;</button>
   </div>
