@@ -2588,12 +2588,58 @@ async function refreshLirrRealtime() {
   }
 }
 
+// Real per-station departure board: unlike computeLirrBoard() (which answers
+// "what's the next train from Penn to destination X", one row per
+// destination), this answers "what actually leaves from station X next",
+// which is what a physical station board shows. Scans every trip's stop
+// list for one that stops at `stationId` with unused seats ahead of it
+// (i.e. it doesn't terminate there), grabs the real departure time straight
+// off that stop, and layers on realtime delay/track posted for that exact
+// stop — track assignments are per-boarding-station, not just Penn.
+function computeStationDepartures(candidates, model, stationId, nowMs, realtimeByTrip, limit) {
+  const stopNameById = new Map(model.stops.map((s) => [s.stop_id, s.stop_name]));
+  const out = [];
+  for (const c of candidates) {
+    const stop = c.stops.find((s) => s.stopId === stationId);
+    if (!stop || stop.depMs == null || stop.depMs < nowMs) continue;
+    const later = c.stops.filter((s) => s.seq > stop.seq);
+    if (!later.length) continue; // train terminates here — not a departure
+    const finalStop = later.reduce((a, b) => (b.seq > a.seq ? b : a));
+    const route = model.routeById.get(c.routeId);
+    const rt = realtimeByTrip.get(c.tripId);
+    let depMs = stop.depMs;
+    let track = null;
+    if (rt) {
+      if (rt.delaySec) depMs += rt.delaySec * 1000;
+      const t = rt.tracks.get(stationId);
+      if (t) track = t;
+    }
+    // Jamaica is the transfer point for JFK AirTrain — every branch except
+    // Port Washington stops there, so whether THIS trip does is what tells
+    // a rider "you can reach JFK from this train" vs "this one skips it".
+    const stopsJamaica = stationId !== JAMAICA_STOP_ID && later.some((s) => s.stopId === JAMAICA_STOP_ID);
+    out.push({
+      tripId: c.tripId,
+      depMs,
+      destName: stopNameById.get(finalStop.stopId) || finalStop.stopId,
+      route: route ? { name: route.route_long_name, color: route.route_color, textColor: route.route_text_color } : null,
+      track,
+      viaJamaica: stopsJamaica,
+      skipsJamaica: stationId !== JAMAICA_STOP_ID && !stopsJamaica,
+    });
+  }
+  out.sort((a, b) => a.depMs - b.depMs);
+  return out.slice(0, limit);
+}
+
+let lirrCandidatesCache = [];
 let lirrBoardCache = { rows: [], updatedAt: 0 };
 function refreshLirrBoard() {
   if (!lirrModel) return;
   const now = new Date();
   const nowMs = now.getTime();
   const candidates = buildLirrCandidates(now, lirrModel.stByTrip, lirrModel.tripById, lirrModel.servicesByDate);
+  lirrCandidatesCache = candidates;
   let rows = computeLirrBoard(lirrModel, candidates, now);
   rows = applyLirrRealtime(rows, lirrRealtimeByTrip);
 
@@ -3583,33 +3629,27 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (url.pathname === "/api/lirr-board") {
-    const stationParam = (url.searchParams.get("station") || "").toLowerCase();
-    let data = lirrBoardCache;
+    const stationParam = (url.searchParams.get("station") || "").trim().toLowerCase();
 
     if (stationParam && lirrModel) {
-      // Filter to a specific station
-      const filtered = {
-        rows: data.rows.filter(r => r.name.toLowerCase().includes(stationParam)),
-        updatedAt: data.updatedAt,
-      };
-      // Sort by departure time (soonest first)
-      filtered.rows.sort((a, b) => {
-        if (a.depMs == null) return 1;
-        if (b.depMs == null) return -1;
-        return a.depMs - b.depMs;
-      });
+      const stop = lirrModel.stops.find((s) => s.stop_name.toLowerCase() === stationParam)
+        || lirrModel.stops.find((s) => s.stop_name.toLowerCase().includes(stationParam));
+      const rows = stop
+        ? computeStationDepartures(lirrCandidatesCache, lirrModel, stop.stop_id, Date.now(), lirrRealtimeByTrip, 30)
+        : [];
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(filtered));
+      res.end(JSON.stringify({ rows, updatedAt: lirrBoardCache.updatedAt }));
     } else {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(data));
+      res.end(JSON.stringify(lirrBoardCache));
     }
     return;
   }
   if (url.pathname === "/api/lirr-stations") {
-    // Return list of all LIRR stations for autocomplete
+    // Return list of all LIRR stations for autocomplete — Penn included,
+    // since it's now a valid departure point on the per-station board.
     const stations = lirrModel ? lirrModel.stops
-      .filter(s => s.stop_id !== PENN_STOP_ID && !SPECIAL_EVENTS_ONLY.has(s.stop_name))
+      .filter(s => !SPECIAL_EVENTS_ONLY.has(s.stop_name))
       .map(s => ({ name: s.stop_name, id: s.stop_id }))
       .sort((a, b) => a.name.localeCompare(b.name))
     : [];
@@ -4918,59 +4958,70 @@ const lirrBoardPage = `<!DOCTYPE html>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; background: #000; }
-  body { font-family: "Arial", sans-serif; display: flex; flex-direction: column; }
+  body { font-family: Helvetica, Arial, sans-serif; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
 
-  .header { background: #1a1a1a; color: white; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; gap: 20px; border-bottom: 2px solid #333; }
-  .header-left { display: flex; align-items: center; gap: 12px; font-size: 14px; }
-  .back-btn { background: none; border: none; color: white; font-size: 18px; cursor: pointer; padding: 0; }
-  .station-info { font-weight: bold; font-size: 16px; }
-  .time-display { font-size: 18px; font-weight: bold; }
+  .header { background: #000; color: white; padding: 10px 14px 8px; border-bottom: 1px solid #333; }
+  .header-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .header-left { display: flex; align-items: baseline; gap: 10px; }
+  .back-btn { background: none; border: none; color: #999; font-size: 20px; cursor: pointer; padding: 0; line-height: 1; }
+  .header-title { font-size: 17px; font-weight: bold; letter-spacing: 0.3px; }
+  .header-clock { font-size: 22px; font-weight: bold; font-variant-numeric: tabular-nums; }
 
-  .station-selector { flex: 1; max-width: 300px; position: relative; }
-  .station-input { width: 100%; padding: 6px 10px; background: #2a2a2a; color: white; border: 1px solid #444; border-radius: 3px; font-size: 13px; }
+  .controls-row { display: flex; gap: 8px; align-items: center; }
+  .station-selector { flex: 1; position: relative; }
+  .station-input { width: 100%; padding: 7px 10px; background: #1c1c1e; color: white; border: 1px solid #3a3a3c; border-radius: 4px; font-size: 14px; }
   .station-input::placeholder { color: #666; }
-  .autocomplete-list { position: absolute; top: 100%; left: 0; right: 0; background: #2a2a2a; border: 1px solid #444; border-top: none; max-height: 150px; overflow-y: auto; z-index: 1000; display: none; }
+  .autocomplete-list { position: absolute; top: 100%; left: 0; right: 0; background: #1c1c1e; border: 1px solid #3a3a3c; border-top: none; max-height: 180px; overflow-y: auto; z-index: 1000; display: none; border-radius: 0 0 4px 4px; }
   .autocomplete-list.show { display: block; }
-  .autocomplete-item { padding: 6px 10px; cursor: pointer; border-bottom: 1px solid #333; font-size: 12px; color: white; }
-  .autocomplete-item:hover { background: #333; }
+  .autocomplete-item { padding: 8px 10px; cursor: pointer; border-bottom: 1px solid #2c2c2e; font-size: 13px; color: white; }
+  .autocomplete-item:hover { background: #2c2c2e; }
 
-  .board { flex: 1; overflow-y: auto; background: #000; padding: 0; }
-  .board-row { display: grid; grid-template-columns: 70px 1fr 60px; gap: 16px; padding: 12px 16px; border-bottom: 1px solid #222; align-items: center; font-size: 14px; color: white; min-height: 40px; }
-  .board-row.empty { text-align: center; color: #666; padding: 40px 16px; }
+  .quick-links { display: flex; gap: 6px; flex-shrink: 0; }
+  .quick-link { padding: 7px 12px; background: #0a5cd8; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; white-space: nowrap; }
+  .quick-link:active, .quick-link.active { background: #063d94; }
 
-  .board-time { font-size: 24px; font-weight: bold; text-align: right; min-width: 60px; }
-  .board-dest-wrap { display: flex; align-items: center; gap: 12px; }
-  .board-dest { font-size: 16px; font-weight: bold; flex: 1; }
-  .board-route { display: inline-block; padding: 3px 8px; border-radius: 2px; font-size: 11px; font-weight: bold; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .board-track { font-size: 18px; font-weight: bold; text-align: center; min-width: 50px; }
-  .board-track.empty { color: #666; font-size: 12px; }
-  .jamaica-badge { display: inline-block; background: #ff9800; color: white; padding: 2px 4px; border-radius: 2px; font-size: 10px; margin-left: 4px; }
+  .col-headers { display: grid; grid-template-columns: 78px 1fr 56px; gap: 10px; padding: 6px 14px; font-size: 11px; font-weight: bold; letter-spacing: 0.5px; color: #8a8a8e; text-transform: uppercase; background: #000; }
 
-  .quick-links { display: flex; gap: 8px; }
-  .quick-link { padding: 4px 12px; background: #0066cc; color: white; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-weight: bold; }
-  .quick-link:active { background: #0052a3; }
+  .board { flex: 1; overflow-y: auto; background: #000; }
+  .board-empty { text-align: center; color: #666; padding: 60px 16px; font-size: 15px; }
+
+  .dep { border-bottom: 2px solid #000; }
+  .dep-bar { display: grid; grid-template-columns: 78px 1fr 56px; gap: 10px; padding: 12px 14px; align-items: baseline; }
+  .dep-time { font-size: 22px; font-weight: bold; font-variant-numeric: tabular-nums; }
+  .dep-dest { font-size: 20px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dep-track { font-size: 20px; font-weight: bold; text-align: right; }
+  .dep-note-row { padding: 3px 14px 8px; background: #000; }
+  .dep-note { font-size: 12px; color: #ccc; }
+  .dep-note b { color: white; }
+  .dep-badge { display: inline-block; background: #3a3a3c; color: #ddd; padding: 2px 7px; border-radius: 3px; font-size: 11px; font-weight: bold; }
 </style>
 </head>
 <body>
   <div class="header">
-    <div class="header-left">
-      <button class="back-btn" onclick="window.location.href='/'" title="Back">←</button>
-      <div style="text-align: center;">
-        <div style="font-size: 12px; color: #999;">Long Island Rail Road</div>
-        <div class="time-display" id="currentTime">--:--</div>
+    <div class="header-top">
+      <div class="header-left">
+        <button class="back-btn" onclick="window.location.href='/'" title="Back">←</button>
+        <span class="header-title">Long Island Rail Road</span>
+      </div>
+      <span class="header-clock" id="currentTime">--:--</span>
+    </div>
+    <div class="controls-row">
+      <div class="station-selector">
+        <input type="text" class="station-input" id="stationInput" placeholder="Select station..." autocomplete="off">
+        <div class="autocomplete-list" id="autocompleteList"></div>
+      </div>
+      <div class="quick-links">
+        <button class="quick-link" id="qlPenn" onclick="selectStation('Penn Station')">Penn</button>
+        <button class="quick-link" id="qlJamaica" onclick="selectStation('Jamaica')">Jamaica</button>
+        <button class="quick-link" id="qlGCT" onclick="selectStation('Grand Central')">GCT</button>
       </div>
     </div>
+  </div>
 
-    <div class="station-selector">
-      <input type="text" class="station-input" id="stationInput" placeholder="Select station..." autocomplete="off">
-      <div class="autocomplete-list" id="autocompleteList"></div>
-    </div>
-
-    <div class="quick-links">
-      <button class="quick-link" onclick="selectStation('Penn Station')">Penn</button>
-      <button class="quick-link" onclick="selectStation('Jamaica')">Jamaica</button>
-      <button class="quick-link" onclick="selectStation('Grand Central')">GCT</button>
-    </div>
+  <div class="col-headers">
+    <div>Time</div>
+    <div>Destination</div>
+    <div style="text-align:right;">Track</div>
   </div>
 
   <div class="board" id="board"></div>
@@ -4990,7 +5041,6 @@ const lirrBoardPage = `<!DOCTYPE html>
       const m = String(now.getMinutes()).padStart(2, "0");
       document.getElementById("currentTime").textContent = h + ":" + m;
     }
-
     setInterval(updateClock, 1000);
     updateClock();
 
@@ -5033,47 +5083,52 @@ const lirrBoardPage = `<!DOCTYPE html>
       currentStation = name;
       input.value = name;
       autocompleteList.classList.remove("show");
+      document.getElementById("qlPenn").classList.toggle("active", name === "Penn Station");
+      document.getElementById("qlJamaica").classList.toggle("active", name === "Jamaica");
+      document.getElementById("qlGCT").classList.toggle("active", name === "Grand Central");
       loadBoard();
+    }
+
+    function esc(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
     async function loadBoard() {
       try {
         const res = await fetch("/api/lirr-board?station=" + encodeURIComponent(currentStation));
         const data = await res.json();
-        const rows = data.rows || [];
-        const upcoming = rows.filter(r => r.depMs != null && r.depMs > Date.now()).sort((a, b) => a.depMs - b.depMs);
+        const rows = (data.rows || []).filter(r => r.depMs != null && r.depMs > Date.now());
 
         const board = document.getElementById("board");
-        if (upcoming.length === 0) {
-          board.innerHTML = '<div class="board-row empty">No upcoming departures</div>';
-        } else {
-          board.innerHTML = upcoming.map(row => {
-            const route = row.route || {};
-            const routeColor = route.color || "666666";
-            const textColor = route.textColor || "ffffff";
-            const stops = row.stops || [];
-            const dest = stops.length > 0 ? stops[stops.length - 1].name : row.name;
-            const jamaica = row.kind === "jamaica" ? ' <span class="jamaica-badge">via Jam</span>' : '';
-            const track = row.track ? row.track : '<span class="empty">--</span>';
-            return '<div class="board-row" style="background-color: #' + routeColor + '20;">' +
-              '<div class="board-time">' + formatTime(row.depMs) + '</div>' +
-              '<div class="board-dest-wrap">' +
-              '<div class="board-dest">' + dest + jamaica + '</div>' +
-              '<span class="board-route" style="background: #' + routeColor + '; color: #' + textColor + ';">' + (route.name || "") + '</span>' +
-              '</div>' +
-              '<div class="board-track">' + track + '</div>' +
-              '</div>';
-          }).join("");
+        if (rows.length === 0) {
+          board.innerHTML = '<div class="board-empty">No upcoming departures</div>';
+          return;
         }
+        board.innerHTML = rows.map(row => {
+          const route = row.route || {};
+          const bg = route.color || "666666";
+          const fg = route.textColor || "ffffff";
+          const track = row.track ? esc(row.track) : "";
+          let note = "";
+          if (row.skipsJamaica) note = '<div class="dep-note">Will <b>not</b> stop at Jamaica</div>';
+          else if (row.viaJamaica) note = '<span class="dep-badge">JFK &#9992;</span>';
+          return '<div class="dep">' +
+            '<div class="dep-bar" style="background:#' + bg + '; color:#' + fg + ';">' +
+            '<div class="dep-time">' + formatTime(row.depMs) + '</div>' +
+            '<div class="dep-dest">' + esc(row.destName) + '</div>' +
+            '<div class="dep-track">' + track + '</div>' +
+            '</div>' +
+            (note ? '<div class="dep-note-row">' + note + '</div>' : '') +
+            '</div>';
+        }).join("");
       } catch (e) {
-        document.getElementById("board").innerHTML = '<div class="board-row empty">Error loading</div>';
+        document.getElementById("board").innerHTML = '<div class="board-empty">Error loading departures</div>';
       }
     }
 
-    // Initialize
     loadStations().then(() => {
       selectStation("Penn Station");
-      setInterval(loadBoard, 30000); // Auto-refresh every 30 seconds
+      setInterval(loadBoard, 30000);
     });
   </script>
 </body>
