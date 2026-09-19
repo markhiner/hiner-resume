@@ -3583,8 +3583,38 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (url.pathname === "/api/lirr-board") {
+    const stationParam = (url.searchParams.get("station") || "").toLowerCase();
+    let data = lirrBoardCache;
+
+    if (stationParam && lirrModel) {
+      // Filter to a specific station
+      const filtered = {
+        rows: data.rows.filter(r => r.name.toLowerCase().includes(stationParam)),
+        updatedAt: data.updatedAt,
+      };
+      // Sort by departure time (soonest first)
+      filtered.rows.sort((a, b) => {
+        if (a.depMs == null) return 1;
+        if (b.depMs == null) return -1;
+        return a.depMs - b.depMs;
+      });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(filtered));
+    } else {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(data));
+    }
+    return;
+  }
+  if (url.pathname === "/api/lirr-stations") {
+    // Return list of all LIRR stations for autocomplete
+    const stations = lirrModel ? lirrModel.stops
+      .filter(s => s.stop_id !== PENN_STOP_ID && !SPECIAL_EVENTS_ONLY.has(s.stop_name))
+      .map(s => ({ name: s.stop_name, id: s.stop_id }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    : [];
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(lirrBoardCache));
+    res.end(JSON.stringify(stations));
     return;
   }
   if (url.pathname === "/api/penn-board") {
@@ -3597,6 +3627,11 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/api/amtrak-nec-trains") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(getActivENECTrains()));
+    return;
+  }
+  if (url.pathname === "/lirr-board") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(lirrBoardPage);
     return;
   }
   if (url.pathname === "/trains") {
@@ -4872,9 +4907,206 @@ const amtrakNECMapPage = `<!DOCTYPE html>
     window.addEventListener("load", initMap);
   </script>
 </body>
-</html>\`;
+</html>`;
 
-const htmlPage = \`<!DOCTYPE html>
+const lirrBoardPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>LIRR Departures</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; }
+
+  .header { background: #1a1a1a; color: white; padding: 16px; position: sticky; top: 0; z-index: 100; }
+  .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .header-title { font-size: 16px; font-weight: bold; }
+  .back-btn { background: none; border: none; color: white; font-size: 18px; cursor: pointer; padding: 4px 8px; }
+
+  .station-selector { display: flex; gap: 8px; align-items: center; }
+  .station-input { flex: 1; padding: 8px 12px; border: 1px solid #333; background: #2a2a2a; color: white; border-radius: 4px; font-size: 14px; min-width: 120px; }
+  .station-input::placeholder { color: #888; }
+
+  .quick-links { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .quick-link { padding: 4px 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; }
+  .quick-link:active { background: #0052a3; }
+
+  .autocomplete-list { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-top: none; max-height: 200px; overflow-y: auto; z-index: 1001; display: none; }
+  .autocomplete-list.show { display: block; }
+  .autocomplete-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee; font-size: 14px; }
+  .autocomplete-item:hover { background: #f0f0f0; }
+  .station-wrapper { position: relative; flex: 1; }
+
+  .time-display { font-size: 28px; font-weight: bold; text-align: center; margin-bottom: 12px; color: white; }
+
+  .board { padding: 16px; }
+  .board-empty { text-align: center; color: #666; padding: 40px 16px; }
+
+  .departure-row { display: grid; grid-template-columns: 60px 1fr 1fr 60px; gap: 12px; padding: 12px; background: white; border-bottom: 1px solid #eee; align-items: center; margin-bottom: 4px; border-radius: 4px; }
+  .departure-time { font-size: 18px; font-weight: bold; }
+  .departure-dest { font-size: 14px; }
+  .departure-route { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; }
+  .departure-track { text-align: center; font-size: 16px; font-weight: bold; }
+  .departure-track.empty { color: #ccc; font-size: 12px; }
+
+  .jamaica-badge { display: inline-block; background: #ffa500; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; margin-left: 4px; }
+
+  .update-info { color: #666; font-size: 12px; padding: 12px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-top">
+      <button class="back-btn" onclick="window.location.href='/'" title="Back">←</button>
+      <div class="header-title">Long Island Rail Road</div>
+      <div style="width: 34px;"></div>
+    </div>
+
+    <div class="time-display" id="currentTime">--:--</div>
+
+    <div class="station-selector">
+      <div class="station-wrapper">
+        <input type="text" class="station-input" id="stationInput" placeholder="Station..." autocomplete="off">
+        <div class="autocomplete-list" id="autocompleteList"></div>
+      </div>
+    </div>
+
+    <div class="quick-links">
+      <button class="quick-link" onclick="selectStation('Penn Station', 'penn-station')">NY Penn</button>
+      <button class="quick-link" onclick="selectStation('Grand Central Terminal', 'grand-central')">GCT</button>
+      <button class="quick-link" onclick="selectStation('Jamaica Station', 'jamaica')">Jamaica</button>
+    </div>
+  </div>
+
+  <div class="board">
+    <div id="boardBody" class="board-empty">Loading...</div>
+    <div class="update-info" id="updateInfo"></div>
+  </div>
+
+  <script>
+    let allStations = [];
+    let currentStation = "Penn Station";
+    let currentStationId = "penn-station";
+    let updateInterval = null;
+
+    // Format time as HH:MM
+    function formatTime(ms) {
+      const d = new Date(ms);
+      return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    }
+
+    // Update clock
+    function updateClock() {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, "0");
+      const m = String(now.getMinutes()).padStart(2, "0");
+      const s = String(now.getSeconds()).padStart(2, "0");
+      document.getElementById("currentTime").textContent = h + ":" + m + ":" + s;
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Load stations list
+    async function loadStations() {
+      try {
+        const res = await fetch("/api/lirr-stations");
+        allStations = await res.json();
+      } catch (e) {
+        console.error("Failed to load stations:", e);
+      }
+    }
+
+    // Autocomplete
+    const input = document.getElementById("stationInput");
+    const autocompleteList = document.getElementById("autocompleteList");
+
+    input.addEventListener("input", function() {
+      const val = this.value.toLowerCase().trim();
+      if (!val) {
+        autocompleteList.classList.remove("show");
+        return;
+      }
+
+      const matches = allStations.filter(s => s.name.toLowerCase().includes(val)).slice(0, 5);
+      if (matches.length === 0) {
+        autocompleteList.classList.remove("show");
+        return;
+      }
+
+      autocompleteList.innerHTML = matches.map(s =>
+        '<div class="autocomplete-item" onclick="selectStation(' + JSON.stringify(s.name) + ', ' + JSON.stringify(s.id) + ')">' +
+        s.name + '</div>'
+      ).join("");
+      autocompleteList.classList.add("show");
+    });
+
+    document.addEventListener("click", function(e) {
+      if (e.target !== input && !e.target.closest(".autocomplete-list")) {
+        autocompleteList.classList.remove("show");
+      }
+    });
+
+    // Select station
+    function selectStation(name, id) {
+      currentStation = name;
+      currentStationId = id;
+      input.value = name;
+      autocompleteList.classList.remove("show");
+      loadBoard();
+    }
+
+    // Load and display board
+    async function loadBoard() {
+      try {
+        const res = await fetch("/api/lirr-board?station=" + encodeURIComponent(currentStation));
+        const data = await res.json();
+
+        const body = document.getElementById("boardBody");
+        const rows = data.rows || [];
+
+        // Filter and sort by departure time
+        const upcoming = rows.filter(r => r.depMs != null && r.depMs > Date.now()).sort((a, b) => a.depMs - b.depMs).slice(0, 20);
+
+        if (upcoming.length === 0) {
+          body.innerHTML = '<div class="board-empty">No upcoming departures</div>';
+        } else {
+          body.innerHTML = upcoming.map(row => {
+            const route = row.route || {};
+            const routeColor = route.color || "666666";
+            const textColor = route.textColor || "ffffff";
+            const stops = row.stops || [];
+            const dest = stops.length > 0 ? stops[stops.length - 1].name : row.name;
+            const jamaica = row.kind === "jamaica" ? ' <span class="jamaica-badge">via Jamaica</span>' : '';
+            const track = row.track ? row.track : '<span class="empty">--</span>';
+
+            return '<div class="departure-row">' +
+              '<div class="departure-time">' + formatTime(row.depMs) + '</div>' +
+              '<div class="departure-dest">' + dest + jamaica + '</div>' +
+              '<div><span class="departure-route" style="background: #' + routeColor + '; color: #' + textColor + ';">' + (route.name || "???") + '</span></div>' +
+              '<div class="departure-track">' + track + '</div>' +
+              '</div>';
+          }).join("");
+        }
+
+        // Update info
+        const updatedTime = new Date(data.updatedAt).toLocaleTimeString("en-US", { timeZone: "America/New_York" });
+        document.getElementById("updateInfo").textContent = upcoming.length + " upcoming departures • updated " + updatedTime;
+      } catch (e) {
+        document.getElementById("boardBody").innerHTML = '<div class="board-empty">Error: ' + e.message + '</div>';
+      }
+    }
+
+    // Initialize
+    loadStations().then(() => {
+      selectStation("Penn Station", "penn-station");
+      setInterval(loadBoard, 30000); // Auto-refresh every 30 seconds
+    });
+  </script>
+</body>
+</html>`;
+
+const htmlPage = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
