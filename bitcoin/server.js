@@ -4917,97 +4917,83 @@ const lirrBoardPage = `<!DOCTYPE html>
 <title>LIRR Departures</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; }
+  body { font-family: "Arial", sans-serif; display: flex; flex-direction: column; }
 
-  .header { background: #1a1a1a; color: white; padding: 16px; position: sticky; top: 0; z-index: 100; }
-  .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-  .header-title { font-size: 16px; font-weight: bold; }
-  .back-btn { background: none; border: none; color: white; font-size: 18px; cursor: pointer; padding: 4px 8px; }
+  .header { background: #1a1a1a; color: white; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; gap: 20px; border-bottom: 2px solid #333; }
+  .header-left { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+  .back-btn { background: none; border: none; color: white; font-size: 18px; cursor: pointer; padding: 0; }
+  .station-info { font-weight: bold; font-size: 16px; }
+  .time-display { font-size: 18px; font-weight: bold; }
 
-  .station-selector { display: flex; gap: 8px; align-items: center; }
-  .station-input { flex: 1; padding: 8px 12px; border: 1px solid #333; background: #2a2a2a; color: white; border-radius: 4px; font-size: 14px; min-width: 120px; }
-  .station-input::placeholder { color: #888; }
-
-  .quick-links { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-  .quick-link { padding: 4px 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; }
-  .quick-link:active { background: #0052a3; }
-
-  .autocomplete-list { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-top: none; max-height: 200px; overflow-y: auto; z-index: 1001; display: none; }
+  .station-selector { flex: 1; max-width: 300px; position: relative; }
+  .station-input { width: 100%; padding: 6px 10px; background: #2a2a2a; color: white; border: 1px solid #444; border-radius: 3px; font-size: 13px; }
+  .station-input::placeholder { color: #666; }
+  .autocomplete-list { position: absolute; top: 100%; left: 0; right: 0; background: #2a2a2a; border: 1px solid #444; border-top: none; max-height: 150px; overflow-y: auto; z-index: 1000; display: none; }
   .autocomplete-list.show { display: block; }
-  .autocomplete-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee; font-size: 14px; }
-  .autocomplete-item:hover { background: #f0f0f0; }
-  .station-wrapper { position: relative; flex: 1; }
+  .autocomplete-item { padding: 6px 10px; cursor: pointer; border-bottom: 1px solid #333; font-size: 12px; color: white; }
+  .autocomplete-item:hover { background: #333; }
 
-  .time-display { font-size: 28px; font-weight: bold; text-align: center; margin-bottom: 12px; color: white; }
+  .board { flex: 1; overflow-y: auto; background: #000; padding: 0; }
+  .board-row { display: grid; grid-template-columns: 70px 1fr 60px; gap: 16px; padding: 12px 16px; border-bottom: 1px solid #222; align-items: center; font-size: 14px; color: white; min-height: 40px; }
+  .board-row.empty { text-align: center; color: #666; padding: 40px 16px; }
 
-  .board { padding: 16px; }
-  .board-empty { text-align: center; color: #666; padding: 40px 16px; }
+  .board-time { font-size: 24px; font-weight: bold; text-align: right; min-width: 60px; }
+  .board-dest-wrap { display: flex; align-items: center; gap: 12px; }
+  .board-dest { font-size: 16px; font-weight: bold; flex: 1; }
+  .board-route { display: inline-block; padding: 3px 8px; border-radius: 2px; font-size: 11px; font-weight: bold; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .board-track { font-size: 18px; font-weight: bold; text-align: center; min-width: 50px; }
+  .board-track.empty { color: #666; font-size: 12px; }
+  .jamaica-badge { display: inline-block; background: #ff9800; color: white; padding: 2px 4px; border-radius: 2px; font-size: 10px; margin-left: 4px; }
 
-  .departure-row { display: grid; grid-template-columns: 60px 1fr 1fr 60px; gap: 12px; padding: 12px; background: white; border-bottom: 1px solid #eee; align-items: center; margin-bottom: 4px; border-radius: 4px; }
-  .departure-time { font-size: 18px; font-weight: bold; }
-  .departure-dest { font-size: 14px; }
-  .departure-route { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; }
-  .departure-track { text-align: center; font-size: 16px; font-weight: bold; }
-  .departure-track.empty { color: #ccc; font-size: 12px; }
-
-  .jamaica-badge { display: inline-block; background: #ffa500; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; margin-left: 4px; }
-
-  .update-info { color: #666; font-size: 12px; padding: 12px; text-align: center; }
+  .quick-links { display: flex; gap: 8px; }
+  .quick-link { padding: 4px 12px; background: #0066cc; color: white; border: none; border-radius: 2px; cursor: pointer; font-size: 11px; font-weight: bold; }
+  .quick-link:active { background: #0052a3; }
 </style>
 </head>
 <body>
   <div class="header">
-    <div class="header-top">
+    <div class="header-left">
       <button class="back-btn" onclick="window.location.href='/'" title="Back">←</button>
-      <div class="header-title">Long Island Rail Road</div>
-      <div style="width: 34px;"></div>
-    </div>
-
-    <div class="time-display" id="currentTime">--:--</div>
-
-    <div class="station-selector">
-      <div class="station-wrapper">
-        <input type="text" class="station-input" id="stationInput" placeholder="Station..." autocomplete="off">
-        <div class="autocomplete-list" id="autocompleteList"></div>
+      <div style="text-align: center;">
+        <div style="font-size: 12px; color: #999;">Long Island Rail Road</div>
+        <div class="time-display" id="currentTime">--:--</div>
       </div>
     </div>
 
+    <div class="station-selector">
+      <input type="text" class="station-input" id="stationInput" placeholder="Select station..." autocomplete="off">
+      <div class="autocomplete-list" id="autocompleteList"></div>
+    </div>
+
     <div class="quick-links">
-      <button class="quick-link" onclick="selectStation('Jamaica', 'jamaica')">Jamaica</button>
-      <button class="quick-link" onclick="selectStation('Grand Central', 'grand-central')">GCT</button>
-      <button class="quick-link" onclick="selectStation('Long Beach', 'long-beach')">Long Beach</button>
+      <button class="quick-link" onclick="selectStation('Penn Station')">Penn</button>
+      <button class="quick-link" onclick="selectStation('Jamaica')">Jamaica</button>
+      <button class="quick-link" onclick="selectStation('Grand Central')">GCT</button>
     </div>
   </div>
 
-  <div class="board">
-    <div id="boardBody" class="board-empty">Loading...</div>
-    <div class="update-info" id="updateInfo"></div>
-  </div>
+  <div class="board" id="board"></div>
 
   <script>
     let allStations = [];
-    let currentStation = "Jamaica";
-    let currentStationId = "jamaica";
-    let updateInterval = null;
+    let currentStation = "Penn Station";
 
-    // Format time as HH:MM
     function formatTime(ms) {
       const d = new Date(ms);
       return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
     }
 
-    // Update clock
     function updateClock() {
       const now = new Date();
       const h = String(now.getHours()).padStart(2, "0");
       const m = String(now.getMinutes()).padStart(2, "0");
-      const s = String(now.getSeconds()).padStart(2, "0");
-      document.getElementById("currentTime").textContent = h + ":" + m + ":" + s;
+      document.getElementById("currentTime").textContent = h + ":" + m;
     }
+
     setInterval(updateClock, 1000);
     updateClock();
 
-    // Load stations list
     async function loadStations() {
       try {
         const res = await fetch("/api/lirr-stations");
@@ -5017,7 +5003,6 @@ const lirrBoardPage = `<!DOCTYPE html>
       }
     }
 
-    // Autocomplete
     const input = document.getElementById("stationInput");
     const autocompleteList = document.getElementById("autocompleteList");
 
@@ -5027,16 +5012,13 @@ const lirrBoardPage = `<!DOCTYPE html>
         autocompleteList.classList.remove("show");
         return;
       }
-
-      const matches = allStations.filter(s => s.name.toLowerCase().includes(val)).slice(0, 5);
+      const matches = allStations.filter(s => s.name.toLowerCase().includes(val)).slice(0, 8);
       if (matches.length === 0) {
         autocompleteList.classList.remove("show");
         return;
       }
-
       autocompleteList.innerHTML = matches.map(s =>
-        '<div class="autocomplete-item" onclick="selectStation(' + JSON.stringify(s.name) + ', ' + JSON.stringify(s.id) + ')">' +
-        s.name + '</div>'
+        '<div class="autocomplete-item" onclick="selectStation(' + JSON.stringify(s.name) + ')">' + s.name + '</div>'
       ).join("");
       autocompleteList.classList.add("show");
     });
@@ -5047,59 +5029,50 @@ const lirrBoardPage = `<!DOCTYPE html>
       }
     });
 
-    // Select station
-    function selectStation(name, id) {
+    function selectStation(name) {
       currentStation = name;
-      currentStationId = id;
       input.value = name;
       autocompleteList.classList.remove("show");
       loadBoard();
     }
 
-    // Load and display board
     async function loadBoard() {
       try {
         const res = await fetch("/api/lirr-board?station=" + encodeURIComponent(currentStation));
         const data = await res.json();
-
-        const body = document.getElementById("boardBody");
         const rows = data.rows || [];
+        const upcoming = rows.filter(r => r.depMs != null && r.depMs > Date.now()).sort((a, b) => a.depMs - b.depMs);
 
-        // Filter and sort by departure time
-        const upcoming = rows.filter(r => r.depMs != null && r.depMs > Date.now()).sort((a, b) => a.depMs - b.depMs).slice(0, 20);
-
+        const board = document.getElementById("board");
         if (upcoming.length === 0) {
-          body.innerHTML = '<div class="board-empty">No upcoming departures</div>';
+          board.innerHTML = '<div class="board-row empty">No upcoming departures</div>';
         } else {
-          body.innerHTML = upcoming.map(row => {
+          board.innerHTML = upcoming.map(row => {
             const route = row.route || {};
             const routeColor = route.color || "666666";
             const textColor = route.textColor || "ffffff";
             const stops = row.stops || [];
             const dest = stops.length > 0 ? stops[stops.length - 1].name : row.name;
-            const jamaica = row.kind === "jamaica" ? ' <span class="jamaica-badge">via Jamaica</span>' : '';
+            const jamaica = row.kind === "jamaica" ? ' <span class="jamaica-badge">via Jam</span>' : '';
             const track = row.track ? row.track : '<span class="empty">--</span>';
-
-            return '<div class="departure-row">' +
-              '<div class="departure-time">' + formatTime(row.depMs) + '</div>' +
-              '<div class="departure-dest">' + dest + jamaica + '</div>' +
-              '<div><span class="departure-route" style="background: #' + routeColor + '; color: #' + textColor + ';">' + (route.name || "???") + '</span></div>' +
-              '<div class="departure-track">' + track + '</div>' +
+            return '<div class="board-row" style="background-color: #' + routeColor + '20;">' +
+              '<div class="board-time">' + formatTime(row.depMs) + '</div>' +
+              '<div class="board-dest-wrap">' +
+              '<div class="board-dest">' + dest + jamaica + '</div>' +
+              '<span class="board-route" style="background: #' + routeColor + '; color: #' + textColor + ';">' + (route.name || "") + '</span>' +
+              '</div>' +
+              '<div class="board-track">' + track + '</div>' +
               '</div>';
           }).join("");
         }
-
-        // Update info
-        const updatedTime = new Date(data.updatedAt).toLocaleTimeString("en-US", { timeZone: "America/New_York" });
-        document.getElementById("updateInfo").textContent = upcoming.length + " upcoming departures • updated " + updatedTime;
       } catch (e) {
-        document.getElementById("boardBody").innerHTML = '<div class="board-empty">Error: ' + e.message + '</div>';
+        document.getElementById("board").innerHTML = '<div class="board-row empty">Error loading</div>';
       }
     }
 
     // Initialize
     loadStations().then(() => {
-      selectStation("Jamaica", "jamaica");
+      selectStation("Penn Station");
       setInterval(loadBoard, 30000); // Auto-refresh every 30 seconds
     });
   </script>
