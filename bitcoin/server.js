@@ -3333,129 +3333,6 @@ function getActivENECTrains() {
   return trains;
 }
 
-// ---------- Penn Station live track diagram ----------
-// Neither Amtrak's own live feed nor a public NJ Transit feed exposes a
-// train's assigned track without registered developer credentials this app
-// doesn't have — TrackRat (https://github.com/trackrat-dev/TrackRat) runs a
-// small public API that already aggregates NJT + Amtrak + LIRR real-time
-// data (from their own registered feeds) plus a historical model that
-// predicts a likely platform for a train before its track is posted. This
-// reuses that public API rather than re-solving a problem it already has a
-// good answer to.
-
-const TRACKRAT_BASE = "https://apiv2.trackrat.net/api/v2";
-const TRACKRAT_STATION = "NY"; // TrackRat's own code for New York Penn Station
-const PENN_TRACKS_REFRESH_MS = 30 * 1000;
-// A track is typically posted, and a train physically present, well before
-// its scheduled time — this is a real dwell/staging window, not a fetch
-// window, so it's generous on the "before" side and short after (a train
-// that's arrived doesn't linger at its platform for long before it either
-// continues on or is pulled to a yard).
-const PENN_TRACK_PRE_WINDOW_MS = 20 * 60 * 1000;
-const PENN_TRACK_POST_WINDOW_MS = 6 * 60 * 1000;
-
-// Amtrak doesn't brand by route the way commuter rail does, so every Amtrak
-// train gets the same official Amtrak blue rather than a per-line color.
-const AMTRAK_BRAND_BLUE = "#00537E";
-// NJ Transit's real per-line brand colors (only the lines that actually
-// reach New York Penn are likely to show up here — NEC, NJCL, M&E,
-// Montclair-Boonton — the rest are included for completeness/robustness).
-const NJT_LINE_COLORS = {
-  "Northeast Corridor Line": { bg: "#EF3E42", text: "#ffffff" },
-  "North Jersey Coast Line": { bg: "#00A4E4", text: "#ffffff" },
-  "Morris & Essex Line": { bg: "#00A94F", text: "#ffffff" },
-  "Gladstone Branch": { bg: "#A2D5AE", text: "#12181f" },
-  "Montclair-Boonton Line": { bg: "#E66B5B", text: "#ffffff" },
-  "Raritan Valley Line": { bg: "#FAA634", text: "#12181f" },
-  "Main Line": { bg: "#FFCF01", text: "#12181f" },
-  "Bergen County Line": { bg: "#B9C9DF", text: "#12181f" },
-  "Pascack Valley Line": { bg: "#8e258d", text: "#ffffff" },
-  "Atlantic City Line": { bg: "#005DAA", text: "#ffffff" },
-};
-const FALLBACK_LINE_COLOR = { bg: "#6b7280", text: "#ffffff" };
-
-// LIRR's own GTFS already carries its real per-branch brand colors (used
-// elsewhere for the LIRR board) — reused here by name rather than
-// hardcoding a second copy that could drift from the source of truth.
-function lirrLineColor(name) {
-  if (!lirrModel || !name) return null;
-  for (const r of lirrModel.routeById.values()) {
-    if (r.route_long_name === name) return { bg: "#" + r.route_color, text: "#" + r.route_text_color };
-  }
-  return null;
-}
-
-function pennTrackLineColor(source, lineName) {
-  if (source === "AMTRAK") return { bg: AMTRAK_BRAND_BLUE, text: "#ffffff" };
-  if (source === "NJT") return NJT_LINE_COLORS[lineName] || FALLBACK_LINE_COLOR;
-  if (source === "LIRR") return lirrLineColor(lineName) || FALLBACK_LINE_COLOR;
-  return FALLBACK_LINE_COLOR;
-}
-
-let pennTracksCache = { updatedAt: 0, occupants: [] };
-
-async function refreshPennTracks() {
-  try {
-    const now = new Date();
-    const nowMs = now.getTime();
-    const timeFrom = new Date(nowMs - PENN_TRACK_PRE_WINDOW_MS - 10 * 60 * 1000).toISOString();
-    const timeTo = new Date(nowMs + 4 * 60 * 60 * 1000).toISOString();
-    const url = `${TRACKRAT_BASE}/trains/departures?from=${TRACKRAT_STATION}&data_sources=NJT,AMTRAK,LIRR&hide_departed=false&limit=300` +
-      `&time_from=${encodeURIComponent(timeFrom)}&time_to=${encodeURIComponent(timeTo)}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`TrackRat fetch ${res.status}`);
-    const data = await res.json();
-
-    // "departures" here really means "activity at this station" in either
-    // direction (TrackRat's own `destination` field is not reliable for
-    // telling arrivals from departures — it defaults to the query station's
-    // own name whenever a `to` isn't given) — so rather than guess
-    // direction, every entry is judged the same way: is *a* recorded time
-    // for this stop close enough to right now that the train is plausibly
-    // still sitting at whatever track it was posted to.
-    const active = [];
-    for (const t of data.departures || []) {
-      if (t.is_cancelled || !t.departure) continue;
-      const atMs = Date.parse(t.departure.actual_time || t.departure.scheduled_time || "");
-      if (!Number.isFinite(atMs)) continue;
-      if (nowMs < atMs - PENN_TRACK_PRE_WINDOW_MS || nowMs > atMs + PENN_TRACK_POST_WINDOW_MS) continue;
-      const lineName = (t.line && t.line.name) || t.data_source;
-      active.push({
-        trainId: t.train_id, source: t.data_source, lineName,
-        lineColor: pennTrackLineColor(t.data_source, lineName),
-        journeyDate: (t.journey_date || "").slice(0, 10),
-        scheduledMs: atMs, track: t.departure.track || null,
-      });
-    }
-
-    // Real track numbers always win; only ask TrackRat's prediction model to
-    // fill in a best guess for whichever active trains don't have one yet
-    // (it can't predict for a train whose stop here is an arrival with
-    // nothing further to depart toward — that's an expected miss, not an
-    // error, and just leaves that train's track blank below).
-    await Promise.all(active.filter((a) => !a.track).map(async (a) => {
-      try {
-        const purl = `${TRACKRAT_BASE}/predictions/track?station_code=${TRACKRAT_STATION}` +
-          `&train_id=${encodeURIComponent(a.trainId)}&journey_date=${a.journeyDate}`;
-        const pres = await fetch(purl);
-        if (!pres.ok) return;
-        const pj = await pres.json();
-        const nums = (pj.primary_prediction || "").match(/\d+/g);
-        if (nums) { a.predictedTracks = nums.map(Number); a.predictedConfidence = pj.confidence; }
-      } catch {}
-    }));
-
-    pennTracksCache = { updatedAt: nowMs, occupants: active };
-  } catch (e) {
-    console.error("Penn tracks refresh failed (keeping last good data):", e.message);
-  }
-}
-
-async function startPennTracks() {
-  await refreshPennTracks();
-  setInterval(refreshPennTracks, PENN_TRACKS_REFRESH_MS);
-}
-
 // ---------- HTTP + WebSocket server ----------
 
 const clients = new Set();
@@ -3696,19 +3573,19 @@ const server = http.createServer((req, res) => {
     res.end(trainsPage);
     return;
   }
+  if (url.pathname === "/njt-board") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(njtBoardPage);
+    return;
+  }
+  if (url.pathname === "/travel") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(travelPage);
+    return;
+  }
   if (url.pathname === "/amtrak-nec-map") {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(amtrakNECMapPage);
-    return;
-  }
-  if (url.pathname === "/penn-tracks") {
-    res.writeHead(200, { "Content-Type": "text/html" });
-    res.end(pennTracksPage);
-    return;
-  }
-  if (url.pathname === "/api/penn-tracks") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(pennTracksCache));
     return;
   }
   if (url.pathname === "/api/portfolio") {
@@ -3889,11 +3766,12 @@ body {
   margin-left: auto; background: var(--panel2); color: var(--text1); border: 1px solid var(--border);
   border-radius: 8px; padding: 5px 8px; font-size: 12px; font-weight: 700;
 }
-.tp-tracks-link {
+.tp-navrow { display: flex; gap: 8px; padding: 0 2px 14px; }
+.tp-nav-link {
   background: var(--panel2); color: var(--yellow); border: 1px solid var(--border);
-  border-radius: 8px; padding: 5px 10px; font-size: 12px; font-weight: 800; text-decoration: none;
+  border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 800; text-decoration: none;
 }
-.tp-tracks-link:active { background: var(--panel); }
+.tp-nav-link:active { background: var(--panel); }
 
 /* ── the departures/arrivals board — styled after the physical Solari
    board at Penn Station: light header, solid blue rows, dark gaps ── */
@@ -3936,32 +3814,6 @@ body {
   padding: 9px 14px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
 }
 .board-more:active { background: #1e3a7a; }
-
-/* ── LIRR next-train board (moved here from the main ticker page) ── */
-.trains-section { margin-top: 4px; }
-.section-hdr { display: flex; align-items: center; gap: 8px; padding: 0 4px 8px; }
-.trains-title { font-size: 12px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: var(--yellow); }
-.section-sub { font-size: 10.5px; color: var(--text3); }
-.tr-card { background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px 8px; }
-.tr-sub { font-size: 10px; color: var(--text3); margin: 2px 0 8px; line-height: 1.4; }
-.tr-sub b { color: var(--text2); }
-.tr-group { margin-bottom: 8px; }
-.tr-group:last-child { margin-bottom: 0; }
-.tr-hdr { font-size: 11px; font-weight: 800; color: var(--yellow); border-bottom: 1px solid var(--border); padding-bottom: 1px; margin-bottom: 1px; letter-spacing: 1px; }
-/* a fixed-width grid, not flex — every row gets IDENTICAL column widths
-   this way, so the branch pill and the track column line up down the page
-   regardless of how long any one row's destination/branch name is */
-.tr-row { display: grid; grid-template-columns: 1fr 180px 32px; align-items: center; gap: 6px; padding: 1.5px 0; font-size: 13px; }
-.tr-row .nm { color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.tr-row .in { display: flex; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; }
-.tr-xfer { font-size: 10px; font-weight: 800; color: var(--text2); flex-shrink: 0; }
-.tr-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 3px; font-weight: 700; font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.tr-pill.delayed::after { content: "LATE"; font-size: 8px; font-weight: 900; opacity: 0.85; margin-left: 2px; }
-/* blank until LIRR actually posts a track — no badge, no label, just the
-   number, right-aligned in its own column */
-.tr-track-col { text-align: right; color: var(--yellow); font-weight: 800; font-size: 12.5px; font-variant-numeric: tabular-nums; }
-.tr-flat { color: var(--text3); font-style: italic; font-size: 11.5px; }
-.tr-empty { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 20px 0; }
 
 /* ── the detail sheet (same slide-up pattern as the hotel/flight sheets
    on the main page — a fresh copy, this is a standalone template) ── */
@@ -4034,14 +3886,17 @@ body {
 
   <div class="tp-topbar">
     <a class="tp-back" href="/" aria-label="Back to BTC ticker">&larr;</a>
-    <span class="tp-brand">Departures &amp; Arrivals</span>
+    <span class="tp-brand">Amtrak &middot; Departures &amp; Arrivals</span>
     <select class="tp-station-select" id="stationSelect" aria-label="Reference station">
       ${Object.entries(AMTRAK_BOARD_STATIONS).map(([code, name]) =>
         `<option value="${code}"${code === AMTRAK_DEFAULT_STATION ? " selected" : ""}>${name}</option>`
       ).join("")}
     </select>
-    <a class="tp-tracks-link" href="/penn-tracks" aria-label="Penn Station live track diagram">Tracks</a>
-    <a class="tp-tracks-link" href="/amtrak-nec-map" aria-label="NEC train map" style="margin-left: 8px;">NEC Map</a>
+  </div>
+  <div class="tp-navrow">
+    <a class="tp-nav-link" href="/amtrak-nec-map">NEC Map</a>
+    <a class="tp-nav-link" href="/lirr-board">LIRR</a>
+    <a class="tp-nav-link" href="/njt-board">NJ Transit</a>
   </div>
 
   <div class="board-card">
@@ -4058,16 +3913,6 @@ body {
     <div class="board-ftr" id="arrDate">&mdash;</div>
   </div>
 
-  <div class="trains-section" id="trains">
-    <div class="section-hdr">
-      <span class="trains-title">Next Train To&hellip;</span>
-      <span class="section-sub">LIRR &middot; Penn Station / Moynihan</span>
-    </div>
-    <div class="tr-card">
-      <div class="tr-sub" id="trSub">Loading&hellip;</div>
-      <div id="trBody"><div class="tr-empty">Loading&hellip;</div></div>
-    </div>
-  </div>
 
 </div>
 
@@ -4129,7 +3974,7 @@ body {
   var STATION_CODES = ${JSON.stringify(Object.keys(AMTRAK_BOARD_STATIONS))};
   var urlStation = new URL(location.href).searchParams.get("station");
   var state = {
-    departures: [], arrivals: [], lirrRows: [],
+    departures: [], arrivals: [],
     station: STATION_CODES.indexOf(urlStation) !== -1 ? urlStation : "${AMTRAK_DEFAULT_STATION}",
   };
 
@@ -4190,7 +4035,7 @@ body {
       renderBoard("arrBody", state.arrivals, "arr");
       // an open sheet should stay live rather than freeze at whatever it
       // showed when it was opened — the train may have moved since
-      if (openTrain && openTrain.kind === "amtrak") reopenIfStillOpen();
+      if (openTrain) reopenIfStillOpen();
     }).catch(function (e) {
       document.getElementById("depBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
       document.getElementById("arrBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
@@ -4203,7 +4048,7 @@ body {
     state.station = stationSelectEl.value;
     boardExpanded.dep = false;
     boardExpanded.arr = false;
-    if (openTrain && openTrain.kind === "amtrak") closeTrain();
+    if (openTrain) closeTrain();
     var url = new URL(location.href);
     url.searchParams.set("station", state.station);
     history.replaceState(null, "", url);
@@ -4227,63 +4072,11 @@ body {
   loadPennBoard();
   setInterval(loadPennBoard, 30000);
 
-  // ---------- LIRR next-train board ----------
-
-  function trRowHTML(r, idx) {
-    var info, track = "";
-    if (r.kind === "special") {
-      info = '<span class="tr-flat">Special Events Only</span>';
-    } else if (r.kind === "unknown" || r.depMs == null) {
-      info = '<span class="tr-flat">Check TrainTime App</span>';
-    } else {
-      var xfer = r.kind === "jamaica" ? '<span class="tr-xfer">J</span>' : "";
-      var route = r.route || { name: "", color: "3b3b3b", textColor: "ffffff" };
-      info = xfer + '<span class="tr-pill' + (r.delayed ? " delayed" : "") + '" style="background:#' + route.color + ";color:#" + route.textColor + '">' +
-        fmtBoardTime(r.depMs) + " " + esc(route.name.replace(/ Branch$/, "")) + "</span>";
-      track = r.track ? esc(r.track) : "";
-    }
-    var tappable = r.tripId ? ' data-kind="lirr" data-idx="' + idx + '"' : "";
-    return '<div class="tr-row"' + tappable + '><span class="nm">' + esc(r.name) + '</span><span class="in">' + info + '</span><span class="tr-track-col">' + track + '</span></div>';
-  }
-
-  function renderTrains(rows) {
-    var body = document.getElementById("trBody");
-    if (!rows || !rows.length) {
-      body.innerHTML = '<div class="tr-empty">No data yet — check back shortly.</div>';
-      return;
-    }
-    var groups = [];
-    var cur = null;
-    rows.forEach(function (r, i) {
-      var letter = r.name[0].toUpperCase();
-      if (!cur || cur.letter !== letter) { cur = { letter: letter, rows: [] }; groups.push(cur); }
-      cur.rows.push({ r: r, i: i });
-    });
-    body.innerHTML = groups.map(function (g) {
-      return '<div class="tr-group"><div class="tr-hdr">' + esc(g.letter) + "</div>" + g.rows.map(function (x) { return trRowHTML(x.r, x.i); }).join("") + "</div>";
-    }).join("");
-  }
-
-  function loadTrains() {
-    fetch("/api/lirr-board").then(function (r) { return r.json(); }).then(function (d) {
-      state.lirrRows = d.rows || [];
-      renderTrains(state.lirrRows);
-      document.getElementById("trSub").innerHTML = state.lirrRows.length + " destinations &middot; updated " +
-        new Date(d.updatedAt).toLocaleTimeString("en-US", { timeZone: "America/New_York" }) +
-        ' &middot; <b>J</b> change at Jamaica &middot; tap a row for train details';
-      if (openTrain && openTrain.kind === "lirr") reopenIfStillOpen();
-    }).catch(function (e) {
-      document.getElementById("trBody").innerHTML = '<div class="tr-empty">' + esc(e.message) + "</div>";
-    });
-  }
-  loadTrains();
-  setInterval(loadTrains, 30000);
-
   // ---------- the detail sheet ----------
 
   var elSheet = document.getElementById("ttSheet");
   var elBody = document.getElementById("ttBody");
-  var openTrain = null; // { kind: "amtrak"|"lirr", event, idx } — kept so a live poll can re-render it
+  var openTrain = null; // { event, idx } — kept so a live poll can re-render it
   var ttMap = null, ttMarker = null;
   // true only for the render that follows a fresh tap — reopenIfStillOpen()
   // re-renders the same sheet every board refresh, and re-animating the
@@ -4510,63 +4303,22 @@ body {
     }
   }
 
-  function renderLirrDetail(row) {
-    var route = row.route || { name: "LIRR" };
-    elBody.innerHTML =
-      '<div class="tt-title">' + esc(route.name || "LIRR Train") + '</div>' +
-      '<div class="tt-sub">Toward ' + esc(row.name) + (row.kind === "jamaica" ? " (change at Jamaica)" : "") + '</div>' +
-      (row.position ? '<div class="tt-position"><b>Currently:</b> ' + esc(row.position) + '</div>' : "") +
-      '<div class="tt-stops" id="ttStops"></div>';
-
-    var stopsEl = document.getElementById("ttStops");
-    if (!row.stops || !row.stops.length) {
-      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
-    } else {
-      var now = Date.now();
-      var nextIdx = -1;
-      for (var ni = 0; ni < row.stops.length; ni++) {
-        if (now < row.stops[ni].depMs) { nextIdx = ni; break; }
-      }
-      var rowsHtml = row.stops.map(function (s, i) {
-        var here = s.stopId === "237";
-        var passed = now >= s.depMs;
-        var isPast = nextIdx === -1 ? true : i < nextIdx;
-        var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
-        var stHtml = passed
-          ? '<span class="st done">Departed</span>'
-          : (now >= s.arrMs ? '<span class="st delayed">Boarding</span>' : '<span class="st">Upcoming</span>');
-        return '<div class="tt-stop' + cls + '"><span class="nm">' + esc(s.name) + '</span>' +
-          '<span class="tm">' + fmtBoardTime(s.depMs) + '</span>' + stHtml + '</div>';
-      });
-      renderStopsList(rowsHtml, nextIdx);
-    }
-  }
-
-  function openDetail(kind, event, idx) {
-    openTrain = { kind: kind, event: event, idx: idx };
+  function openDetail(event, idx) {
+    openTrain = { event: event, idx: idx };
     elSheet.classList.add("on");
     document.body.style.overflow = "hidden";
     ttMapJustOpened = true;
     ttLastZoom = null;
     ttStopsExpanded = false;
-    if (kind === "amtrak") {
-      var row = (event === "dep" ? state.departures : state.arrivals)[idx];
-      if (row) renderAmtrakDetail(row);
-    } else {
-      var lrow = state.lirrRows[idx];
-      if (lrow) renderLirrDetail(lrow);
-    }
+    var row = (event === "dep" ? state.departures : state.arrivals)[idx];
+    if (row) renderAmtrakDetail(row);
   }
 
   function reopenIfStillOpen() {
     if (!openTrain) return;
-    if (openTrain.kind === "amtrak") {
-      var list = openTrain.event === "dep" ? state.departures : state.arrivals;
-      if (openTrain.idx < list.length) renderAmtrakDetail(list[openTrain.idx]);
-      else closeTrain(); // the train aged off the board while the sheet was open
-    } else {
-      if (openTrain.idx < state.lirrRows.length) renderLirrDetail(state.lirrRows[openTrain.idx]);
-    }
+    var list = openTrain.event === "dep" ? state.departures : state.arrivals;
+    if (openTrain.idx < list.length) renderAmtrakDetail(list[openTrain.idx]);
+    else closeTrain(); // the train aged off the board while the sheet was open
   }
 
   document.addEventListener("click", function (e) {
@@ -4584,16 +4336,17 @@ body {
     }
     var row = e.target.closest("[data-kind]");
     if (!row) return;
-    var kind = row.getAttribute("data-kind");
     var idx = +row.getAttribute("data-idx");
-    openDetail(kind, row.getAttribute("data-event"), idx);
+    openDetail(row.getAttribute("data-event"), idx);
   });
 })();
 </script>
 </body>
 </html>`;
 
-const pennTracksPage = `<!DOCTYPE html>
+// Stub until an NJ Transit API key is set up — same shell/nav as the other
+// train pages so it reads as "not built yet" rather than "broken".
+const njtBoardPage = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -4601,13 +4354,12 @@ const pennTracksPage = `<!DOCTYPE html>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#000000">
-<title>Penn Station Live Tracks</title>
+<title>NJ Transit</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
   --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --yellow: #f5c518;
-  --njt: #8a4fc4; --lirr: #12a3af;
 }
 html, body { background: var(--bg); color: var(--text1); height: 100%; }
 body {
@@ -4625,203 +4377,35 @@ body {
 }
 .tp-back:active { background: var(--panel); }
 .tp-brand { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--text2); text-transform: uppercase; }
-.pt-updated { margin-left: auto; font-size: 10.5px; color: var(--text3); font-variant-numeric: tabular-nums; }
-
-.pt-legend {
-  display: flex; flex-wrap: wrap; gap: 6px 12px; background: var(--panel);
-  border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px;
-  font-size: 10.5px; color: var(--text2);
+.tp-navrow { display: flex; gap: 8px; padding: 0 2px 14px; }
+.tp-nav-link {
+  background: var(--panel2); color: var(--yellow); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 800; text-decoration: none;
 }
-.pt-legend-item { display: flex; align-items: center; gap: 5px; }
-.pt-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
-.pt-swatch.zone-njt { background: var(--njt); }
-.pt-swatch.zone-shared { background: var(--yellow); }
-.pt-swatch.zone-lirr { background: var(--lirr); }
-.pt-swatch.predicted { background: transparent; border: 1.5px dashed var(--text2); }
-
-.pt-diagram { display: flex; flex-direction: column; gap: 3px; }
-.pt-endcap {
-  text-align: center; font-size: 9.5px; color: var(--text3); letter-spacing: 0.4px;
-  padding: 2px 0; text-transform: uppercase; font-weight: 700;
+.tp-nav-link:active { background: var(--panel); }
+.njt-empty {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 40px 20px; text-align: center; color: var(--text2); font-size: 14px; line-height: 1.6;
 }
-.pt-platform {
-  border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel);
-}
-.pt-platform-lbl {
-  font-size: 9.5px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase;
-  color: var(--text3); padding: 4px 10px 2px;
-}
-.pt-track { display: flex; align-items: stretch; gap: 8px; padding: 3px 10px 5px; }
-.pt-track.zone-njt { background: rgba(138,79,196,0.14); }
-.pt-track.zone-shared { background: rgba(245,197,24,0.08); }
-.pt-track.zone-lirr { background: rgba(18,163,175,0.13); }
-.pt-track-num {
-  width: 20px; flex-shrink: 0; font-size: 11px; font-weight: 800; color: var(--text2);
-  display: flex; align-items: center; justify-content: center;
-  font-variant-numeric: tabular-nums;
-}
-.pt-track-bar {
-  flex: 1; min-width: 0; min-height: 26px; border-radius: 7px;
-  background: rgba(255,255,255,0.03); display: flex; align-items: center; padding: 0 2px;
-}
-/* colored per the train's actual route/line (set inline per chip — Amtrak
-   is always brand blue, NJT and LIRR each get their own real line color)
-   rather than a generic per-agency color, so two trains sharing a track
-   zone still read as different services at a glance. */
-.pt-chip {
-  display: flex; align-items: baseline; gap: 6px; width: 100%;
-  border-radius: 6px; padding: 4px 8px; font-size: 11.5px;
-  border: 1px solid rgba(0,0,0,0.4);
-}
-.pt-chip.predicted { opacity: 0.62; border-style: dashed; }
-.pt-chip-src {
-  font-size: 8.5px; font-weight: 900; letter-spacing: 0.5px; flex-shrink: 0;
-  background: rgba(0,0,0,0.28); padding: 1px 4px; border-radius: 4px;
-}
-.pt-chip-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
-.pt-chip-time { flex-shrink: 0; font-size: 10px; font-variant-numeric: tabular-nums; opacity: 0.85; }
-.pt-empty { color: var(--text3); font-size: 11px; font-style: italic; padding: 3px 6px; }
-.pt-note {
-  margin-top: 14px; font-size: 10.5px; color: var(--text3); line-height: 1.5; text-align: center; padding: 0 8px;
-}
+.njt-empty b { color: var(--text1); }
 </style>
 </head>
 <body>
 <div id="app">
   <div class="tp-topbar">
-    <a class="tp-back" href="/trains" aria-label="Back to departures &amp; arrivals">&larr;</a>
-    <span class="tp-brand">Penn Station Live Tracks</span>
-    <span class="pt-updated" id="ptUpdated">&mdash;</span>
+    <a class="tp-back" href="/" aria-label="Back to BTC ticker">&larr;</a>
+    <span class="tp-brand">NJ Transit</span>
   </div>
-
-  <div class="pt-legend">
-    <span class="pt-legend-item"><span class="pt-swatch zone-njt"></span>Tracks 1&ndash;4 &middot; NJ Transit</span>
-    <span class="pt-legend-item"><span class="pt-swatch zone-shared"></span>Tracks 5&ndash;12 &middot; Shared Amtrak/NJT</span>
-    <span class="pt-legend-item"><span class="pt-swatch zone-lirr"></span>Tracks 13&ndash;21 &middot; LIRR</span>
-    <span class="pt-legend-item"><span class="pt-swatch predicted"></span>Estimated (not yet posted)</span>
+  <div class="tp-navrow">
+    <a class="tp-nav-link" href="/trains">Amtrak</a>
+    <a class="tp-nav-link" href="/lirr-board">LIRR</a>
   </div>
-
-  <div class="pt-endcap">&larr; Hudson River Tunnel / New Jersey</div>
-  <div class="pt-diagram" id="ptDiagram"></div>
-  <div class="pt-endcap">East River Tunnels / Queens &amp; Long Island &rarr;</div>
-
-  <div class="pt-note">
-    Amtrak and NJ Transit rarely post a track more than a few minutes before departure &mdash;
-    an "Estimated" chip is this app's own best guess (via <a href="https://github.com/trackrat-dev/TrackRat" style="color:var(--text2)">TrackRat</a>'s
-    historical model), not a confirmed assignment.
+  <div class="njt-empty">
+    <b>NJ Transit board not set up yet.</b><br>
+    Waiting on an NJ Transit developer API key before this can show real
+    departures.
   </div>
 </div>
-<script>
-(function () {
-  var PLATFORM_TRACKS = [
-    { platform: 11, tracks: [21, 20] },
-    { platform: 10, tracks: [19, 18] },
-    { platform: 9, tracks: [17, 16] },
-    { platform: 8, tracks: [15, 14] },
-    { platform: 7, tracks: [13, 12] },
-    { platform: 6, tracks: [11, 10] },
-    { platform: 5, tracks: [9, 8] },
-    { platform: 4, tracks: [7, 6] },
-    { platform: 3, tracks: [5, 4] },
-    { platform: 2, tracks: [3, 2] },
-    { platform: 1, tracks: [1] },
-  ];
-  function trackZone(n) { return n <= 4 ? "njt" : n <= 12 ? "shared" : "lirr"; }
-  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
-  function fmtTime(ms) {
-    var d = new Date(ms);
-    var h = d.getHours(), m = d.getMinutes();
-    return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
-  }
-
-  function buildTrackMap(occupants) {
-    var map = {};
-    // real, posted tracks always win over a guess
-    occupants.forEach(function (o) {
-      if (!o.track) return;
-      var n = +o.track;
-      if (Number.isFinite(n)) map[n] = { type: "confirmed", occ: o };
-    });
-    // Highest-confidence guesses claim their preferred track first — two
-    // trains can easily share the same top-guessed pair (seen live: two
-    // NJT trains both came back "1 & 2" as their best guess, one at 87%
-    // confidence and one at 43%), and resolving them in whatever order the
-    // API happened to return them let the weaker guess win the track and
-    // silently bumped the other train off the diagram entirely.
-    var needsPrediction = occupants
-      .filter(function (o) { return !o.track && o.predictedTracks && o.predictedTracks.length; })
-      .sort(function (a, b) { return (b.predictedConfidence || 0) - (a.predictedConfidence || 0); });
-    needsPrediction.forEach(function (o) {
-      // TrackRat names a prediction as a pair like "9 & 10" — but that pair
-      // doesn't reliably line up with this diagram's own platform groupings
-      // (a "9 & 10" guess can straddle two different real platforms), so
-      // placing the same predicted train on every named track made it look
-      // like one train sitting in two different places at once. Anchor it
-      // on the first of its own candidate tracks that isn't already taken
-      // (by a real posting or a more confident guess) instead of vanishing
-      // the moment its top choice is spoken for.
-      var sorted = o.predictedTracks.slice().sort(function (a, b) { return a - b; });
-      for (var i = 0; i < sorted.length; i++) {
-        var candidate = sorted[i];
-        if (!map[candidate]) {
-          map[candidate] = { type: "predicted", occ: o, altTracks: sorted.filter(function (n) { return n !== candidate; }) };
-          break;
-        }
-      }
-    });
-    return map;
-  }
-
-  function chipHtml(entry) {
-    if (!entry) return '<span class="pt-empty">&mdash;</span>';
-    var o = entry.occ;
-    var trainNum = o.source === "AMTRAK" ? o.trainId.replace(/^A/i, "") : o.trainId;
-    var color = o.lineColor || { bg: "#6b7280", text: "#ffffff" };
-    var style = "background:" + color.bg + ";border-color:" + color.bg + ";color:" + color.text + ";";
-    var timeText = fmtTime(o.scheduledMs);
-    if (entry.type === "predicted") {
-      // the confidence number is what actually tells someone whether to
-      // trust this guess or not — "est." alone reads the same whether the
-      // model is 90% sure or basically guessing.
-      var pct = o.predictedConfidence != null ? Math.round(o.predictedConfidence * 100) + "% " : "";
-      timeText += " " + pct + "est.";
-      if (entry.altTracks && entry.altTracks.length) timeText += " (or Tk " + entry.altTracks.join(", ") + ")";
-    }
-    return '<span class="pt-chip' + (entry.type === "predicted" ? " predicted" : "") + '" style="' + esc(style) + '">' +
-      '<span class="pt-chip-src">' + esc(o.source) + '</span>' +
-      '<span class="pt-chip-label">' + esc(trainNum) + " " + esc(o.lineName) + '</span>' +
-      '<span class="pt-chip-time">' + esc(timeText) + '</span>' +
-      '</span>';
-  }
-
-  function render(occupants) {
-    var trackMap = buildTrackMap(occupants || []);
-    document.getElementById("ptDiagram").innerHTML = PLATFORM_TRACKS.map(function (p) {
-      var rows = p.tracks.map(function (n) {
-        return '<div class="pt-track zone-' + trackZone(n) + '">' +
-          '<span class="pt-track-num">' + n + '</span>' +
-          '<span class="pt-track-bar">' + chipHtml(trackMap[n]) + '</span>' +
-          '</div>';
-      }).join("");
-      return '<div class="pt-platform"><div class="pt-platform-lbl">Platform ' + p.platform + '</div>' + rows + '</div>';
-    }).join("");
-  }
-
-  function load() {
-    fetch("/api/penn-tracks").then(function (r) { return r.json(); }).then(function (d) {
-      render(d.occupants);
-      var el = document.getElementById("ptUpdated");
-      if (d.updatedAt) {
-        var secs = Math.max(0, Math.round((Date.now() - d.updatedAt) / 1000));
-        el.textContent = "Updated " + secs + "s ago";
-      }
-    }).catch(function () {});
-  }
-
-  load();
-  setInterval(load, 30000);
-})();
-</script>
 </body>
 </html>`;
 
@@ -5243,6 +4827,1475 @@ const lirrBoardPage = `<!DOCTYPE html>
 </body>
 </html>`;
 
+const travelPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<title>Travel</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
+  --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66;
+  --green: #22c55e; --red: #ef4444; --yellow: #f5c518; --blue: #5ac8fa;
+}
+html, body { background: var(--bg); color: var(--text1); height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  min-height: 100%;
+}
+#app { max-width: 480px; margin: 0 auto; padding: 14px 14px 32px; }
+.tp-topbar { display: flex; align-items: center; gap: 10px; padding: 4px 2px 16px; }
+.tp-back {
+  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text1);
+  display: flex; align-items: center; justify-content: center; font-size: 16px; text-decoration: none;
+}
+.tp-back:active { background: var(--panel); }
+.tp-brand { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--text2); text-transform: uppercase; }
+
+.flights-section { margin-top: 16px; scroll-margin-top: 10px; }
+.flights-hdr { display: flex; align-items: center; gap: 8px; padding: 0 4px 8px; }
+/* the section owns the blue the Search button uses, so that colour reads as
+   this feature's rather than as one stray accent */
+.flights-title { font-size: 12px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: #5ac8fa; }
+.flights-sub { font-size: 10px; color: var(--text3); }
+.fl-keybtn {
+  margin-left: auto; flex-shrink: 0;
+  width: 24px; height: 24px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text3);
+  display: flex; align-items: center; justify-content: center;
+}
+.fl-keybtn.set { color: var(--text2); }
+.fl-keybtn.needed { color: var(--yellow); border-color: rgba(245,197,24,0.4); }
+.fl-keybtn:active { background: var(--panel); }
+
+.fl-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 13px; }
+.fl-field { margin-bottom: 9px; }
+.fl-label { font-size: 9px; letter-spacing: 1.4px; font-weight: 800; text-transform: uppercase; color: var(--text3); margin-bottom: 4px; }
+.fl-input {
+  width: 100%; background: var(--panel2); border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text1); font-size: 15px; font-weight: 700; letter-spacing: 1.2px;
+  padding: 9px 11px; text-transform: uppercase;
+}
+.fl-input::placeholder { color: var(--text3); font-weight: 500; letter-spacing: 0.5px; text-transform: none; }
+.fl-input:focus { outline: none; border-color: rgba(90,200,250,0.55); background: rgba(90,200,250,0.06); }
+.fl-chips { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
+.fl-chip {
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.8px;
+  padding: 4px 10px; border-radius: 20px;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
+}
+.fl-chip.on { background: var(--text1); color: #000; border-color: var(--text1); }
+
+.fl-row2 { display: flex; gap: 9px; align-items: flex-end; }
+.fl-row2 > .fl-field { flex: 1; margin-bottom: 0; }
+/* the native picker sits invisibly on top of the styled label so iOS opens
+   its own date wheel on tap while the page keeps the relative wording */
+.fl-date-wrap { position: relative; }
+.fl-date-display {
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text1); font-size: 15px; font-weight: 700; padding: 9px 11px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fl-date-wrap input[type="date"] {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; border: 0; padding: 0; margin: 0;
+}
+.fl-go {
+  width: 100%; margin-top: 11px; padding: 11px; border-radius: 10px;
+  border: 1px solid rgba(90,200,250,0.5); background: rgba(90,200,250,0.14); color: #5ac8fa;
+  font-size: 12.5px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase;
+}
+.fl-go:active { background: rgba(90,200,250,0.24); }
+.fl-go:disabled { opacity: 0.5; }
+.fl-key { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.fl-key.on { display: block; }
+.fl-key-row { display: flex; gap: 7px; }
+.fl-key-row input {
+  flex: 1; min-width: 0; background: var(--panel2); border: 1px solid var(--border); border-radius: 9px;
+  color: var(--text1); font-size: 13px; padding: 8px 10px; letter-spacing: 1px;
+}
+.fl-key-row input:focus { outline: none; border-color: rgba(90,200,250,0.55); }
+.fl-key-row button {
+  padding: 8px 14px; border-radius: 9px; font-size: 11px; font-weight: 800; letter-spacing: 1px;
+  border: 1px solid rgba(90,200,250,0.5); background: rgba(90,200,250,0.14); color: #5ac8fa;
+}
+.fl-key-note { font-size: 9.5px; color: var(--text3); margin-top: 6px; line-height: 1.45; }
+.fl-msg { font-size: 11.5px; color: var(--text3); margin-top: 9px; text-align: center; font-style: italic; }
+.fl-msg.err { color: var(--red); font-style: normal; }
+.fl-raw-btn { display: block; margin: 6px auto 0; background: none; border: none;
+  font-size: 10px; color: var(--text3); text-decoration: underline; padding: 4px; }
+.fl-raw-btn:active { color: var(--text2); }
+
+.fl-results { display: flex; flex-direction: column; gap: 7px; margin-top: 9px; }
+
+.fl-sorts { display: flex; gap: 6px; margin-bottom: 8px; }
+.fl-sort { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--text2); font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.fl-sort:hover { border-color: var(--blue); color: var(--blue); }
+.fl-sort.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+/* the two headline fares, one per cabin, above the split lists */
+.fl-tiles { display: flex; gap: 8px; }
+.fl-tile {
+  flex: 1; min-width: 0; text-align: left;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px;
+}
+.fl-tile .lbl { font-size: 8.5px; letter-spacing: 1.2px; font-weight: 900; text-transform: uppercase; color: var(--text3); }
+.fl-tile .amt { font-size: 22px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; letter-spacing: -0.4px; margin-top: 1px; }
+.fl-tile .sub { font-size: 9.5px; color: var(--text3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-tile.first-cabin { border-color: rgba(192,132,252,0.3); background: linear-gradient(180deg, rgba(192,132,252,0.05), rgba(0,0,0,0)); }
+.fl-tile.first-cabin .lbl { color: #c084fc; }
+.fl-tile:disabled { opacity: 0.4; }
+.fl-tile:not(:disabled):active { border-color: rgba(90,200,250,0.6); }
+
+.fl-group { font-size: 9.5px; letter-spacing: 1.8px; font-weight: 900; text-transform: uppercase;
+  color: var(--text3); padding: 8px 4px 0; }
+.fl-group.first-cabin { color: #c084fc; }
+
+/* where a tile lands you */
+.fl-item.flash { animation: flItemFlash 1.8s ease-out; }
+@keyframes flItemFlash {
+  0%, 22% { border-color: rgba(90,200,250,0.85); background-color: rgba(90,200,250,0.13); }
+  100% { border-color: var(--border); background-color: transparent; }
+}
+.fl-item { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px; }
+.fl-item.first-cabin { border-color: rgba(192,132,252,0.32); background: linear-gradient(180deg, rgba(192,132,252,0.055), rgba(0,0,0,0)); }
+.fl-top { display: flex; align-items: center; gap: 9px; }
+.fl-logo { width: 26px; height: 26px; border-radius: 7px; background: #fff; object-fit: contain; flex-shrink: 0; padding: 2px; }
+.fl-carrier { flex: 1; min-width: 0; }
+.fl-carrier .nm { font-size: 12.5px; font-weight: 700; color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-carrier .fn { font-size: 9.5px; color: var(--text3); letter-spacing: 0.4px; }
+.fl-price { text-align: right; flex-shrink: 0; }
+.fl-price .amt { font-size: 19px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
+.fl-price .cab { font-size: 8.5px; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text3); }
+.fl-item.first-cabin .fl-price .cab { color: #c084fc; }
+
+.fl-times { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.fl-end { text-align: center; }
+.fl-end .t { font-size: 15px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; }
+.fl-end .a { font-size: 9.5px; font-weight: 800; letter-spacing: 1px; color: var(--text3); }
+.fl-end .t sup { font-size: 8.5px; color: var(--yellow); font-weight: 800; }
+.fl-path { flex: 1; text-align: center; position: relative; }
+.fl-path .bar { height: 1px; background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.28), rgba(255,255,255,0.05)); margin: 7px 0 5px; position: relative; }
+.fl-path .bar::after { content: ""; position: absolute; right: -1px; top: -2px; width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.4); }
+.fl-path .dur { font-size: 9.5px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.fl-path .via { font-size: 10px; color: var(--text2); font-weight: 700; }
+.fl-path .via.direct { color: var(--green); }
+
+.fl-meta { font-size: 10px; color: var(--text3); margin-top: 7px; line-height: 1.45; }
+.fl-meta b { color: var(--text2); font-weight: 700; }
+.fl-flags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+.fl-flag { font-size: 8.5px; font-weight: 900; letter-spacing: 0.9px; padding: 3px 7px; border-radius: 5px; text-transform: uppercase; }
+.fl-flag.cheap { background: var(--green); color: #042a12; }
+.fl-flag.wide { background: rgba(90,200,250,0.15); color: #5ac8fa; }
+.fl-flag.longlay { background: rgba(245,197,24,0.15); color: var(--yellow); }
+
+/* tap to pick an itinerary for the compare/export bar below */
+.fl-pick { width: 21px; height: 21px; border-radius: 50%; flex-shrink: 0; padding: 0;
+  border: 1.5px solid var(--border); background: transparent;
+  display: flex; align-items: center; justify-content: center; }
+.fl-pick svg { width: 12px; height: 12px; color: #5ac8fa; opacity: 0; }
+.fl-item.picked { border-color: rgba(90,200,250,0.5); }
+.fl-item.picked .fl-pick { background: rgba(90,200,250,0.2); border-color: #5ac8fa; }
+.fl-item.picked .fl-pick svg { opacity: 1; }
+
+.fl-selectbar { display: flex; align-items: center; gap: 7px; padding: 2px 2px 10px; }
+.fl-selectbar .cnt { font-size: 11px; font-weight: 800; color: #5ac8fa; letter-spacing: 0.3px; margin-right: auto; }
+.fl-sb-btn { font-size: 10.5px; font-weight: 800; letter-spacing: 0.3px; padding: 7px 11px; border-radius: 8px;
+  border: 1px solid rgba(90,200,250,0.5); background: rgba(90,200,250,0.14); color: #5ac8fa; }
+.fl-sb-btn:active { background: rgba(90,200,250,0.24); }
+.fl-sb-btn.ghost { border-color: var(--border); background: transparent; color: var(--text2); }
+
+/* ── hotels ──
+   Its own accent rather than the flights blue, so the two travel panels read
+   as siblings instead of one long section. The key itself is shared. */
+.hotels-section { margin-top: 18px; scroll-margin-top: 10px; }
+.hotels-title { font-size: 12px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: #2dd4bf; }
+/* a place name, not an airport code — so no uppercasing or letter-spacing */
+.ht-where { text-transform: none; letter-spacing: 0.2px; font-size: 14.5px; }
+.ht-where::placeholder { letter-spacing: 0.2px; }
+.hotels-section .fl-input:focus { border-color: rgba(45,212,191,0.55); background: rgba(45,212,191,0.06); }
+.hotels-section .fl-chip.on { background: #2dd4bf; color: #04231f; border-color: #2dd4bf; }
+/* the date row zeroes its own bottom margin, so this label needs the gap */
+.ht-guests { margin-top: 11px; margin-bottom: 0; }
+.ht-guests .fl-chips { margin-top: 0; }
+.ht-go { border-color: rgba(45,212,191,0.5); background: rgba(45,212,191,0.14); color: #2dd4bf; }
+.ht-go:active { background: rgba(45,212,191,0.24); }
+.hotels-section .fl-sort:hover { border-color: #2dd4bf; color: #2dd4bf; }
+.hotels-section .fl-sort.active { background: #2dd4bf; border-color: #2dd4bf; color: #04231f; }
+
+.ht-item { background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px; }
+.ht-item.flash { animation: flItemFlash 1.8s ease-out; }
+.ht-top { display: flex; align-items: flex-start; gap: 10px; }
+.ht-thumb { width: 54px; height: 54px; border-radius: 9px; object-fit: cover; flex-shrink: 0; background: var(--panel2); }
+.ht-thumb.ph { display: flex; align-items: center; justify-content: center; font-size: 17px; color: var(--text3); }
+.ht-id { flex: 1; min-width: 0; }
+.ht-id .nm { font-size: 13px; font-weight: 700; color: var(--text1); line-height: 1.3; }
+.ht-id .cls { font-size: 9.5px; color: var(--text3); letter-spacing: 0.4px; margin-top: 2px; }
+.ht-stars { color: var(--yellow); letter-spacing: 1px; }
+.ht-rate { display: flex; align-items: baseline; gap: 5px; margin-top: 3px; }
+.ht-rate .sc { font-size: 12px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; }
+.ht-rate .rv { font-size: 9.5px; color: var(--text3); }
+.ht-price { text-align: right; flex-shrink: 0; }
+.ht-price .amt { font-size: 19px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
+.ht-price .per { font-size: 8.5px; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text3); }
+.ht-price .tot { font-size: 9.5px; color: var(--text2); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.ht-amen { font-size: 10px; color: var(--text3); margin-top: 8px; line-height: 1.45; }
+.fl-flag.rated { background: rgba(45,212,191,0.15); color: #2dd4bf; }
+.fl-flag.deal { background: rgba(249,115,22,0.16); color: var(--orange); }
+/* amenity badges, each its own hue so the row reads by colour at a glance */
+.fl-flag.b-paw    { background: rgba(245,197,24,0.16);  color: var(--yellow); padding: 3px 8px; }
+.fl-flag.b-pool   { background: rgba(56,189,248,0.16);  color: #38bdf8; }
+.fl-flag.b-spa    { background: rgba(244,114,182,0.16); color: #f472b6; }
+.fl-flag.b-bar    { background: rgba(167,139,250,0.16); color: #a78bfa; }
+.fl-flag.b-turn   { background: rgba(148,163,184,0.18); color: #94a3b8; }
+.fl-flag.b-dine   { background: rgba(163,230,53,0.15);  color: #a3e635; }
+.fl-flag.b-casino { background: rgba(232,121,249,0.16); color: #e879f9; }
+.fl-flag.b-shuttle { background: rgba(251,191,36,0.16); color: #fbbf24; padding: 3px 8px; }
+.fl-flag.b-drink   { background: rgba(251,113,133,0.16); color: #fb7185; padding: 3px 8px; }
+.fl-flag.b-laundry { background: rgba(34,211,238,0.16); color: #22d3ee; padding: 3px 8px; }
+.fl-flag.b-biz     { background: rgba(96,165,250,0.16); color: #60a5fa; }
+.paw-svg { width: 13px; height: 13px; display: block; }
+.fl-tile.ht-tile.best { border-color: rgba(45,212,191,0.32); background: linear-gradient(180deg, rgba(45,212,191,0.055), rgba(0,0,0,0)); }
+.fl-tile.ht-tile.best .lbl { color: #2dd4bf; }
+.ht-item.tappable { cursor: pointer; }
+.ht-item.tappable:active { background: var(--panel2); }
+
+/* ── the detail sheet ── */
+.ht-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
+.ht-sheet.on { display: block; }
+.ht-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
+.ht-panel {
+  position: absolute; left: 0; right: 0; bottom: 0; top: 24px;
+  background: var(--bg); border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0; overflow: hidden;
+  animation: htUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+@keyframes htUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
+.ht-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 8px auto 0; }
+.ht-close {
+  position: absolute; top: 8px; right: 10px; z-index: 2;
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
+  font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.ht-close:active { background: var(--panel); color: var(--text1); }
+.ht-body {
+  position: absolute; inset: 20px 0 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: 4px 13px calc(26px + env(safe-area-inset-bottom));
+}
+.ht-load { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 40px 0; }
+.ht-load.err { color: var(--red); font-style: normal; }
+
+/* gallery: a snapping filmstrip rather than a grid, so one photo reads big */
+.ht-gal { display: flex; gap: 7px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 -13px; padding: 0 13px 2px; }
+.ht-gal::-webkit-scrollbar { display: none; }
+.ht-gal img { width: 82%; height: 190px; flex: 0 0 auto; object-fit: cover; border-radius: 12px; scroll-snap-align: center; background: var(--panel2); }
+.ht-count { font-size: 9.5px; color: var(--text3); text-align: right; margin-top: 4px; letter-spacing: 0.5px; }
+
+.ht-d-name { font-size: 19px; font-weight: 800; color: var(--text1); line-height: 1.25; margin-top: 10px; letter-spacing: -0.2px; }
+.ht-d-sub { font-size: 10.5px; color: var(--text3); margin-top: 3px; }
+.ht-d-rate { display: flex; align-items: baseline; gap: 6px; margin-top: 6px; }
+.ht-d-rate .big { font-size: 17px; font-weight: 800; color: var(--text1); }
+.ht-d-rate .of { font-size: 10px; color: var(--text3); }
+
+.ht-sec { margin-top: 18px; }
+.ht-sec-h { font-size: 9.5px; letter-spacing: 1.5px; font-weight: 800; text-transform: uppercase; color: #2dd4bf; margin-bottom: 8px; }
+.ht-kv { display: flex; gap: 10px; font-size: 11.5px; color: var(--text2); padding: 6px 0; border-bottom: 1px solid var(--border); line-height: 1.45; }
+.ht-kv:last-child { border-bottom: 0; }
+.ht-kv .k { flex: 0 0 84px; color: var(--text3); font-weight: 700; }
+.ht-kv .v { flex: 1; min-width: 0; }
+/* place names need the room a field label does not */
+.ht-kv.ht-near .k { flex: 1 1 auto; color: var(--text1); font-weight: 600; }
+.ht-kv.ht-near .v { flex: 0 0 auto; text-align: right; color: var(--text3); }
+
+.ht-map { width: 100%; height: 190px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel2); display: block; }
+.ht-coord { font-size: 9.5px; color: var(--text3); margin-top: 5px; font-variant-numeric: tabular-nums; }
+
+.ht-src { display: flex; align-items: center; gap: 9px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.ht-src:last-child { border-bottom: 0; }
+.ht-src img { width: 20px; height: 20px; border-radius: 5px; background: #fff; object-fit: contain; padding: 1px; flex-shrink: 0; }
+.ht-src .nm { flex: 1; min-width: 0; font-size: 12px; color: var(--text1); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ht-src .off { font-size: 8px; font-weight: 900; letter-spacing: 0.8px; color: #2dd4bf; text-transform: uppercase; }
+.ht-src .pr { font-size: 13px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.ht-src .pr small { display: block; font-size: 9px; font-weight: 600; color: var(--text3); text-align: right; }
+
+.ht-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.ht-bar .st { font-size: 10px; color: var(--text3); width: 26px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.ht-bar .track { flex: 1; height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; }
+.ht-bar .fill { height: 100%; background: var(--yellow); border-radius: 3px; }
+.ht-bar .ct { font-size: 9.5px; color: var(--text3); width: 44px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+.ht-topic { padding: 7px 0; border-bottom: 1px solid var(--border); }
+.ht-topic:last-child { border-bottom: 0; }
+.ht-topic .th { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.ht-topic .nm { font-size: 11.5px; font-weight: 700; color: var(--text1); }
+.ht-topic .mn { font-size: 9.5px; color: var(--text3); }
+.ht-split { display: flex; height: 5px; border-radius: 3px; overflow: hidden; margin-top: 5px; background: var(--panel2); }
+.ht-split i { display: block; height: 100%; }
+.ht-split .pos { background: var(--green); }
+.ht-split .neu { background: var(--text3); }
+.ht-split .neg { background: var(--red); }
+
+.ht-chiplist { display: flex; flex-wrap: wrap; gap: 5px; }
+.ht-chiplist span { font-size: 10.5px; padding: 5px 9px; border-radius: 7px; background: var(--panel2); border: 1px solid var(--border); color: var(--text2); }
+.ht-chiplist.no span { color: var(--text3); text-decoration: line-through; opacity: 0.75; }
+.ht-desc { font-size: 12px; color: var(--text2); line-height: 1.55; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="tp-topbar">
+    <a class="tp-back" href="/" aria-label="Back to BTC ticker">&larr;</a>
+    <span class="tp-brand">Travel</span>
+  </div>
+
+  <div class="flights-section" id="flights">
+    <div class="flights-hdr">
+      <span class="flights-title">Flights</span>
+      <span class="flights-sub">one way &middot; economy + first</span>
+      <button class="fl-keybtn" id="flKeyBtn" aria-label="SerpApi key">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round"><circle cx="7" cy="12" r="3.5"></circle><path d="M10.5 12H21M17 12v3.5M20.5 12v2.5"></path></svg>
+      </button>
+    </div>
+
+    <div class="fl-card">
+      <div class="fl-field">
+        <div class="fl-label">From</div>
+        <input class="fl-input" id="flFrom" placeholder="tap a shortcut or type a code" autocomplete="off"
+               autocapitalize="characters" spellcheck="false" inputmode="text">
+        <div class="fl-chips" id="flFromChips"></div>
+      </div>
+
+      <div class="fl-field">
+        <div class="fl-label">To</div>
+        <input class="fl-input" id="flTo" placeholder="tap a shortcut or type a code" autocomplete="off"
+               autocapitalize="characters" spellcheck="false" inputmode="text">
+        <div class="fl-chips" id="flToChips"></div>
+      </div>
+
+      <div class="fl-field">
+        <div class="fl-label">Depart</div>
+        <div class="fl-date-wrap">
+          <div class="fl-date-display" id="flDateDisplay">&mdash;</div>
+          <input type="date" id="flDate">
+        </div>
+      </div>
+
+      <button class="fl-go" id="flGo">Search</button>
+      <div class="fl-msg" id="flMsg"></div>
+      <button class="fl-raw-btn" id="flRawBtn" type="button">View raw SerpApi response</button>
+
+      <div class="fl-key" id="flKeyBox">
+        <div class="fl-label">SerpApi key</div>
+        <div class="fl-key-row">
+          <input type="password" id="flKeyInput" placeholder="paste key" autocomplete="off"
+                 autocapitalize="off" spellcheck="false">
+          <button id="flKeySave">Save</button>
+        </div>
+        <div class="fl-key-note">Stored on this device only, never on the server. Sent as a
+          header with each search so it stays out of request logs.</div>
+      </div>
+
+    </div>
+
+    <div class="fl-results" id="flResults"></div>
+  </div>
+
+  <div class="hotels-section" id="hotels">
+    <div class="flights-hdr">
+      <span class="hotels-title">Hotels</span>
+    </div>
+
+    <div class="fl-card">
+      <div class="fl-field">
+        <div class="fl-label">Where</div>
+        <input class="fl-input ht-where" id="htWhere" placeholder="city, area or hotel"
+               autocomplete="off" autocapitalize="words" spellcheck="false">
+        <div class="fl-chips" id="htWhereChips"></div>
+      </div>
+
+      <div class="fl-row2">
+        <div class="fl-field">
+          <div class="fl-label">Check in</div>
+          <div class="fl-date-wrap">
+            <div class="fl-date-display" id="htInDisplay">&mdash;</div>
+            <input type="date" id="htIn">
+          </div>
+        </div>
+        <div class="fl-field">
+          <div class="fl-label">Check out</div>
+          <div class="fl-date-wrap">
+            <div class="fl-date-display" id="htOutDisplay">&mdash;</div>
+            <input type="date" id="htOut">
+          </div>
+        </div>
+      </div>
+
+      <div class="fl-field ht-guests">
+        <div class="fl-label">Brand</div>
+        <div class="fl-chips" id="htBrandChips"></div>
+      </div>
+
+      <button class="fl-go ht-go" id="htGo">Search</button>
+      <div class="fl-msg" id="htMsg"></div>
+    </div>
+
+    <div class="fl-results" id="htResults"></div>
+  </div>
+
+  <div class="ht-sheet" id="htSheet" role="dialog" aria-modal="true" aria-label="Hotel details">
+    <div class="ht-scrim" id="htScrim"></div>
+    <div class="ht-panel">
+      <div class="ht-grip"></div>
+      <button class="ht-close" id="htClose" aria-label="Close">&times;</button>
+      <div class="ht-body" id="htBody"></div>
+    </div>
+  </div>
+
+</div>
+<script>
+(function () {
+  // ---------- flight search ----------
+
+  // "codes" is what actually gets searched; "display" is what the field
+  // shows once a chip fills it in — a city name reads better than a raw
+  // comma list, especially once a chip covers three or four airports.
+  var AIRPORTS = [
+    { label: "LGA", codes: "LGA", display: "LAGUARDIA" },
+    { label: "NYC", codes: "LGA,JFK,EWR", display: "NEW YORK CITY" },
+    { label: "GSO", codes: "GSO", display: "GREENSBORO" },
+    { label: "RDU", codes: "RDU", display: "RALEIGH-DURHAM" },
+    { label: "OC", codes: "GSO,RDU", display: "OAK CIRCLE" },
+    { label: "PHL", codes: "PHL", display: "PHILADELPHIA" },
+    { label: "WAS", codes: "DCA,IAD,BWI", display: "WASHINGTON" },
+    { label: "!!!", codes: "SAN,LAX,BNA,STL,MIA,FLL,PBI,MCO,ORD,DAL,ILM,CHS,CAE,LAS,SEA,PDX,OAK,SFO,DEN,BOS",
+      display: "ANYWHERE" }
+  ];
+  var WD_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  var WD_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  function esc(v) {
+    return String(v == null ? "" : v).replace(/[&<>"\u0027]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "\u0027": "&#39;" }[c];
+    });
+  }
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function toYMD(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
+
+  // Before noon the useful default is today; after noon it is tomorrow,
+  // because by then most of today has already gone.
+  function defaultDepartDate() {
+    var now = new Date();
+    var d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (now.getHours() >= 12) d.setDate(d.getDate() + 1);
+    return toYMD(d);
+  }
+
+  // Today / Tomorrow / a weekday name while that is still unambiguous, and a
+  // real date once it is not.
+  function dayLabel(ymd) {
+    var p = String(ymd).split("-");
+    if (p.length !== 3) return ymd;
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var diff = Math.round((d - today) / 86400000);
+    if (diff === 0) return "Today";
+    if (diff === 1) return "Tomorrow";
+    if (diff >= 2 && diff <= 5) return WD_FULL[d.getDay()];
+    return WD_SHORT[d.getDay()] + " " + pad2(d.getMonth() + 1) + "/" + pad2(d.getDate());
+  }
+
+  var elFrom = document.getElementById("flFrom");
+  var elTo = document.getElementById("flTo");
+  var elDate = document.getElementById("flDate");
+  var elDateDisplay = document.getElementById("flDateDisplay");
+  var elGo = document.getElementById("flGo");
+  var elMsg = document.getElementById("flMsg");
+  var elResults = document.getElementById("flResults");
+  var flightsEnabled = true;
+  var hotelsEnabled = true;
+
+  // One key serves both panels, so one probe settles both. Looked up by id
+  // rather than through a variable because the hotel block is defined further
+  // down and this runs during the first probe.
+  function setSerpEnabled(enabled) {
+    flightsEnabled = enabled;
+    hotelsEnabled = enabled;
+    var f = document.getElementById("flGo"), h = document.getElementById("htGo");
+    if (f) f.disabled = !enabled;
+    if (h) h.disabled = !enabled;
+  }
+
+  function normCodes(v) {
+    // \\s, not \s: this whole script lives in a template literal, and an
+    // unrecognised escape there collapses to the bare letter — /\s+/ would
+    // reach the browser as /s+/ and start deleting the letter s.
+    return String(v || "").toUpperCase().replace(/\\s+/g, "").replace(/,+/g, ",").replace(/^,|,$/g, "");
+  }
+
+  // A chip swaps the field's displayed text for a city name, but the actual
+  // search still needs the real codes — stashed on the input itself rather
+  // than parsed back out of that display text. Typing directly clears it,
+  // so manual entry still works exactly as a raw code list, same as before.
+  function codesFor(input) {
+    return input.dataset.codes || normCodes(input.value);
+  }
+  function renderChips(host, input) {
+    host.innerHTML = AIRPORTS.map(function (a) {
+      var on = codesFor(input) === a.codes ? " on" : "";
+      return '<button class="fl-chip' + on + '" data-codes="' + a.codes + '" data-display="' +
+        esc(a.display) + '">' + a.label + "</button>";
+    }).join("");
+  }
+  function refreshChips() {
+    renderChips(document.getElementById("flFromChips"), elFrom);
+    renderChips(document.getElementById("flToChips"), elTo);
+  }
+  function wireChips(hostId, input) {
+    document.getElementById(hostId).addEventListener("click", function (e) {
+      var btn = e.target.closest(".fl-chip");
+      if (!btn) return;
+      input.value = btn.getAttribute("data-display");
+      input.dataset.codes = btn.getAttribute("data-codes");
+      refreshChips();
+      saveFlightPrefs();
+    });
+  }
+  wireChips("flFromChips", elFrom);
+  wireChips("flToChips", elTo);
+  elFrom.addEventListener("input", function () { delete elFrom.dataset.codes; refreshChips(); });
+  elTo.addEventListener("input", function () { delete elTo.dataset.codes; refreshChips(); });
+
+  function syncDate() { elDateDisplay.textContent = dayLabel(elDate.value); }
+  elDate.addEventListener("change", function () { syncDate(); saveFlightPrefs(); });
+
+  function saveFlightPrefs() {
+    try {
+      localStorage.setItem("flightPrefs", JSON.stringify({
+        from: elFrom.value, fromCodes: codesFor(elFrom),
+        to: elTo.value, toCodes: codesFor(elTo),
+      }));
+    } catch (e) {}
+  }
+  function loadFlightPrefs() {
+    try {
+      var p = JSON.parse(localStorage.getItem("flightPrefs") || "{}");
+      if (p.from) elFrom.value = p.from;
+      if (p.fromCodes) elFrom.dataset.codes = p.fromCodes;
+      if (p.to) elTo.value = p.to;
+      if (p.toCodes) elTo.dataset.codes = p.toCodes;
+    } catch (e) {}
+  }
+
+  elDate.value = defaultDepartDate();
+  elDate.min = toYMD(new Date());
+  loadFlightPrefs();
+  syncDate();
+  refreshChips();
+
+  var CHECK_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    '<path d="M9 16.2l-3.5-3.5L4 14.2l5 5 11-11-1.5-1.5z"/></svg>';
+  // keyed by the itinerary's stable r.key (assigned once, not by sort order,
+  // so a selection survives switching between the price and arrival sorts)
+  var selected = {};
+  var compareMode = false;
+
+  function flagHTML(r) {
+    var out = [];
+    // just "Lowest" — the row is already badged Economy or First beside the
+    // price, so naming the cabin again in the flag says it twice
+    if (r.cheapest) out.push('<span class="fl-flag cheap">Lowest</span>');
+    if (r.widebody) out.push('<span class="fl-flag wide">Widebody</span>');
+    if (r.longLayover) out.push('<span class="fl-flag longlay">Long layover</span>');
+    return out.length ? '<div class="fl-flags">' + out.join("") + "</div>" : "";
+  }
+
+  function itineraryHTML(r) {
+    var viaTxt = r.nonstop
+      ? '<div class="via direct">Nonstop</div>'
+      : '<div class="via">via ' + esc(r.layovers.map(function (l) { return l.id || l.name; }).join(", ")) + "</div>";
+
+    var meta = [];
+    if (!r.nonstop && r.layovers.length) {
+      meta.push(r.layovers.map(function (l) {
+        return esc(l.durationLabel || "?") + " in " + esc(l.id || l.name) + (l.overnight ? " (overnight)" : "");
+      }).join(" &middot; "));
+    }
+    if (r.aircraft.length) {
+      meta.push(r.aircraft.map(function (a) { return "<b>" + esc(a) + "</b>"; }).join(" &middot; "));
+    }
+
+    return '<div class="fl-item' + (r.cabin === "first" ? " first-cabin" : "") +
+      (selected[r.key] ? " picked" : "") + '" id="' + r.domId + '">' +
+      '<div class="fl-top">' +
+        '<button class="fl-pick" data-key="' + esc(r.key) + '" aria-label="Select this flight to compare" ' +
+          'aria-pressed="' + (selected[r.key] ? "true" : "false") + '">' + CHECK_SVG + "</button>" +
+        (r.logo ? '<img class="fl-logo" src="' + esc(r.logo) + '" alt="" loading="lazy">' : '<div class="fl-logo"></div>') +
+        '<div class="fl-carrier">' +
+          '<div class="nm">' + esc(r.airlines.join(" / ")) + "</div>" +
+          '<div class="fn">' + esc(r.flightNumbers.join(" \u00b7 ")) + "</div>" +
+        "</div>" +
+        '<div class="fl-price">' +
+          '<div class="amt">' + (r.price != null ? "$" + r.price.toLocaleString("en-US") : "\u2013") + "</div>" +
+          '<div class="cab">' + (r.cabin === "first" ? "First" : "Economy") + "</div>" +
+        "</div>" +
+      "</div>" +
+      '<div class="fl-times">' +
+        '<div class="fl-end"><div class="t">' + esc(r.depTime) + '</div><div class="a">' + esc(r.depAirport) + "</div></div>" +
+        '<div class="fl-path">' + viaTxt + '<div class="bar"></div><div class="dur">' + esc(r.totalDurationLabel || "") + "</div></div>" +
+        '<div class="fl-end"><div class="t">' + esc(r.arrTime) + (r.dayOffset ? "<sup>+1</sup>" : "") +
+          '</div><div class="a">' + esc(r.arrAirport) + "</div></div>" +
+      "</div>" +
+      (meta.length ? '<div class="fl-meta">' + meta.join(" &middot; ") + "</div>" : "") +
+      flagHTML(r) +
+      "</div>";
+  }
+
+  // ---- the key, held per device ----
+  // Kept in localStorage rather than on the server: this box runs under
+  // launchd, which never sees a shell export, and a key sitting in one
+  // browser is not on a public-facing machine at all.
+  function flightKey() {
+    try { return localStorage.getItem("serpapiKey") || ""; } catch (e) { return ""; }
+  }
+  function flightHeaders() {
+    var k = flightKey();
+    return k ? { "X-Serpapi-Key": k } : {};
+  }
+  // The key lives behind the key button in the section header rather than as
+  // a standing line of link text — it is a once-a-year action and does not
+  // deserve to be the loudest thing in the panel.
+  function showKeyBox(needed) {
+    var btn = document.getElementById("flKeyBtn");
+    if (needed) document.getElementById("flKeyBox").classList.add("on");
+    else document.getElementById("flKeyBox").classList.remove("on");
+    btn.classList.toggle("needed", needed);
+    btn.classList.toggle("set", !needed && !!flightKey());
+  }
+  document.getElementById("flKeyBtn").addEventListener("click", function () {
+    var box = document.getElementById("flKeyBox");
+    if (box.classList.toggle("on")) document.getElementById("flKeyInput").focus();
+  });
+  document.getElementById("flKeySave").addEventListener("click", function () {
+    var v = document.getElementById("flKeyInput").value.trim();
+    if (!v) return;
+    try { localStorage.setItem("serpapiKey", v); } catch (e) {}
+    document.getElementById("flKeyInput").value = "";
+    setSerpEnabled(true);
+    showKeyBox(false);
+    setFlightMsg("Key saved on this device");
+    setHotelMsg("");
+    probeFlights();
+  });
+
+  // Two headline fares above the results, one per cabin, each a shortcut to
+  // the itinerary it names. Below them the cabins are listed separately —
+  // mixing them in one price-sorted column buried every first-class option
+  // under the entire economy list.
+  function tileHTML(label, r, cabinCls) {
+    if (!r) {
+      return '<button class="fl-tile ' + cabinCls + '" disabled>' +
+        '<div class="lbl">' + label + '</div><div class="amt">\u2013</div>' +
+        '<div class="sub">none found</div></button>';
+    }
+    var sub = [r.airlines.join(" / "), r.nonstop ? "nonstop" : r.stops + " stop" + (r.stops > 1 ? "s" : ""), r.depTime]
+      .filter(Boolean).join(" \u00b7 ");
+    return '<button class="fl-tile ' + cabinCls + '" data-target="' + r.domId + '">' +
+      '<div class="lbl">' + label + '</div>' +
+      '<div class="amt">$' + r.price.toLocaleString("en-US") + '</div>' +
+      '<div class="sub">' + esc(sub) + '</div></button>';
+  }
+
+  var sortBy = "price"; // "price" or "arrival"
+  var results = [];
+
+  function renderResults(list) {
+    var isNew = list !== results;
+    if (isNew) {
+      results = list.slice();
+      // assigned once, from the incoming order, before anything gets
+      // sorted — this is what lets a pick survive a re-sort
+      for (var k = 0; k < results.length; k++) results[k].key = "fl-" + k;
+      sortBy = "price"; // reset to price when new results come in
+      selected = {};
+      compareMode = false;
+    }
+    results.sort(compareResults);
+    for (var i = 0; i < results.length; i++) results[i].domId = "fl-it-" + i;
+
+    var selectedKeys = Object.keys(selected);
+    // nothing left picked is not a valid state to stay compared against
+    if (compareMode && !selectedKeys.length) compareMode = false;
+    var shown = compareMode ? results.filter(function (r) { return selected[r.key]; }) : results;
+
+    var econ = shown.filter(function (r) { return r.cabin !== "first"; });
+    var first = shown.filter(function (r) { return r.cabin === "first"; });
+    var cheapE = econ.filter(function (r) { return r.cheapest; })[0] || econ[0];
+    var cheapF = first.filter(function (r) { return r.cheapest; })[0] || first[0];
+
+    var html = "";
+    if (selectedKeys.length) {
+      html += '<div class="fl-selectbar">' +
+        '<span class="cnt">' + selectedKeys.length + " selected</span>" +
+        '<button class="fl-sb-btn" data-act="compare">' + (compareMode ? "Show all" : "Compare") + "</button>" +
+        '<button class="fl-sb-btn" data-act="export">Export PDF</button>' +
+        '<button class="fl-sb-btn ghost" data-act="clear">Clear</button>' +
+        "</div>";
+    }
+    html += '<div class="fl-sorts">' +
+      '<button data-sort="price" class="fl-sort' + (sortBy === "price" ? " active" : "") + '">Price</button>' +
+      '<button data-sort="arrival" class="fl-sort' + (sortBy === "arrival" ? " active" : "") + '">Earliest arrival</button>' +
+      '</div>' +
+      '<div class="fl-tiles">' +
+      tileHTML("Lowest coach", cheapE, "") +
+      tileHTML("Lowest first", cheapF, "first-cabin") +
+      "</div>";
+    if (econ.length) html += '<div class="fl-group">Economy</div>' + econ.map(itineraryHTML).join("");
+    if (first.length) html += '<div class="fl-group first-cabin">First</div>' + first.map(itineraryHTML).join("");
+    elResults.innerHTML = html;
+  }
+
+  // arrTime is a 12-hour label like "2:30 PM" — the leading number alone
+  // isn't a sortable hour (2 PM and 2 AM both start with "2"), so AM/PM
+  // has to be folded in to get real minutes-since-midnight.
+  function minutesOfDay(label) {
+    if (!label) return Infinity;
+    var parts = label.split(" ");
+    var hm = parts[0].split(":");
+    var h = parseInt(hm[0], 10) % 12;
+    if (parts[1] === "PM") h += 12;
+    return h * 60 + parseInt(hm[1], 10);
+  }
+
+  function compareResults(a, b) {
+    if (sortBy === "price") {
+      return a.price - b.price;
+    } else if (sortBy === "arrival") {
+      var aTime = minutesOfDay(a.arrTime) + (a.dayOffset ? 1440 : 0);
+      var bTime = minutesOfDay(b.arrTime) + (b.dayOffset ? 1440 : 0);
+      return aTime - bTime;
+    }
+    return 0;
+  }
+
+  elResults.addEventListener("click", function (e) {
+    var sortBtn = e.target.closest("[data-sort]");
+    if (sortBtn) {
+      sortBy = sortBtn.getAttribute("data-sort");
+      renderResults(results);
+      return;
+    }
+    var pick = e.target.closest(".fl-pick");
+    if (pick) {
+      var key = pick.getAttribute("data-key");
+      if (selected[key]) delete selected[key]; else selected[key] = true;
+      renderResults(results);
+      return;
+    }
+    var sbBtn = e.target.closest(".fl-sb-btn");
+    if (sbBtn) {
+      var act = sbBtn.getAttribute("data-act");
+      if (act === "compare") compareMode = !compareMode;
+      else if (act === "clear") { selected = {}; compareMode = false; }
+      else if (act === "export") exportSelectedFlights();
+      renderResults(results);
+      return;
+    }
+    var tile = e.target.closest(".fl-tile[data-target]");
+    if (!tile) return;
+    var row = document.getElementById(tile.getAttribute("data-target"));
+    if (!row) return;
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.classList.remove("flash");
+    void row.offsetWidth; // restart the animation on a repeat tap
+    row.classList.add("flash");
+  });
+
+  // Client-side, off the same data already on screen — no round trip, and
+  // no server involvement in what is otherwise a purely personal export.
+  function exportSelectedFlights() {
+    var picked = results.filter(function (r) { return selected[r.key]; });
+    if (!picked.length || !window.jspdf) return;
+    picked.sort(compareResults);
+
+    var from = codesFor(elFrom) || "?", to = codesFor(elTo) || "?";
+    // The field's visible text is already the city name once a shortcut chip
+    // has filled it in ("NEW YORK CITY") — codesFor() unwraps that back to
+    // raw airport codes for the actual search/filename, so the title uses
+    // the field value instead and only falls back to codes if typed by hand.
+    var fromCity = (elFrom.value || from).toUpperCase();
+    var toCity = (elTo.value || to).toUpperCase();
+
+    var doc = new window.jspdf.jsPDF({ unit: "pt", format: "letter" });
+    var PAGE_W = doc.internal.pageSize.getWidth();
+    var MARGIN = 40;
+    var NAVY = [16, 24, 48];
+    var ACCENT = [90, 200, 250]; // the flights section's own accent blue
+    var ROW_TINT = [246, 247, 249];
+
+    doc.setProperties({
+      title: fromCity + " to " + toCity + " — Flight Options",
+      subject: "Flight search results",
+      author: "hiner.nyc",
+    });
+
+    // Redrawn on every page so a run that spans pages still reads as one
+    // document rather than a title page followed by bare continuation sheets.
+    function drawHeader() {
+      doc.setFillColor(NAVY[0], NAVY[1], NAVY[2]);
+      doc.rect(0, 0, PAGE_W, 72, "F");
+      doc.setFillColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+      doc.rect(0, 72, PAGE_W, 3, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+      doc.text("FLIGHT SEARCH RESULTS", MARGIN, 26);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(20); doc.setTextColor(255, 255, 255);
+      doc.text(fromCity + "  →  " + toCity, MARGIN, 50);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(200, 208, 225);
+      doc.text(dayLabel(elDate.value) + "  ·  " + picked.length + " flight" + (picked.length === 1 ? "" : "s") +
+        "  ·  generated " + new Date().toLocaleString(), MARGIN, 63);
+    }
+
+    drawHeader();
+    var y = 96;
+
+    picked.forEach(function (r, idx) {
+      var blockHeight = 42 +
+        (r.flightNumbers.length ? 14 : 0) +
+        (!r.nonstop && r.layovers.length ? 14 : 0) +
+        (r.aircraft.length ? 14 : 0);
+      if (y + blockHeight > 740) { doc.addPage(); drawHeader(); y = 96; }
+
+      if (idx % 2 === 0) {
+        doc.setFillColor(ROW_TINT[0], ROW_TINT[1], ROW_TINT[2]);
+        doc.rect(MARGIN - 10, y - 14, PAGE_W - 2 * (MARGIN - 10), blockHeight, "F");
+      }
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(20, 20, 20);
+      doc.text((idx + 1) + ".  " + r.airlines.join(" / "), MARGIN, y);
+
+      // cabin badge, right-aligned
+      var cabinLabel = r.cabin === "first" ? "FIRST" : "ECONOMY";
+      var badgeColor = r.cabin === "first" ? [192, 132, 252] : [90, 200, 250];
+      doc.setFont("helvetica", "bold"); doc.setFontSize(7.5);
+      var badgeW = doc.getTextWidth(cabinLabel) + 12;
+      doc.setFillColor(badgeColor[0], badgeColor[1], badgeColor[2]);
+      doc.roundedRect(PAGE_W - MARGIN - badgeW, y - 10, badgeW, 14, 3, 3, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.text(cabinLabel, PAGE_W - MARGIN - badgeW + 6, y - 0.5);
+
+      // price, right-aligned, left of the badge
+      var priceText = "$" + (r.price != null ? r.price.toLocaleString("en-US") : "–");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(20, 20, 20);
+      doc.text(priceText, PAGE_W - MARGIN - badgeW - 10 - doc.getTextWidth(priceText), y);
+
+      y += 16;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(70, 70, 70);
+      doc.text(r.depTime + " " + r.depAirport + "  →  " + r.arrTime + (r.dayOffset ? " (+1 day)" : "") +
+        " " + r.arrAirport + "   ·   " + (r.totalDurationLabel || "") + "   ·   " +
+        (r.nonstop ? "Nonstop" : r.stops + " stop" + (r.stops > 1 ? "s" : "")), MARGIN, y);
+      y += 14;
+
+      if (r.flightNumbers.length) { doc.text("Flight " + r.flightNumbers.join(", "), MARGIN, y); y += 14; }
+      if (!r.nonstop && r.layovers.length) {
+        doc.text("Layover: " + r.layovers.map(function (l) {
+          return (l.durationLabel || "?") + " in " + (l.id || l.name) + (l.overnight ? " (overnight)" : "");
+        }).join("; "), MARGIN, y);
+        y += 14;
+      }
+      if (r.aircraft.length) { doc.text("Aircraft: " + r.aircraft.join(", "), MARGIN, y); y += 14; }
+      y += 16;
+    });
+
+    // Footer (with page numbers, which need the final page count) is stamped
+    // in one pass over every page after all content is laid out.
+    var pageCount = doc.internal.getNumberOfPages();
+    for (var p = 1; p <= pageCount; p++) {
+      doc.setPage(p);
+      doc.setDrawColor(220, 220, 220);
+      doc.line(MARGIN, 760, PAGE_W - MARGIN, 760);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(140, 140, 140);
+      doc.text("hiner.nyc", MARGIN, 774);
+      var pageLabel = "Page " + p + " of " + pageCount;
+      doc.text(pageLabel, PAGE_W - MARGIN - doc.getTextWidth(pageLabel), 774);
+    }
+
+    doc.save("flights-" + from + "-" + to + "-" + elDate.value + ".pdf");
+  }
+
+  function setFlightMsg(text, isErr) {
+    elMsg.textContent = text || "";
+    elMsg.className = "fl-msg" + (isErr ? " err" : "");
+  }
+
+  function searchFlights() {
+    if (!flightsEnabled) return;
+    var from = codesFor(elFrom), to = codesFor(elTo);
+    if (!from || !to) { setFlightMsg("Pick a departure and an arrival", true); return; }
+    elGo.disabled = true;
+    setFlightMsg("Searching economy and first\u2026");
+    elResults.innerHTML = "";
+    fetch("/api/flights?from=" + encodeURIComponent(from) + "&to=" + encodeURIComponent(to) +
+          "&date=" + encodeURIComponent(elDate.value), { headers: flightHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.enabled === false) { flightsEnabled = false; showKeyBox(true); setFlightMsg("Add a SerpApi key to search", true); return; }
+        if (d.error && (!d.itineraries || !d.itineraries.length)) { setFlightMsg(d.error, true); return; }
+        var list = d.itineraries || [];
+        if (!list.length) { setFlightMsg("No flights found for that route and date", true); return; }
+        renderResults(list);
+        setFlightMsg(list.length + " itineraries \u00b7 " + from + " \u2192 " + to + " \u00b7 " + dayLabel(d.date) +
+          (d.partialError ? " \u00b7 one cabin unavailable" : ""));
+      })
+      .catch(function (e) { setFlightMsg("Search failed: " + e.message, true); })
+      .then(function () { elGo.disabled = false; });
+  }
+  elGo.addEventListener("click", searchFlights);
+
+  // Opens SerpApi's untouched response in a new tab — the same search
+  // that's already cached server-side (searchFlights shares FLIGHT_CACHE_MS
+  // with the normal path), so this costs nothing extra as long as it's
+  // clicked soon after a real search, and only costs a real one otherwise.
+  document.getElementById("flRawBtn").addEventListener("click", function () {
+    var from = codesFor(elFrom), to = codesFor(elTo);
+    if (!from || !to) { setFlightMsg("Pick a departure and an arrival first", true); return; }
+    fetch("/api/flights?from=" + encodeURIComponent(from) + "&to=" + encodeURIComponent(to) +
+          "&date=" + encodeURIComponent(elDate.value) + "&debug=1", { headers: flightHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var blob = new Blob([JSON.stringify(d.raw || d, null, 2)], { type: "application/json" });
+        window.open(URL.createObjectURL(blob), "_blank");
+      })
+      .catch(function (e) { setFlightMsg("Raw fetch failed: " + e.message, true); });
+  });
+
+  // is a key available from either side? cheap probe, no search burned
+  function probeFlights() {
+    fetch("/api/flights", { headers: flightHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var needsKey = !!(d && d.enabled === false);
+        setSerpEnabled(!needsKey);
+        showKeyBox(needsKey);
+        if (needsKey) {
+          setFlightMsg("Add a SerpApi key to search", true);
+          setHotelMsg("Add a SerpApi key above to search", true);
+        } else {
+          if (!elResults.children.length) setFlightMsg("");
+          if (!elHtResults.children.length) setHotelMsg("");
+        }
+      })
+      .catch(function () {});
+  }
+
+  // ---------- hotels ----------
+  // Shares the flights key, the date wording and the card styling; only the
+  // accent colour and the result shape differ.
+
+  var HOTEL_SPOTS = [
+    { label: "New York", q: "New York, NY" },
+    { label: "Philadelphia", q: "Philadelphia, PA" },
+    { label: "Las Vegas", q: "Las Vegas, NV" },
+    { label: "Miami", q: "Miami, FL" }
+  ];
+  var HOTEL_BRAND_CHIPS = [
+    { v: 0, label: "Any" },
+    { v: 1, label: "Top brands" }
+  ];
+
+  var elHtWhere = document.getElementById("htWhere");
+  var elHtIn = document.getElementById("htIn");
+  var elHtOut = document.getElementById("htOut");
+  var elHtInDisp = document.getElementById("htInDisplay");
+  var elHtOutDisp = document.getElementById("htOutDisplay");
+  var elHtGo = document.getElementById("htGo");
+  var elHtMsg = document.getElementById("htMsg");
+  var elHtResults = document.getElementById("htResults");
+  // Every search assumes a solo traveler — no party-size picker.
+  var HOTEL_ADULTS = 1;
+  var htBrandsOnly = 0;
+
+  function setHotelMsg(text, isErr) {
+    elHtMsg.textContent = text || "";
+    elHtMsg.className = "fl-msg" + (isErr ? " err" : "");
+  }
+
+  function addDays(ymd, n) {
+    var p = String(ymd).split("-");
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    d.setDate(d.getDate() + n);
+    return toYMD(d);
+  }
+  function nightsBetween(a, b) {
+    var pa = String(a).split("-"), pb = String(b).split("-");
+    if (pa.length !== 3 || pb.length !== 3) return 0;
+    var da = new Date(+pa[0], +pa[1] - 1, +pa[2]), db = new Date(+pb[0], +pb[1] - 1, +pb[2]);
+    return Math.round((db - da) / 86400000);
+  }
+
+  function refreshHotelChips() {
+    document.getElementById("htWhereChips").innerHTML = HOTEL_SPOTS.map(function (s) {
+      var on = elHtWhere.value.trim().toLowerCase() === s.q.toLowerCase() ? " on" : "";
+      return '<button class="fl-chip' + on + '" data-q="' + esc(s.q) + '">' + esc(s.label) + "</button>";
+    }).join("");
+    document.getElementById("htBrandChips").innerHTML = HOTEL_BRAND_CHIPS.map(function (c) {
+      return '<button class="fl-chip' + (c.v === htBrandsOnly ? " on" : "") + '" data-brands="' + c.v + '">' +
+        c.label + "</button>";
+    }).join("");
+  }
+  document.getElementById("htWhereChips").addEventListener("click", function (e) {
+    var btn = e.target.closest(".fl-chip");
+    if (!btn) return;
+    elHtWhere.value = btn.getAttribute("data-q");
+    refreshHotelChips();
+    saveHotelPrefs();
+  });
+  document.getElementById("htBrandChips").addEventListener("click", function (e) {
+    var btn = e.target.closest(".fl-chip");
+    if (!btn) return;
+    htBrandsOnly = parseInt(btn.getAttribute("data-brands"), 10) || 0;
+    refreshHotelChips();
+    saveHotelPrefs();
+  });
+  elHtWhere.addEventListener("input", function () { refreshHotelChips(); });
+
+  // Check-out has to stay after check-in, so moving check-in drags it along
+  // rather than leaving an impossible stay on screen.
+  function syncHotelDates(fromCheckIn) {
+    if (fromCheckIn && nightsBetween(elHtIn.value, elHtOut.value) < 1) {
+      elHtOut.value = addDays(elHtIn.value, 1);
+    }
+    elHtOut.min = addDays(elHtIn.value, 1);
+    elHtInDisp.textContent = dayLabel(elHtIn.value);
+    elHtOutDisp.textContent = dayLabel(elHtOut.value);
+  }
+  elHtIn.addEventListener("change", function () { syncHotelDates(true); saveHotelPrefs(); });
+  elHtOut.addEventListener("change", function () { syncHotelDates(false); saveHotelPrefs(); });
+
+  function saveHotelPrefs() {
+    try {
+      localStorage.setItem("hotelPrefs",
+        JSON.stringify({ q: elHtWhere.value, brandsOnly: htBrandsOnly }));
+    } catch (e) {}
+  }
+  function loadHotelPrefs() {
+    try {
+      var p = JSON.parse(localStorage.getItem("hotelPrefs") || "{}");
+      if (p.q) elHtWhere.value = p.q;
+      if (p.brandsOnly === 1) htBrandsOnly = 1;
+    } catch (e) {}
+  }
+
+  // Always tonight → tomorrow by default, regardless of time of day — a
+  // hotel search for "today" means checking in tonight, not skipping to
+  // tomorrow the way the flight date picker does after noon.
+  elHtIn.value = toYMD(new Date());
+  elHtOut.value = addDays(elHtIn.value, 1);
+  elHtIn.min = toYMD(new Date());
+  loadHotelPrefs();
+  syncHotelDates(false);
+  refreshHotelChips();
+
+  function money(n) { return "$" + Number(n).toLocaleString("en-US"); }
+
+  // Drawn rather than emoji glyphs: an emoji carries its own colour and
+  // cannot be tinted, and renders differently on every platform.
+  var PAW_SVG =
+    '<svg class="paw-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    '<ellipse cx="5.6" cy="11.2" rx="2.5" ry="3.1"/>' +
+    '<ellipse cx="10" cy="7.4" rx="2.6" ry="3.4"/>' +
+    '<ellipse cx="15.2" cy="7.4" rx="2.6" ry="3.4"/>' +
+    '<ellipse cx="19.5" cy="11.2" rx="2.5" ry="3.1"/>' +
+    '<path d="M12.5 12.6c3.1 0 5.9 2.6 5.9 5.1 0 1.9-1.6 2.9-3.4 2.9-1.1 0-1.8-.4-2.5-.4s-1.4.4-2.5.4c-1.8 0-3.4-1-3.4-2.9 0-2.5 2.8-5.1 5.9-5.1z"/>' +
+    "</svg>";
+  var PLANE_SVG =
+    '<svg class="paw-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2.5 1.5V22l4-1 4 1v-1.5L13 19v-5.5l8 2.5z"/>' +
+    "</svg>";
+  var COCKTAIL_SVG =
+    '<svg class="paw-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+    '<path d="M21 5V3H3v2l8 9v5H6v2h12v-2h-5v-5l8-9z"/>' +
+    "</svg>";
+  // Drawn with a stroke rather than a fill — a hanger's silhouette is a thin
+  // wire, and a solid triangle just reads as a warning sign at this size.
+  var HANGER_SVG =
+    '<svg class="paw-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle cx="12" cy="4" r="2" fill="currentColor" stroke="none"/>' +
+    '<path d="M12 6.5C12 6.5 3.5 10.5 3.5 15"/>' +
+    '<path d="M12 6.5C12 6.5 20.5 10.5 20.5 15"/>' +
+    '<path d="M3.5 15L20.5 15"/>' +
+    "</svg>";
+  var ICON_SVGS = { paw: PAW_SVG, plane: PLANE_SVG, cocktail: COCKTAIL_SVG, hanger: HANGER_SVG };
+
+  function hotelFlagHTML(p) {
+    var out = [];
+    if (p.cheapest) out.push('<span class="fl-flag cheap">Lowest</span>');
+    if (p.topRated) out.push('<span class="fl-flag rated">Top rated</span>');
+    if (p.deal) out.push('<span class="fl-flag deal">' + esc(p.deal) + "</span>");
+    // the amenities worth seeing without opening the listing
+    (p.badges || []).forEach(function (b) {
+      out.push('<span class="fl-flag ' + esc(b.cls) + '" title="' + esc(b.title) +
+        '" aria-label="' + esc(b.title) + '">' +
+        (ICON_SVGS[b.icon] || esc(b.label)) + "</span>");
+    });
+    return out.length ? '<div class="fl-flags">' + out.join("") + "</div>" : "";
+  }
+
+  function propertyHTML(p) {
+    var cls = [];
+    if (p.stars) cls.push('<span class="ht-stars">' + new Array(p.stars + 1).join("★") + "</span>");
+    if (p.kind === "rental") cls.push("Vacation rental");
+    if (p.locationRating != null) cls.push("Location " + p.locationRating.toFixed(1));
+
+    var rate = p.rating != null
+      ? '<div class="ht-rate"><span class="sc">' + p.rating.toFixed(1) + "</span>" +
+        (p.reviews != null ? '<span class="rv">' + p.reviews.toLocaleString("en-US") + " reviews</span>" : "") +
+        "</div>"
+      : "";
+
+    var price = p.perNight != null
+      ? '<div class="amt">' + money(p.perNight) + '</div><div class="per">/night</div>' +
+        (p.total != null ? '<div class="tot">' + money(p.total) + " total</div>" : "")
+      : '<div class="amt">–</div><div class="per">no rate</div>';
+
+    return '<div class="ht-item' + (p.token ? " tappable" : "") + '" id="' + p.domId + '"' +
+        (p.token ? ' data-token="' + esc(p.token) + '" role="button" tabindex="0"' : "") + ">" +
+      '<div class="ht-top">' +
+        (p.thumb
+          ? '<img class="ht-thumb" src="' + esc(p.thumb) + '" alt="" loading="lazy">'
+          : '<div class="ht-thumb ph">⌂</div>') +
+        '<div class="ht-id">' +
+          '<div class="nm">' + esc(p.name) + "</div>" +
+          (cls.length ? '<div class="cls">' + cls.join(" &middot; ") + "</div>" : "") +
+          rate +
+        "</div>" +
+        '<div class="ht-price">' + price + "</div>" +
+      "</div>" +
+      (p.amenities.length ? '<div class="ht-amen">' + esc(p.amenities.slice(0, 4).join(" · ")) + "</div>" : "") +
+      hotelFlagHTML(p) +
+      "</div>";
+  }
+
+  function hotelTileHTML(label, p, extraCls) {
+    if (!p) {
+      return '<button class="fl-tile ht-tile ' + extraCls + '" disabled>' +
+        '<div class="lbl">' + label + '</div><div class="amt">–</div>' +
+        '<div class="sub">none found</div></button>';
+    }
+    var sub = [p.name, p.rating != null ? p.rating.toFixed(1) + "★" : null]
+      .filter(Boolean).join(" · ");
+    return '<button class="fl-tile ht-tile ' + extraCls + '" data-target="' + p.domId + '">' +
+      '<div class="lbl">' + label + '</div>' +
+      '<div class="amt">' + (p.perNight != null ? money(p.perNight) : "–") + "</div>" +
+      '<div class="sub">' + esc(sub) + "</div></button>";
+  }
+
+  var HT_SORTS = [
+    { id: "deals", label: "Deals" },
+    { id: "price", label: "Price" },
+    { id: "rating", label: "Rating" }
+  ];
+  var htSortBy = "deals"; // deals lead by default
+  var htResults = [];
+
+  function byPrice(a, b) {
+    return (a.perNight == null ? 1e9 : a.perNight) - (b.perNight == null ? 1e9 : b.perNight);
+  }
+
+  function compareHotels(a, b) {
+    if (htSortBy === "rating") {
+      // unrated properties sort last rather than to the top as 0
+      return (b.rating == null ? -1 : b.rating) - (a.rating == null ? -1 : a.rating) || byPrice(a, b);
+    }
+    if (htSortBy === "deals") {
+      // anything Google marks as under its usual price leads, steepest
+      // discount first; a deal that does not say how much still beats a
+      // full-price room. Everything else falls back to price.
+      var ad = a.deal ? 1 : 0, bd = b.deal ? 1 : 0;
+      if (ad !== bd) return bd - ad;
+      if (ad === 1) {
+        var ap = a.dealPct == null ? -1 : a.dealPct, bp = b.dealPct == null ? -1 : b.dealPct;
+        if (ap !== bp) return bp - ap;
+      }
+      return byPrice(a, b);
+    }
+    return byPrice(a, b);
+  }
+
+  function renderHotels(list) {
+    if (list !== htResults) {
+      htResults = list.slice();
+      htSortBy = "deals";
+    }
+    htResults.sort(compareHotels);
+    for (var i = 0; i < htResults.length; i++) htResults[i].domId = "ht-it-" + i;
+
+    var cheapest = htResults.filter(function (p) { return p.cheapest; })[0] || htResults[0];
+    var best = htResults.filter(function (p) { return p.topRated; })[0] || null;
+
+    var html = '<div class="fl-sorts">' +
+      HT_SORTS.map(function (s) {
+        return '<button data-sort="' + s.id + '" class="fl-sort' +
+          (htSortBy === s.id ? " active" : "") + '">' + s.label + "</button>";
+      }).join("") +
+      "</div>" +
+      '<div class="fl-tiles">' +
+      hotelTileHTML("Lowest nightly", cheapest, "") +
+      hotelTileHTML("Top rated", best, "best") +
+      "</div>";
+    html += htResults.map(propertyHTML).join("");
+    elHtResults.innerHTML = html;
+  }
+
+  elHtResults.addEventListener("click", function (e) {
+    var sortBtn = e.target.closest("[data-sort]");
+    if (sortBtn) {
+      htSortBy = sortBtn.getAttribute("data-sort");
+      renderHotels(htResults);
+      return;
+    }
+    var tile = e.target.closest(".fl-tile[data-target]");
+    if (tile) {
+      var row = document.getElementById(tile.getAttribute("data-target"));
+      if (!row) return;
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      row.classList.remove("flash");
+      void row.offsetWidth;
+      row.classList.add("flash");
+      return;
+    }
+    var card = e.target.closest(".ht-item[data-token]");
+    if (card) openHotel(card.getAttribute("data-token"));
+  });
+  // the card carries role=button, so the keyboard has to reach it too
+  elHtResults.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    var card = e.target.closest(".ht-item[data-token]");
+    if (!card) return;
+    e.preventDefault();
+    openHotel(card.getAttribute("data-token"));
+  });
+
+  // ---- the detail sheet ----
+
+  var elSheet = document.getElementById("htSheet");
+  var elSheetBody = document.getElementById("htBody");
+  var htDetailSeq = 0; // so a slow response cannot overwrite a newer one
+
+  function closeHotel() {
+    elSheet.classList.remove("on");
+    document.body.style.overflow = "";
+    htDetailSeq++;
+  }
+  document.getElementById("htClose").addEventListener("click", closeHotel);
+  document.getElementById("htScrim").addEventListener("click", closeHotel);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && elSheet.classList.contains("on")) closeHotel();
+  });
+
+  function openHotel(token) {
+    var mine = ++htDetailSeq;
+    elSheet.classList.add("on");
+    document.body.style.overflow = "hidden";
+    elSheetBody.scrollTop = 0;
+    elSheetBody.innerHTML = '<div class="ht-load">Loading the full listing…</div>';
+    fetch("/api/hotel?token=" + encodeURIComponent(token) +
+          "&checkIn=" + encodeURIComponent(elHtIn.value) +
+          "&checkOut=" + encodeURIComponent(elHtOut.value) +
+          "&adults=" + HOTEL_ADULTS, { headers: flightHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (mine !== htDetailSeq) return; // closed, or another card was tapped
+        if (d.error || !d.details) {
+          elSheetBody.innerHTML = '<div class="ht-load err">' + esc(d.error || "No details available") + "</div>";
+          return;
+        }
+        elSheetBody.innerHTML = detailHTML(d.details);
+      })
+      .catch(function (err) {
+        if (mine !== htDetailSeq) return;
+        elSheetBody.innerHTML = '<div class="ht-load err">Could not load: ' + esc(err.message) + "</div>";
+      });
+  }
+
+  function section(title, inner) {
+    if (!inner) return "";
+    return '<div class="ht-sec"><div class="ht-sec-h">' + title + "</div>" + inner + "</div>";
+  }
+  function kv(k, v) {
+    if (!v) return "";
+    return '<div class="ht-kv"><div class="k">' + k + '</div><div class="v">' + esc(v) + "</div></div>";
+  }
+
+  // OpenStreetMap's embed needs no key of its own — the SerpApi key is the
+  // only credential this page asks anyone for.
+  function mapHTML(d) {
+    if (d.lat == null || d.lon == null) return "";
+    var dx = 0.005, dy = 0.004;
+    var bbox = [d.lon - dx, d.lat - dy, d.lon + dx, d.lat + dy].join(",");
+    var src = "https://www.openstreetmap.org/export/embed.html?bbox=" + encodeURIComponent(bbox) +
+      "&layer=mapnik&marker=" + encodeURIComponent(d.lat + "," + d.lon);
+    return '<iframe class="ht-map" src="' + esc(src) + '" loading="lazy" title="Map"></iframe>' +
+      '<div class="ht-coord">' + d.lat.toFixed(5) + ", " + d.lon.toFixed(5) + "</div>";
+  }
+
+  function detailHTML(d) {
+    var out = "";
+
+    if (d.images.length) {
+      out += '<div class="ht-gal">' + d.images.map(function (src) {
+        return '<img src="' + esc(src) + '" alt="" loading="lazy">';
+      }).join("") + "</div>" +
+      '<div class="ht-count">' + d.images.length + (d.images.length === 1 ? " photo" : " photos") + "</div>";
+    }
+
+    var sub = [];
+    if (d.stars) sub.push('<span class="ht-stars">' + new Array(d.stars + 1).join("★") + "</span>");
+    if (d.kind === "rental") sub.push("Vacation rental");
+    if (d.eco) sub.push("Eco certified");
+    out += '<div class="ht-d-name">' + esc(d.name || "This stay") + "</div>";
+    if (sub.length) out += '<div class="ht-d-sub">' + sub.join(" &middot; ") + "</div>";
+    if (d.rating != null) {
+      out += '<div class="ht-d-rate"><span class="big">' + d.rating.toFixed(1) + "</span>" +
+        '<span class="of">out of 5' + (d.reviews != null ? " · " + d.reviews.toLocaleString("en-US") + " reviews" : "") +
+        "</span></div>";
+    }
+
+    // what the stay costs
+    var priceRows = "";
+    if (d.perNight != null) priceRows += kv("Per night", money(d.perNight));
+    if (d.total != null) priceRows += kv("Stay total", money(d.total));
+    if (d.typicalLow != null && d.typicalHigh != null) {
+      priceRows += kv("Usual range", money(d.typicalLow) + " – " + money(d.typicalHigh));
+    }
+    out += section("Rates", priceRows);
+
+    // the same room at each site that sells it
+    if (d.prices.length) {
+      out += section("Where it is listed", d.prices.map(function (p) {
+        return '<div class="ht-src">' +
+          (p.logo ? '<img src="' + esc(p.logo) + '" alt="" loading="lazy">' : "") +
+          '<div class="nm">' + esc(p.source) + (p.official ? ' <span class="off">Official</span>' : "") + "</div>" +
+          '<div class="pr">' + (p.perNight != null ? money(p.perNight) : "–") +
+          (p.total != null ? "<small>" + money(p.total) + " total</small>" : "") +
+          "</div></div>";
+      }).join(""));
+    }
+
+    out += section("Where it is",
+      kv("Address", d.address) + kv("Phone", d.phone) +
+      kv("Check in", d.checkInTime) + kv("Check out", d.checkOutTime) +
+      (d.locationRating != null ? kv("Location", d.locationRating.toFixed(1) + " out of 5") : ""));
+
+    out += section("On the map", mapHTML(d));
+
+    if (d.histogram.length) {
+      out += section("How it is rated", d.histogram.map(function (r) {
+        return '<div class="ht-bar"><div class="st">' + r.stars + "★</div>" +
+          '<div class="track"><div class="fill" style="width:' + (r.share * 100).toFixed(1) + '%"></div></div>' +
+          '<div class="ct">' + r.count.toLocaleString("en-US") + "</div></div>";
+      }).join(""));
+    }
+
+    if (d.reviewTopics.length) {
+      out += section("What reviewers mention", d.reviewTopics.map(function (t) {
+        var tot = t.positive + t.negative + t.neutral;
+        var pct = function (n) { return tot ? (n / tot * 100).toFixed(1) + "%" : "0%"; };
+        return '<div class="ht-topic"><div class="th">' +
+          '<span class="nm">' + esc(t.name) + "</span>" +
+          '<span class="mn">' + t.mentioned.toLocaleString("en-US") + " mentions</span></div>" +
+          (tot ? '<div class="ht-split">' +
+            '<i class="pos" style="width:' + pct(t.positive) + '"></i>' +
+            '<i class="neu" style="width:' + pct(t.neutral) + '"></i>' +
+            '<i class="neg" style="width:' + pct(t.negative) + '"></i></div>' : "") +
+          "</div>";
+      }).join(""));
+    }
+
+    if (d.amenities.length) {
+      out += section("Amenities", '<div class="ht-chiplist">' +
+        d.amenities.map(function (a) { return "<span>" + esc(a) + "</span>"; }).join("") + "</div>");
+    }
+    if (d.excluded.length) {
+      out += section("Not available", '<div class="ht-chiplist no">' +
+        d.excluded.map(function (a) { return "<span>" + esc(a) + "</span>"; }).join("") + "</div>");
+    }
+
+    if (d.nearby.length) {
+      out += section("Nearby", d.nearby.map(function (n) {
+        return '<div class="ht-kv ht-near"><div class="k">' + esc(n.name) + "</div>" +
+          '<div class="v">' + esc(n.transport.join(" · ") || "—") + "</div></div>";
+      }).join(""));
+    }
+
+    if (d.description) {
+      out += section("About", '<div class="ht-desc">' + esc(d.description) + "</div>");
+    }
+    return out;
+  }
+
+  function searchHotels() {
+    if (!hotelsEnabled) return;
+    var q = elHtWhere.value.trim().replace(/\\s+/g, " ");
+    if (!q) { setHotelMsg("Say where you want to stay", true); return; }
+    var nights = nightsBetween(elHtIn.value, elHtOut.value);
+    if (nights < 1) { setHotelMsg("Check-out has to be after check-in", true); return; }
+    elHtGo.disabled = true;
+    setHotelMsg("Searching stays…");
+    elHtResults.innerHTML = "";
+    fetch("/api/hotels?q=" + encodeURIComponent(q) +
+          "&checkIn=" + encodeURIComponent(elHtIn.value) +
+          "&checkOut=" + encodeURIComponent(elHtOut.value) +
+          "&adults=" + HOTEL_ADULTS +
+          "&brandsOnly=" + htBrandsOnly, { headers: flightHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.enabled === false) {
+          setSerpEnabled(false);
+          showKeyBox(true);
+          setHotelMsg("Add a SerpApi key above to search", true);
+          return;
+        }
+        var list = d.properties || [];
+        if (!list.length) {
+          if (d.brandsOnly && d.total) {
+            setHotelMsg("None of the " + d.total + " found are one of the top brands", true);
+          } else if (d.error) {
+            setHotelMsg(d.error, true);
+          } else {
+            setHotelMsg("No stays found for those dates", true);
+          }
+          return;
+        }
+        renderHotels(list);
+        var brandNote = d.brandsOnly && d.total > list.length
+          ? " · top brands only (" + (d.total - list.length) + " hidden)" : "";
+        setHotelMsg(list.length + (list.length === 1 ? " stay · " : " stays · ") + q + " · " +
+          dayLabel(d.checkIn) + " → " + dayLabel(d.checkOut) + " · " + d.nights +
+          (d.nights === 1 ? " night" : " nights") + brandNote);
+      })
+      .catch(function (e) { setHotelMsg("Search failed: " + e.message, true); })
+      .then(function () { elHtGo.disabled = false; });
+  }
+  elHtGo.addEventListener("click", searchHotels);
+
+  probeFlights();
+
+})();
+</script>
+</body>
+</html>`;
+
 const htmlPage = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5557,294 +6610,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .jump-trains { right: 32px; }
 .stealth-btn { right: 64px; font-size: 14px; }
 
-.flights-section { margin-top: 16px; scroll-margin-top: 10px; }
-.flights-hdr { display: flex; align-items: center; gap: 8px; padding: 0 4px 8px; }
-/* the section owns the blue the Search button uses, so that colour reads as
-   this feature's rather than as one stray accent */
-.flights-title { font-size: 12px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: #5ac8fa; }
-.flights-sub { font-size: 10px; color: var(--text3); }
-.fl-keybtn {
-  margin-left: auto; flex-shrink: 0;
-  width: 24px; height: 24px; border-radius: 7px;
-  border: 1px solid var(--border); background: var(--panel2); color: var(--text3);
-  display: flex; align-items: center; justify-content: center;
-}
-.fl-keybtn.set { color: var(--text2); }
-.fl-keybtn.needed { color: var(--yellow); border-color: rgba(245,197,24,0.4); }
-.fl-keybtn:active { background: var(--panel); }
-
-.fl-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 13px; }
-.fl-field { margin-bottom: 9px; }
-.fl-label { font-size: 9px; letter-spacing: 1.4px; font-weight: 800; text-transform: uppercase; color: var(--text3); margin-bottom: 4px; }
-.fl-input {
-  width: 100%; background: var(--panel2); border: 1px solid var(--border); border-radius: 9px;
-  color: var(--text1); font-size: 15px; font-weight: 700; letter-spacing: 1.2px;
-  padding: 9px 11px; text-transform: uppercase;
-}
-.fl-input::placeholder { color: var(--text3); font-weight: 500; letter-spacing: 0.5px; text-transform: none; }
-.fl-input:focus { outline: none; border-color: rgba(90,200,250,0.55); background: rgba(90,200,250,0.06); }
-.fl-chips { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
-.fl-chip {
-  font-size: 10.5px; font-weight: 800; letter-spacing: 0.8px;
-  padding: 4px 10px; border-radius: 20px;
-  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
-}
-.fl-chip.on { background: var(--text1); color: #000; border-color: var(--text1); }
-
-.fl-row2 { display: flex; gap: 9px; align-items: flex-end; }
-.fl-row2 > .fl-field { flex: 1; margin-bottom: 0; }
-/* the native picker sits invisibly on top of the styled label so iOS opens
-   its own date wheel on tap while the page keeps the relative wording */
-.fl-date-wrap { position: relative; }
-.fl-date-display {
-  background: var(--panel2); border: 1px solid var(--border); border-radius: 9px;
-  color: var(--text1); font-size: 15px; font-weight: 700; padding: 9px 11px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.fl-date-wrap input[type="date"] {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  opacity: 0; border: 0; padding: 0; margin: 0;
-}
-.fl-go {
-  width: 100%; margin-top: 11px; padding: 11px; border-radius: 10px;
-  border: 1px solid rgba(90,200,250,0.5); background: rgba(90,200,250,0.14); color: #5ac8fa;
-  font-size: 12.5px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase;
-}
-.fl-go:active { background: rgba(90,200,250,0.24); }
-.fl-go:disabled { opacity: 0.5; }
-.fl-key { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
-.fl-key.on { display: block; }
-.fl-key-row { display: flex; gap: 7px; }
-.fl-key-row input {
-  flex: 1; min-width: 0; background: var(--panel2); border: 1px solid var(--border); border-radius: 9px;
-  color: var(--text1); font-size: 13px; padding: 8px 10px; letter-spacing: 1px;
-}
-.fl-key-row input:focus { outline: none; border-color: rgba(90,200,250,0.55); }
-.fl-key-row button {
-  padding: 8px 14px; border-radius: 9px; font-size: 11px; font-weight: 800; letter-spacing: 1px;
-  border: 1px solid rgba(90,200,250,0.5); background: rgba(90,200,250,0.14); color: #5ac8fa;
-}
-.fl-key-note { font-size: 9.5px; color: var(--text3); margin-top: 6px; line-height: 1.45; }
-.fl-msg { font-size: 11.5px; color: var(--text3); margin-top: 9px; text-align: center; font-style: italic; }
-.fl-msg.err { color: var(--red); font-style: normal; }
-.fl-raw-btn { display: block; margin: 6px auto 0; background: none; border: none;
-  font-size: 10px; color: var(--text3); text-decoration: underline; padding: 4px; }
-.fl-raw-btn:active { color: var(--text2); }
-
-.fl-results { display: flex; flex-direction: column; gap: 7px; margin-top: 9px; }
-
-.fl-sorts { display: flex; gap: 6px; margin-bottom: 8px; }
-.fl-sort { flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--text2); font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-.fl-sort:hover { border-color: var(--blue); color: var(--blue); }
-.fl-sort.active { background: var(--blue); border-color: var(--blue); color: #fff; }
-
-/* the two headline fares, one per cabin, above the split lists */
-.fl-tiles { display: flex; gap: 8px; }
-.fl-tile {
-  flex: 1; min-width: 0; text-align: left;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px;
-}
-.fl-tile .lbl { font-size: 8.5px; letter-spacing: 1.2px; font-weight: 900; text-transform: uppercase; color: var(--text3); }
-.fl-tile .amt { font-size: 22px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; letter-spacing: -0.4px; margin-top: 1px; }
-.fl-tile .sub { font-size: 9.5px; color: var(--text3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fl-tile.first-cabin { border-color: rgba(192,132,252,0.3); background: linear-gradient(180deg, rgba(192,132,252,0.05), rgba(0,0,0,0)); }
-.fl-tile.first-cabin .lbl { color: #c084fc; }
-.fl-tile:disabled { opacity: 0.4; }
-.fl-tile:not(:disabled):active { border-color: rgba(90,200,250,0.6); }
-
-.fl-group { font-size: 9.5px; letter-spacing: 1.8px; font-weight: 900; text-transform: uppercase;
-  color: var(--text3); padding: 8px 4px 0; }
-.fl-group.first-cabin { color: #c084fc; }
-
-/* where a tile lands you */
-.fl-item.flash { animation: flItemFlash 1.8s ease-out; }
-@keyframes flItemFlash {
-  0%, 22% { border-color: rgba(90,200,250,0.85); background-color: rgba(90,200,250,0.13); }
-  100% { border-color: var(--border); background-color: transparent; }
-}
-.fl-item { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px; }
-.fl-item.first-cabin { border-color: rgba(192,132,252,0.32); background: linear-gradient(180deg, rgba(192,132,252,0.055), rgba(0,0,0,0)); }
-.fl-top { display: flex; align-items: center; gap: 9px; }
-.fl-logo { width: 26px; height: 26px; border-radius: 7px; background: #fff; object-fit: contain; flex-shrink: 0; padding: 2px; }
-.fl-carrier { flex: 1; min-width: 0; }
-.fl-carrier .nm { font-size: 12.5px; font-weight: 700; color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fl-carrier .fn { font-size: 9.5px; color: var(--text3); letter-spacing: 0.4px; }
-.fl-price { text-align: right; flex-shrink: 0; }
-.fl-price .amt { font-size: 19px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
-.fl-price .cab { font-size: 8.5px; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text3); }
-.fl-item.first-cabin .fl-price .cab { color: #c084fc; }
-
-.fl-times { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
-.fl-end { text-align: center; }
-.fl-end .t { font-size: 15px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; }
-.fl-end .a { font-size: 9.5px; font-weight: 800; letter-spacing: 1px; color: var(--text3); }
-.fl-end .t sup { font-size: 8.5px; color: var(--yellow); font-weight: 800; }
-.fl-path { flex: 1; text-align: center; position: relative; }
-.fl-path .bar { height: 1px; background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.28), rgba(255,255,255,0.05)); margin: 7px 0 5px; position: relative; }
-.fl-path .bar::after { content: ""; position: absolute; right: -1px; top: -2px; width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.4); }
-.fl-path .dur { font-size: 9.5px; color: var(--text3); font-variant-numeric: tabular-nums; }
-.fl-path .via { font-size: 10px; color: var(--text2); font-weight: 700; }
-.fl-path .via.direct { color: var(--green); }
-
-.fl-meta { font-size: 10px; color: var(--text3); margin-top: 7px; line-height: 1.45; }
-.fl-meta b { color: var(--text2); font-weight: 700; }
-.fl-flags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
-.fl-flag { font-size: 8.5px; font-weight: 900; letter-spacing: 0.9px; padding: 3px 7px; border-radius: 5px; text-transform: uppercase; }
-.fl-flag.cheap { background: var(--green); color: #042a12; }
-.fl-flag.wide { background: rgba(90,200,250,0.15); color: #5ac8fa; }
-.fl-flag.longlay { background: rgba(245,197,24,0.15); color: var(--yellow); }
-
-/* tap to pick an itinerary for the compare/export bar below */
-.fl-pick { width: 21px; height: 21px; border-radius: 50%; flex-shrink: 0; padding: 0;
-  border: 1.5px solid var(--border); background: transparent;
-  display: flex; align-items: center; justify-content: center; }
-.fl-pick svg { width: 12px; height: 12px; color: #5ac8fa; opacity: 0; }
-.fl-item.picked { border-color: rgba(90,200,250,0.5); }
-.fl-item.picked .fl-pick { background: rgba(90,200,250,0.2); border-color: #5ac8fa; }
-.fl-item.picked .fl-pick svg { opacity: 1; }
-
-.fl-selectbar { display: flex; align-items: center; gap: 7px; padding: 2px 2px 10px; }
-.fl-selectbar .cnt { font-size: 11px; font-weight: 800; color: #5ac8fa; letter-spacing: 0.3px; margin-right: auto; }
-.fl-sb-btn { font-size: 10.5px; font-weight: 800; letter-spacing: 0.3px; padding: 7px 11px; border-radius: 8px;
-  border: 1px solid rgba(90,200,250,0.5); background: rgba(90,200,250,0.14); color: #5ac8fa; }
-.fl-sb-btn:active { background: rgba(90,200,250,0.24); }
-.fl-sb-btn.ghost { border-color: var(--border); background: transparent; color: var(--text2); }
-
-/* ── hotels ──
-   Its own accent rather than the flights blue, so the two travel panels read
-   as siblings instead of one long section. The key itself is shared. */
-.hotels-section { margin-top: 18px; scroll-margin-top: 10px; }
-.hotels-title { font-size: 12px; letter-spacing: 2px; font-weight: 800; text-transform: uppercase; color: #2dd4bf; }
-/* a place name, not an airport code — so no uppercasing or letter-spacing */
-.ht-where { text-transform: none; letter-spacing: 0.2px; font-size: 14.5px; }
-.ht-where::placeholder { letter-spacing: 0.2px; }
-.hotels-section .fl-input:focus { border-color: rgba(45,212,191,0.55); background: rgba(45,212,191,0.06); }
-.hotels-section .fl-chip.on { background: #2dd4bf; color: #04231f; border-color: #2dd4bf; }
-/* the date row zeroes its own bottom margin, so this label needs the gap */
-.ht-guests { margin-top: 11px; margin-bottom: 0; }
-.ht-guests .fl-chips { margin-top: 0; }
-.ht-go { border-color: rgba(45,212,191,0.5); background: rgba(45,212,191,0.14); color: #2dd4bf; }
-.ht-go:active { background: rgba(45,212,191,0.24); }
-.hotels-section .fl-sort:hover { border-color: #2dd4bf; color: #2dd4bf; }
-.hotels-section .fl-sort.active { background: #2dd4bf; border-color: #2dd4bf; color: #04231f; }
-
-.ht-item { background: var(--panel); border: 1px solid var(--border); border-radius: 13px; padding: 10px 12px; }
-.ht-item.flash { animation: flItemFlash 1.8s ease-out; }
-.ht-top { display: flex; align-items: flex-start; gap: 10px; }
-.ht-thumb { width: 54px; height: 54px; border-radius: 9px; object-fit: cover; flex-shrink: 0; background: var(--panel2); }
-.ht-thumb.ph { display: flex; align-items: center; justify-content: center; font-size: 17px; color: var(--text3); }
-.ht-id { flex: 1; min-width: 0; }
-.ht-id .nm { font-size: 13px; font-weight: 700; color: var(--text1); line-height: 1.3; }
-.ht-id .cls { font-size: 9.5px; color: var(--text3); letter-spacing: 0.4px; margin-top: 2px; }
-.ht-stars { color: var(--yellow); letter-spacing: 1px; }
-.ht-rate { display: flex; align-items: baseline; gap: 5px; margin-top: 3px; }
-.ht-rate .sc { font-size: 12px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; }
-.ht-rate .rv { font-size: 9.5px; color: var(--text3); }
-.ht-price { text-align: right; flex-shrink: 0; }
-.ht-price .amt { font-size: 19px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; letter-spacing: -0.3px; }
-.ht-price .per { font-size: 8.5px; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text3); }
-.ht-price .tot { font-size: 9.5px; color: var(--text2); margin-top: 3px; font-variant-numeric: tabular-nums; }
-.ht-amen { font-size: 10px; color: var(--text3); margin-top: 8px; line-height: 1.45; }
-.fl-flag.rated { background: rgba(45,212,191,0.15); color: #2dd4bf; }
-.fl-flag.deal { background: rgba(249,115,22,0.16); color: var(--orange); }
-/* amenity badges, each its own hue so the row reads by colour at a glance */
-.fl-flag.b-paw    { background: rgba(245,197,24,0.16);  color: var(--yellow); padding: 3px 8px; }
-.fl-flag.b-pool   { background: rgba(56,189,248,0.16);  color: #38bdf8; }
-.fl-flag.b-spa    { background: rgba(244,114,182,0.16); color: #f472b6; }
-.fl-flag.b-bar    { background: rgba(167,139,250,0.16); color: #a78bfa; }
-.fl-flag.b-turn   { background: rgba(148,163,184,0.18); color: #94a3b8; }
-.fl-flag.b-dine   { background: rgba(163,230,53,0.15);  color: #a3e635; }
-.fl-flag.b-casino { background: rgba(232,121,249,0.16); color: #e879f9; }
-.fl-flag.b-shuttle { background: rgba(251,191,36,0.16); color: #fbbf24; padding: 3px 8px; }
-.fl-flag.b-drink   { background: rgba(251,113,133,0.16); color: #fb7185; padding: 3px 8px; }
-.fl-flag.b-laundry { background: rgba(34,211,238,0.16); color: #22d3ee; padding: 3px 8px; }
-.fl-flag.b-biz     { background: rgba(96,165,250,0.16); color: #60a5fa; }
-.paw-svg { width: 13px; height: 13px; display: block; }
-.fl-tile.ht-tile.best { border-color: rgba(45,212,191,0.32); background: linear-gradient(180deg, rgba(45,212,191,0.055), rgba(0,0,0,0)); }
-.fl-tile.ht-tile.best .lbl { color: #2dd4bf; }
-.ht-item.tappable { cursor: pointer; }
-.ht-item.tappable:active { background: var(--panel2); }
-
-/* ── the detail sheet ── */
-.ht-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
-.ht-sheet.on { display: block; }
-.ht-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
-.ht-panel {
-  position: absolute; left: 0; right: 0; bottom: 0; top: 24px;
-  background: var(--bg); border-top: 1px solid var(--border);
-  border-radius: 18px 18px 0 0; overflow: hidden;
-  animation: htUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
-}
-@keyframes htUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
-.ht-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 8px auto 0; }
-.ht-close {
-  position: absolute; top: 8px; right: 10px; z-index: 2;
-  width: 30px; height: 30px; border-radius: 50%;
-  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
-  font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
-}
-.ht-close:active { background: var(--panel); color: var(--text1); }
-.ht-body {
-  position: absolute; inset: 20px 0 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
-  padding: 4px 13px calc(26px + env(safe-area-inset-bottom));
-}
-.ht-load { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 40px 0; }
-.ht-load.err { color: var(--red); font-style: normal; }
-
-/* gallery: a snapping filmstrip rather than a grid, so one photo reads big */
-.ht-gal { display: flex; gap: 7px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 -13px; padding: 0 13px 2px; }
-.ht-gal::-webkit-scrollbar { display: none; }
-.ht-gal img { width: 82%; height: 190px; flex: 0 0 auto; object-fit: cover; border-radius: 12px; scroll-snap-align: center; background: var(--panel2); }
-.ht-count { font-size: 9.5px; color: var(--text3); text-align: right; margin-top: 4px; letter-spacing: 0.5px; }
-
-.ht-d-name { font-size: 19px; font-weight: 800; color: var(--text1); line-height: 1.25; margin-top: 10px; letter-spacing: -0.2px; }
-.ht-d-sub { font-size: 10.5px; color: var(--text3); margin-top: 3px; }
-.ht-d-rate { display: flex; align-items: baseline; gap: 6px; margin-top: 6px; }
-.ht-d-rate .big { font-size: 17px; font-weight: 800; color: var(--text1); }
-.ht-d-rate .of { font-size: 10px; color: var(--text3); }
-
-.ht-sec { margin-top: 18px; }
-.ht-sec-h { font-size: 9.5px; letter-spacing: 1.5px; font-weight: 800; text-transform: uppercase; color: #2dd4bf; margin-bottom: 8px; }
-.ht-kv { display: flex; gap: 10px; font-size: 11.5px; color: var(--text2); padding: 6px 0; border-bottom: 1px solid var(--border); line-height: 1.45; }
-.ht-kv:last-child { border-bottom: 0; }
-.ht-kv .k { flex: 0 0 84px; color: var(--text3); font-weight: 700; }
-.ht-kv .v { flex: 1; min-width: 0; }
-/* place names need the room a field label does not */
-.ht-kv.ht-near .k { flex: 1 1 auto; color: var(--text1); font-weight: 600; }
-.ht-kv.ht-near .v { flex: 0 0 auto; text-align: right; color: var(--text3); }
-
-.ht-map { width: 100%; height: 190px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel2); display: block; }
-.ht-coord { font-size: 9.5px; color: var(--text3); margin-top: 5px; font-variant-numeric: tabular-nums; }
-
-.ht-src { display: flex; align-items: center; gap: 9px; padding: 8px 0; border-bottom: 1px solid var(--border); }
-.ht-src:last-child { border-bottom: 0; }
-.ht-src img { width: 20px; height: 20px; border-radius: 5px; background: #fff; object-fit: contain; padding: 1px; flex-shrink: 0; }
-.ht-src .nm { flex: 1; min-width: 0; font-size: 12px; color: var(--text1); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ht-src .off { font-size: 8px; font-weight: 900; letter-spacing: 0.8px; color: #2dd4bf; text-transform: uppercase; }
-.ht-src .pr { font-size: 13px; font-weight: 800; color: var(--text1); font-variant-numeric: tabular-nums; flex-shrink: 0; }
-.ht-src .pr small { display: block; font-size: 9px; font-weight: 600; color: var(--text3); text-align: right; }
-
-.ht-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
-.ht-bar .st { font-size: 10px; color: var(--text3); width: 26px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.ht-bar .track { flex: 1; height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; }
-.ht-bar .fill { height: 100%; background: var(--yellow); border-radius: 3px; }
-.ht-bar .ct { font-size: 9.5px; color: var(--text3); width: 44px; text-align: right; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-
-.ht-topic { padding: 7px 0; border-bottom: 1px solid var(--border); }
-.ht-topic:last-child { border-bottom: 0; }
-.ht-topic .th { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.ht-topic .nm { font-size: 11.5px; font-weight: 700; color: var(--text1); }
-.ht-topic .mn { font-size: 9.5px; color: var(--text3); }
-.ht-split { display: flex; height: 5px; border-radius: 3px; overflow: hidden; margin-top: 5px; background: var(--panel2); }
-.ht-split i { display: block; height: 100%; }
-.ht-split .pos { background: var(--green); }
-.ht-split .neu { background: var(--text3); }
-.ht-split .neg { background: var(--red); }
-
-.ht-chiplist { display: flex; flex-wrap: wrap; gap: 5px; }
-.ht-chiplist span { font-size: 10.5px; padding: 5px 9px; border-radius: 7px; background: var(--panel2); border: 1px solid var(--border); color: var(--text2); }
-.ht-chiplist.no span { color: var(--text3); text-decoration: line-through; opacity: 0.75; }
-.ht-desc { font-size: 12px; color: var(--text2); line-height: 1.55; }
 
 /* ── passcode ──
    A privacy screen, not access control: it keeps the dashboard off the glass
@@ -5986,9 +6751,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     <span class="brand-sep">|</span>
     <span class="status-dot" id="statusDot"></span>
     <span class="status-word" id="statusWord">LIVE</span>
-    <a class="jump-flights jump-trains" href="/trains" aria-label="Open NY Penn / LIRR trains page">&#128646;</a>
-    <a class="jump-flights jump-trains" href="/lirr-board" aria-label="Open LIRR departure board" title="LIRR Board">🚆</a>
-    <button class="jump-flights" id="jumpFlights" aria-label="Jump to flight search">&#9992;</button>
+    <a class="jump-flights jump-trains" href="/trains" aria-label="Open trains page" title="Trains">&#128646;</a>
+    <a class="jump-flights" href="/travel" aria-label="Open travel page" title="Flights &amp; hotels">&#9992;</a>
     <button class="jump-flights stealth-btn" id="stealthBtn" aria-label="Stealth mode">&#9680;</button>
   </div>
 
@@ -6053,115 +6817,6 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     </div>
   </div>
 
-  <div class="flights-section" id="flights">
-    <div class="flights-hdr">
-      <span class="flights-title">Flights</span>
-      <span class="flights-sub">one way &middot; economy + first</span>
-      <button class="fl-keybtn" id="flKeyBtn" aria-label="SerpApi key">
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
-             stroke-width="2" stroke-linecap="round"><circle cx="7" cy="12" r="3.5"></circle><path d="M10.5 12H21M17 12v3.5M20.5 12v2.5"></path></svg>
-      </button>
-    </div>
-
-    <div class="fl-card">
-      <div class="fl-field">
-        <div class="fl-label">From</div>
-        <input class="fl-input" id="flFrom" placeholder="tap a shortcut or type a code" autocomplete="off"
-               autocapitalize="characters" spellcheck="false" inputmode="text">
-        <div class="fl-chips" id="flFromChips"></div>
-      </div>
-
-      <div class="fl-field">
-        <div class="fl-label">To</div>
-        <input class="fl-input" id="flTo" placeholder="tap a shortcut or type a code" autocomplete="off"
-               autocapitalize="characters" spellcheck="false" inputmode="text">
-        <div class="fl-chips" id="flToChips"></div>
-      </div>
-
-      <div class="fl-field">
-        <div class="fl-label">Depart</div>
-        <div class="fl-date-wrap">
-          <div class="fl-date-display" id="flDateDisplay">&mdash;</div>
-          <input type="date" id="flDate">
-        </div>
-      </div>
-
-      <button class="fl-go" id="flGo">Search</button>
-      <div class="fl-msg" id="flMsg"></div>
-      <button class="fl-raw-btn" id="flRawBtn" type="button">View raw SerpApi response</button>
-
-      <div class="fl-key" id="flKeyBox">
-        <div class="fl-label">SerpApi key</div>
-        <div class="fl-key-row">
-          <input type="password" id="flKeyInput" placeholder="paste key" autocomplete="off"
-                 autocapitalize="off" spellcheck="false">
-          <button id="flKeySave">Save</button>
-        </div>
-        <div class="fl-key-note">Stored on this device only, never on the server. Sent as a
-          header with each search so it stays out of request logs.</div>
-      </div>
-
-    </div>
-
-    <div class="fl-results" id="flResults"></div>
-  </div>
-
-  <div class="hotels-section" id="hotels">
-    <div class="flights-hdr">
-      <span class="hotels-title">Hotels</span>
-      <span class="flights-sub">same SerpApi key as flights</span>
-    </div>
-
-    <div class="fl-card">
-      <div class="fl-field">
-        <div class="fl-label">Where</div>
-        <input class="fl-input ht-where" id="htWhere" placeholder="city, area or hotel"
-               autocomplete="off" autocapitalize="words" spellcheck="false">
-        <div class="fl-chips" id="htWhereChips"></div>
-      </div>
-
-      <div class="fl-row2">
-        <div class="fl-field">
-          <div class="fl-label">Check in</div>
-          <div class="fl-date-wrap">
-            <div class="fl-date-display" id="htInDisplay">&mdash;</div>
-            <input type="date" id="htIn">
-          </div>
-        </div>
-        <div class="fl-field">
-          <div class="fl-label">Check out</div>
-          <div class="fl-date-wrap">
-            <div class="fl-date-display" id="htOutDisplay">&mdash;</div>
-            <input type="date" id="htOut">
-          </div>
-        </div>
-      </div>
-
-      <div class="fl-field ht-guests">
-        <div class="fl-label">Guests</div>
-        <div class="fl-chips" id="htAdultChips"></div>
-      </div>
-
-      <div class="fl-field ht-guests">
-        <div class="fl-label">Brand</div>
-        <div class="fl-chips" id="htBrandChips"></div>
-      </div>
-
-      <button class="fl-go ht-go" id="htGo">Search</button>
-      <div class="fl-msg" id="htMsg"></div>
-    </div>
-
-    <div class="fl-results" id="htResults"></div>
-  </div>
-
-  <div class="ht-sheet" id="htSheet" role="dialog" aria-modal="true" aria-label="Hotel details">
-    <div class="ht-scrim" id="htScrim"></div>
-    <div class="ht-panel">
-      <div class="ht-grip"></div>
-      <button class="ht-close" id="htClose" aria-label="Close">&times;</button>
-      <div class="ht-body" id="htBody"></div>
-    </div>
-  </div>
 
   <div class="footer">
     <div class="footer-row">
@@ -7276,988 +7931,13 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     while (tradesList.children.length > MAX_VISIBLE_TRADES) tradesList.removeChild(tradesList.firstChild);
   }
 
-  // ---------- flight search ----------
-
-  // "codes" is what actually gets searched; "display" is what the field
-  // shows once a chip fills it in — a city name reads better than a raw
-  // comma list, especially once a chip covers three or four airports.
-  var AIRPORTS = [
-    { label: "LGA", codes: "LGA", display: "LAGUARDIA" },
-    { label: "NYC", codes: "LGA,JFK,EWR", display: "NEW YORK CITY" },
-    { label: "GSO", codes: "GSO", display: "GREENSBORO" },
-    { label: "RDU", codes: "RDU", display: "RALEIGH-DURHAM" },
-    { label: "OC", codes: "GSO,RDU", display: "OAK CIRCLE" },
-    { label: "PHL", codes: "PHL", display: "PHILADELPHIA" },
-    { label: "WAS", codes: "DCA,IAD,BWI", display: "WASHINGTON" },
-    { label: "!!!", codes: "SAN,LAX,BNA,STL,MIA,FLL,PBI,MCO,ORD,DAL,ILM,CHS,CAE,LAS,SEA,PDX,OAK,SFO,DEN,BOS",
-      display: "ANYWHERE" }
-  ];
-  var WD_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  var WD_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-  function esc(v) {
-    return String(v == null ? "" : v).replace(/[&<>"\u0027]/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "\u0027": "&#39;" }[c];
-    });
-  }
-  function pad2(n) { return (n < 10 ? "0" : "") + n; }
-  function toYMD(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
-
-  // Before noon the useful default is today; after noon it is tomorrow,
-  // because by then most of today has already gone.
-  function defaultDepartDate() {
-    var now = new Date();
-    var d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    if (now.getHours() >= 12) d.setDate(d.getDate() + 1);
-    return toYMD(d);
-  }
-
-  // Today / Tomorrow / a weekday name while that is still unambiguous, and a
-  // real date once it is not.
-  function dayLabel(ymd) {
-    var p = String(ymd).split("-");
-    if (p.length !== 3) return ymd;
-    var d = new Date(+p[0], +p[1] - 1, +p[2]);
-    var today = new Date(); today.setHours(0, 0, 0, 0);
-    var diff = Math.round((d - today) / 86400000);
-    if (diff === 0) return "Today";
-    if (diff === 1) return "Tomorrow";
-    if (diff >= 2 && diff <= 5) return WD_FULL[d.getDay()];
-    return WD_SHORT[d.getDay()] + " " + pad2(d.getMonth() + 1) + "/" + pad2(d.getDate());
-  }
-
-  var elFrom = document.getElementById("flFrom");
-  var elTo = document.getElementById("flTo");
-  var elDate = document.getElementById("flDate");
-  var elDateDisplay = document.getElementById("flDateDisplay");
-  var elGo = document.getElementById("flGo");
-  var elMsg = document.getElementById("flMsg");
-  var elResults = document.getElementById("flResults");
-  var flightsEnabled = true;
-  var hotelsEnabled = true;
-
-  // One key serves both panels, so one probe settles both. Looked up by id
-  // rather than through a variable because the hotel block is defined further
-  // down and this runs during the first probe.
-  function setSerpEnabled(enabled) {
-    flightsEnabled = enabled;
-    hotelsEnabled = enabled;
-    var f = document.getElementById("flGo"), h = document.getElementById("htGo");
-    if (f) f.disabled = !enabled;
-    if (h) h.disabled = !enabled;
-  }
-
-  function normCodes(v) {
-    // \\s, not \s: this whole script lives in a template literal, and an
-    // unrecognised escape there collapses to the bare letter — /\s+/ would
-    // reach the browser as /s+/ and start deleting the letter s.
-    return String(v || "").toUpperCase().replace(/\\s+/g, "").replace(/,+/g, ",").replace(/^,|,$/g, "");
-  }
-
-  // A chip swaps the field's displayed text for a city name, but the actual
-  // search still needs the real codes — stashed on the input itself rather
-  // than parsed back out of that display text. Typing directly clears it,
-  // so manual entry still works exactly as a raw code list, same as before.
-  function codesFor(input) {
-    return input.dataset.codes || normCodes(input.value);
-  }
-  function renderChips(host, input) {
-    host.innerHTML = AIRPORTS.map(function (a) {
-      var on = codesFor(input) === a.codes ? " on" : "";
-      return '<button class="fl-chip' + on + '" data-codes="' + a.codes + '" data-display="' +
-        esc(a.display) + '">' + a.label + "</button>";
-    }).join("");
-  }
-  function refreshChips() {
-    renderChips(document.getElementById("flFromChips"), elFrom);
-    renderChips(document.getElementById("flToChips"), elTo);
-  }
-  function wireChips(hostId, input) {
-    document.getElementById(hostId).addEventListener("click", function (e) {
-      var btn = e.target.closest(".fl-chip");
-      if (!btn) return;
-      input.value = btn.getAttribute("data-display");
-      input.dataset.codes = btn.getAttribute("data-codes");
-      refreshChips();
-      saveFlightPrefs();
-    });
-  }
-  wireChips("flFromChips", elFrom);
-  wireChips("flToChips", elTo);
-  elFrom.addEventListener("input", function () { delete elFrom.dataset.codes; refreshChips(); });
-  elTo.addEventListener("input", function () { delete elTo.dataset.codes; refreshChips(); });
-
-  function syncDate() { elDateDisplay.textContent = dayLabel(elDate.value); }
-  elDate.addEventListener("change", function () { syncDate(); saveFlightPrefs(); });
-
-  function saveFlightPrefs() {
-    try {
-      localStorage.setItem("flightPrefs", JSON.stringify({
-        from: elFrom.value, fromCodes: codesFor(elFrom),
-        to: elTo.value, toCodes: codesFor(elTo),
-      }));
-    } catch (e) {}
-  }
-  function loadFlightPrefs() {
-    try {
-      var p = JSON.parse(localStorage.getItem("flightPrefs") || "{}");
-      if (p.from) elFrom.value = p.from;
-      if (p.fromCodes) elFrom.dataset.codes = p.fromCodes;
-      if (p.to) elTo.value = p.to;
-      if (p.toCodes) elTo.dataset.codes = p.toCodes;
-    } catch (e) {}
-  }
-
-  elDate.value = defaultDepartDate();
-  elDate.min = toYMD(new Date());
-  loadFlightPrefs();
-  syncDate();
-  refreshChips();
-
-  var CHECK_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
-    '<path d="M9 16.2l-3.5-3.5L4 14.2l5 5 11-11-1.5-1.5z"/></svg>';
-  // keyed by the itinerary's stable r.key (assigned once, not by sort order,
-  // so a selection survives switching between the price and arrival sorts)
-  var selected = {};
-  var compareMode = false;
-
-  function flagHTML(r) {
-    var out = [];
-    // just "Lowest" — the row is already badged Economy or First beside the
-    // price, so naming the cabin again in the flag says it twice
-    if (r.cheapest) out.push('<span class="fl-flag cheap">Lowest</span>');
-    if (r.widebody) out.push('<span class="fl-flag wide">Widebody</span>');
-    if (r.longLayover) out.push('<span class="fl-flag longlay">Long layover</span>');
-    return out.length ? '<div class="fl-flags">' + out.join("") + "</div>" : "";
-  }
-
-  function itineraryHTML(r) {
-    var viaTxt = r.nonstop
-      ? '<div class="via direct">Nonstop</div>'
-      : '<div class="via">via ' + esc(r.layovers.map(function (l) { return l.id || l.name; }).join(", ")) + "</div>";
-
-    var meta = [];
-    if (!r.nonstop && r.layovers.length) {
-      meta.push(r.layovers.map(function (l) {
-        return esc(l.durationLabel || "?") + " in " + esc(l.id || l.name) + (l.overnight ? " (overnight)" : "");
-      }).join(" &middot; "));
-    }
-    if (r.aircraft.length) {
-      meta.push(r.aircraft.map(function (a) { return "<b>" + esc(a) + "</b>"; }).join(" &middot; "));
-    }
-
-    return '<div class="fl-item' + (r.cabin === "first" ? " first-cabin" : "") +
-      (selected[r.key] ? " picked" : "") + '" id="' + r.domId + '">' +
-      '<div class="fl-top">' +
-        '<button class="fl-pick" data-key="' + esc(r.key) + '" aria-label="Select this flight to compare" ' +
-          'aria-pressed="' + (selected[r.key] ? "true" : "false") + '">' + CHECK_SVG + "</button>" +
-        (r.logo ? '<img class="fl-logo" src="' + esc(r.logo) + '" alt="" loading="lazy">' : '<div class="fl-logo"></div>') +
-        '<div class="fl-carrier">' +
-          '<div class="nm">' + esc(r.airlines.join(" / ")) + "</div>" +
-          '<div class="fn">' + esc(r.flightNumbers.join(" \u00b7 ")) + "</div>" +
-        "</div>" +
-        '<div class="fl-price">' +
-          '<div class="amt">' + (r.price != null ? "$" + r.price.toLocaleString("en-US") : "\u2013") + "</div>" +
-          '<div class="cab">' + (r.cabin === "first" ? "First" : "Economy") + "</div>" +
-        "</div>" +
-      "</div>" +
-      '<div class="fl-times">' +
-        '<div class="fl-end"><div class="t">' + esc(r.depTime) + '</div><div class="a">' + esc(r.depAirport) + "</div></div>" +
-        '<div class="fl-path">' + viaTxt + '<div class="bar"></div><div class="dur">' + esc(r.totalDurationLabel || "") + "</div></div>" +
-        '<div class="fl-end"><div class="t">' + esc(r.arrTime) + (r.dayOffset ? "<sup>+1</sup>" : "") +
-          '</div><div class="a">' + esc(r.arrAirport) + "</div></div>" +
-      "</div>" +
-      (meta.length ? '<div class="fl-meta">' + meta.join(" &middot; ") + "</div>" : "") +
-      flagHTML(r) +
-      "</div>";
-  }
-
-  // ---- the key, held per device ----
-  // Kept in localStorage rather than on the server: this box runs under
-  // launchd, which never sees a shell export, and a key sitting in one
-  // browser is not on a public-facing machine at all.
-  function flightKey() {
-    try { return localStorage.getItem("serpapiKey") || ""; } catch (e) { return ""; }
-  }
-  function flightHeaders() {
-    var k = flightKey();
-    return k ? { "X-Serpapi-Key": k } : {};
-  }
-  // The key lives behind the key button in the section header rather than as
-  // a standing line of link text — it is a once-a-year action and does not
-  // deserve to be the loudest thing in the panel.
-  function showKeyBox(needed) {
-    var btn = document.getElementById("flKeyBtn");
-    if (needed) document.getElementById("flKeyBox").classList.add("on");
-    else document.getElementById("flKeyBox").classList.remove("on");
-    btn.classList.toggle("needed", needed);
-    btn.classList.toggle("set", !needed && !!flightKey());
-  }
-  document.getElementById("flKeyBtn").addEventListener("click", function () {
-    var box = document.getElementById("flKeyBox");
-    if (box.classList.toggle("on")) document.getElementById("flKeyInput").focus();
-  });
-  document.getElementById("flKeySave").addEventListener("click", function () {
-    var v = document.getElementById("flKeyInput").value.trim();
-    if (!v) return;
-    try { localStorage.setItem("serpapiKey", v); } catch (e) {}
-    document.getElementById("flKeyInput").value = "";
-    setSerpEnabled(true);
-    showKeyBox(false);
-    setFlightMsg("Key saved on this device");
-    setHotelMsg("");
-    probeFlights();
-  });
-
-  // Two headline fares above the results, one per cabin, each a shortcut to
-  // the itinerary it names. Below them the cabins are listed separately —
-  // mixing them in one price-sorted column buried every first-class option
-  // under the entire economy list.
-  function tileHTML(label, r, cabinCls) {
-    if (!r) {
-      return '<button class="fl-tile ' + cabinCls + '" disabled>' +
-        '<div class="lbl">' + label + '</div><div class="amt">\u2013</div>' +
-        '<div class="sub">none found</div></button>';
-    }
-    var sub = [r.airlines.join(" / "), r.nonstop ? "nonstop" : r.stops + " stop" + (r.stops > 1 ? "s" : ""), r.depTime]
-      .filter(Boolean).join(" \u00b7 ");
-    return '<button class="fl-tile ' + cabinCls + '" data-target="' + r.domId + '">' +
-      '<div class="lbl">' + label + '</div>' +
-      '<div class="amt">$' + r.price.toLocaleString("en-US") + '</div>' +
-      '<div class="sub">' + esc(sub) + '</div></button>';
-  }
-
-  var sortBy = "price"; // "price" or "arrival"
-  var results = [];
-
-  function renderResults(list) {
-    var isNew = list !== results;
-    if (isNew) {
-      results = list.slice();
-      // assigned once, from the incoming order, before anything gets
-      // sorted — this is what lets a pick survive a re-sort
-      for (var k = 0; k < results.length; k++) results[k].key = "fl-" + k;
-      sortBy = "price"; // reset to price when new results come in
-      selected = {};
-      compareMode = false;
-    }
-    results.sort(compareResults);
-    for (var i = 0; i < results.length; i++) results[i].domId = "fl-it-" + i;
-
-    var selectedKeys = Object.keys(selected);
-    // nothing left picked is not a valid state to stay compared against
-    if (compareMode && !selectedKeys.length) compareMode = false;
-    var shown = compareMode ? results.filter(function (r) { return selected[r.key]; }) : results;
-
-    var econ = shown.filter(function (r) { return r.cabin !== "first"; });
-    var first = shown.filter(function (r) { return r.cabin === "first"; });
-    var cheapE = econ.filter(function (r) { return r.cheapest; })[0] || econ[0];
-    var cheapF = first.filter(function (r) { return r.cheapest; })[0] || first[0];
-
-    var html = "";
-    if (selectedKeys.length) {
-      html += '<div class="fl-selectbar">' +
-        '<span class="cnt">' + selectedKeys.length + " selected</span>" +
-        '<button class="fl-sb-btn" data-act="compare">' + (compareMode ? "Show all" : "Compare") + "</button>" +
-        '<button class="fl-sb-btn" data-act="export">Export PDF</button>' +
-        '<button class="fl-sb-btn ghost" data-act="clear">Clear</button>' +
-        "</div>";
-    }
-    html += '<div class="fl-sorts">' +
-      '<button data-sort="price" class="fl-sort' + (sortBy === "price" ? " active" : "") + '">Price</button>' +
-      '<button data-sort="arrival" class="fl-sort' + (sortBy === "arrival" ? " active" : "") + '">Earliest arrival</button>' +
-      '</div>' +
-      '<div class="fl-tiles">' +
-      tileHTML("Lowest coach", cheapE, "") +
-      tileHTML("Lowest first", cheapF, "first-cabin") +
-      "</div>";
-    if (econ.length) html += '<div class="fl-group">Economy</div>' + econ.map(itineraryHTML).join("");
-    if (first.length) html += '<div class="fl-group first-cabin">First</div>' + first.map(itineraryHTML).join("");
-    elResults.innerHTML = html;
-  }
-
-  // arrTime is a 12-hour label like "2:30 PM" — the leading number alone
-  // isn't a sortable hour (2 PM and 2 AM both start with "2"), so AM/PM
-  // has to be folded in to get real minutes-since-midnight.
-  function minutesOfDay(label) {
-    if (!label) return Infinity;
-    var parts = label.split(" ");
-    var hm = parts[0].split(":");
-    var h = parseInt(hm[0], 10) % 12;
-    if (parts[1] === "PM") h += 12;
-    return h * 60 + parseInt(hm[1], 10);
-  }
-
-  function compareResults(a, b) {
-    if (sortBy === "price") {
-      return a.price - b.price;
-    } else if (sortBy === "arrival") {
-      var aTime = minutesOfDay(a.arrTime) + (a.dayOffset ? 1440 : 0);
-      var bTime = minutesOfDay(b.arrTime) + (b.dayOffset ? 1440 : 0);
-      return aTime - bTime;
-    }
-    return 0;
-  }
-
-  elResults.addEventListener("click", function (e) {
-    var sortBtn = e.target.closest("[data-sort]");
-    if (sortBtn) {
-      sortBy = sortBtn.getAttribute("data-sort");
-      renderResults(results);
-      return;
-    }
-    var pick = e.target.closest(".fl-pick");
-    if (pick) {
-      var key = pick.getAttribute("data-key");
-      if (selected[key]) delete selected[key]; else selected[key] = true;
-      renderResults(results);
-      return;
-    }
-    var sbBtn = e.target.closest(".fl-sb-btn");
-    if (sbBtn) {
-      var act = sbBtn.getAttribute("data-act");
-      if (act === "compare") compareMode = !compareMode;
-      else if (act === "clear") { selected = {}; compareMode = false; }
-      else if (act === "export") exportSelectedFlights();
-      renderResults(results);
-      return;
-    }
-    var tile = e.target.closest(".fl-tile[data-target]");
-    if (!tile) return;
-    var row = document.getElementById(tile.getAttribute("data-target"));
-    if (!row) return;
-    row.scrollIntoView({ behavior: "smooth", block: "center" });
-    row.classList.remove("flash");
-    void row.offsetWidth; // restart the animation on a repeat tap
-    row.classList.add("flash");
-  });
-
-  // Client-side, off the same data already on screen — no round trip, and
-  // no server involvement in what is otherwise a purely personal export.
-  function exportSelectedFlights() {
-    var picked = results.filter(function (r) { return selected[r.key]; });
-    if (!picked.length || !window.jspdf) return;
-    picked.sort(compareResults);
-
-    var from = codesFor(elFrom) || "?", to = codesFor(elTo) || "?";
-    var doc = new window.jspdf.jsPDF({ unit: "pt", format: "letter" });
-    var y = 50;
-
-    doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(20);
-    doc.text(from + " → " + to, 40, y);
-    y += 18;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(10.5); doc.setTextColor(110);
-    doc.text(dayLabel(elDate.value) + "  ·  " + picked.length + " flight" + (picked.length === 1 ? "" : "s") +
-      "  ·  generated " + new Date().toLocaleString(), 40, y);
-    y += 24;
-
-    picked.forEach(function (r, idx) {
-      if (y > 700) { doc.addPage(); y = 50; }
-      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(20);
-      doc.text((idx + 1) + ". " + r.airlines.join(" / ") + "   $" +
-        (r.price != null ? r.price.toLocaleString("en-US") : "–") +
-        "  (" + (r.cabin === "first" ? "First" : "Economy") + ")", 40, y);
-      y += 16;
-
-      doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(70);
-      doc.text(r.depTime + " " + r.depAirport + "  →  " + r.arrTime + (r.dayOffset ? " (+1 day)" : "") +
-        " " + r.arrAirport + "   ·   " + (r.totalDurationLabel || "") + "   ·   " +
-        (r.nonstop ? "Nonstop" : r.stops + " stop" + (r.stops > 1 ? "s" : "")), 40, y);
-      y += 14;
-
-      if (r.flightNumbers.length) { doc.text("Flight " + r.flightNumbers.join(", "), 40, y); y += 14; }
-      if (!r.nonstop && r.layovers.length) {
-        doc.text("Layover: " + r.layovers.map(function (l) {
-          return (l.durationLabel || "?") + " in " + (l.id || l.name) + (l.overnight ? " (overnight)" : "");
-        }).join("; "), 40, y);
-        y += 14;
-      }
-      if (r.aircraft.length) { doc.text("Aircraft: " + r.aircraft.join(", "), 40, y); y += 14; }
-      y += 12;
-    });
-
-    doc.save("flights-" + from + "-" + to + "-" + elDate.value + ".pdf");
-  }
-
-  function setFlightMsg(text, isErr) {
-    elMsg.textContent = text || "";
-    elMsg.className = "fl-msg" + (isErr ? " err" : "");
-  }
-
-  function searchFlights() {
-    if (!flightsEnabled) return;
-    var from = codesFor(elFrom), to = codesFor(elTo);
-    if (!from || !to) { setFlightMsg("Pick a departure and an arrival", true); return; }
-    elGo.disabled = true;
-    setFlightMsg("Searching economy and first\u2026");
-    elResults.innerHTML = "";
-    fetch("/api/flights?from=" + encodeURIComponent(from) + "&to=" + encodeURIComponent(to) +
-          "&date=" + encodeURIComponent(elDate.value), { headers: flightHeaders() })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (d.enabled === false) { flightsEnabled = false; showKeyBox(true); setFlightMsg("Add a SerpApi key to search", true); return; }
-        if (d.error && (!d.itineraries || !d.itineraries.length)) { setFlightMsg(d.error, true); return; }
-        var list = d.itineraries || [];
-        if (!list.length) { setFlightMsg("No flights found for that route and date", true); return; }
-        renderResults(list);
-        setFlightMsg(list.length + " itineraries \u00b7 " + from + " \u2192 " + to + " \u00b7 " + dayLabel(d.date) +
-          (d.partialError ? " \u00b7 one cabin unavailable" : ""));
-      })
-      .catch(function (e) { setFlightMsg("Search failed: " + e.message, true); })
-      .then(function () { elGo.disabled = false; });
-  }
-  elGo.addEventListener("click", searchFlights);
-
-  // Opens SerpApi's untouched response in a new tab — the same search
-  // that's already cached server-side (searchFlights shares FLIGHT_CACHE_MS
-  // with the normal path), so this costs nothing extra as long as it's
-  // clicked soon after a real search, and only costs a real one otherwise.
-  document.getElementById("flRawBtn").addEventListener("click", function () {
-    var from = codesFor(elFrom), to = codesFor(elTo);
-    if (!from || !to) { setFlightMsg("Pick a departure and an arrival first", true); return; }
-    fetch("/api/flights?from=" + encodeURIComponent(from) + "&to=" + encodeURIComponent(to) +
-          "&date=" + encodeURIComponent(elDate.value) + "&debug=1", { headers: flightHeaders() })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        var blob = new Blob([JSON.stringify(d.raw || d, null, 2)], { type: "application/json" });
-        window.open(URL.createObjectURL(blob), "_blank");
-      })
-      .catch(function (e) { setFlightMsg("Raw fetch failed: " + e.message, true); });
-  });
-
-  // is a key available from either side? cheap probe, no search burned
-  function probeFlights() {
-    fetch("/api/flights", { headers: flightHeaders() })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        var needsKey = !!(d && d.enabled === false);
-        setSerpEnabled(!needsKey);
-        showKeyBox(needsKey);
-        if (needsKey) {
-          setFlightMsg("Add a SerpApi key to search", true);
-          setHotelMsg("Add a SerpApi key above to search", true);
-        } else {
-          if (!elResults.children.length) setFlightMsg("");
-          if (!elHtResults.children.length) setHotelMsg("");
-        }
-      })
-      .catch(function () {});
-  }
-
-  // ---------- hotels ----------
-  // Shares the flights key, the date wording and the card styling; only the
-  // accent colour and the result shape differ.
-
-  var HOTEL_SPOTS = [
-    { label: "New York", q: "New York, NY" },
-    { label: "Philadelphia", q: "Philadelphia, PA" },
-    { label: "Las Vegas", q: "Las Vegas, NV" },
-    { label: "Miami", q: "Miami, FL" }
-  ];
-  var HOTEL_PARTY = [1, 2, 3, 4];
-  var HOTEL_BRAND_CHIPS = [
-    { v: 0, label: "Any" },
-    { v: 1, label: "Top brands" }
-  ];
-
-  var elHtWhere = document.getElementById("htWhere");
-  var elHtIn = document.getElementById("htIn");
-  var elHtOut = document.getElementById("htOut");
-  var elHtInDisp = document.getElementById("htInDisplay");
-  var elHtOutDisp = document.getElementById("htOutDisplay");
-  var elHtGo = document.getElementById("htGo");
-  var elHtMsg = document.getElementById("htMsg");
-  var elHtResults = document.getElementById("htResults");
-  var htAdults = 2;
-  var htBrandsOnly = 0;
-
-  function setHotelMsg(text, isErr) {
-    elHtMsg.textContent = text || "";
-    elHtMsg.className = "fl-msg" + (isErr ? " err" : "");
-  }
-
-  function addDays(ymd, n) {
-    var p = String(ymd).split("-");
-    var d = new Date(+p[0], +p[1] - 1, +p[2]);
-    d.setDate(d.getDate() + n);
-    return toYMD(d);
-  }
-  function nightsBetween(a, b) {
-    var pa = String(a).split("-"), pb = String(b).split("-");
-    if (pa.length !== 3 || pb.length !== 3) return 0;
-    var da = new Date(+pa[0], +pa[1] - 1, +pa[2]), db = new Date(+pb[0], +pb[1] - 1, +pb[2]);
-    return Math.round((db - da) / 86400000);
-  }
-
-  function refreshHotelChips() {
-    document.getElementById("htWhereChips").innerHTML = HOTEL_SPOTS.map(function (s) {
-      var on = elHtWhere.value.trim().toLowerCase() === s.q.toLowerCase() ? " on" : "";
-      return '<button class="fl-chip' + on + '" data-q="' + esc(s.q) + '">' + esc(s.label) + "</button>";
-    }).join("");
-    document.getElementById("htAdultChips").innerHTML = HOTEL_PARTY.map(function (n) {
-      return '<button class="fl-chip' + (n === htAdults ? " on" : "") + '" data-adults="' + n + '">' +
-        n + (n === 1 ? " guest" : " guests") + "</button>";
-    }).join("");
-    document.getElementById("htBrandChips").innerHTML = HOTEL_BRAND_CHIPS.map(function (c) {
-      return '<button class="fl-chip' + (c.v === htBrandsOnly ? " on" : "") + '" data-brands="' + c.v + '">' +
-        c.label + "</button>";
-    }).join("");
-  }
-  document.getElementById("htWhereChips").addEventListener("click", function (e) {
-    var btn = e.target.closest(".fl-chip");
-    if (!btn) return;
-    elHtWhere.value = btn.getAttribute("data-q");
-    refreshHotelChips();
-    saveHotelPrefs();
-  });
-  document.getElementById("htAdultChips").addEventListener("click", function (e) {
-    var btn = e.target.closest(".fl-chip");
-    if (!btn) return;
-    htAdults = parseInt(btn.getAttribute("data-adults"), 10) || 2;
-    refreshHotelChips();
-    saveHotelPrefs();
-  });
-  document.getElementById("htBrandChips").addEventListener("click", function (e) {
-    var btn = e.target.closest(".fl-chip");
-    if (!btn) return;
-    htBrandsOnly = parseInt(btn.getAttribute("data-brands"), 10) || 0;
-    refreshHotelChips();
-    saveHotelPrefs();
-  });
-  elHtWhere.addEventListener("input", function () { refreshHotelChips(); });
-
-  // Check-out has to stay after check-in, so moving check-in drags it along
-  // rather than leaving an impossible stay on screen.
-  function syncHotelDates(fromCheckIn) {
-    if (fromCheckIn && nightsBetween(elHtIn.value, elHtOut.value) < 1) {
-      elHtOut.value = addDays(elHtIn.value, 1);
-    }
-    elHtOut.min = addDays(elHtIn.value, 1);
-    elHtInDisp.textContent = dayLabel(elHtIn.value);
-    elHtOutDisp.textContent = dayLabel(elHtOut.value);
-  }
-  elHtIn.addEventListener("change", function () { syncHotelDates(true); saveHotelPrefs(); });
-  elHtOut.addEventListener("change", function () { syncHotelDates(false); saveHotelPrefs(); });
-
-  function saveHotelPrefs() {
-    try {
-      localStorage.setItem("hotelPrefs",
-        JSON.stringify({ q: elHtWhere.value, adults: htAdults, brandsOnly: htBrandsOnly }));
-    } catch (e) {}
-  }
-  function loadHotelPrefs() {
-    try {
-      var p = JSON.parse(localStorage.getItem("hotelPrefs") || "{}");
-      if (p.q) elHtWhere.value = p.q;
-      if (p.adults) htAdults = p.adults;
-      if (p.brandsOnly === 1) htBrandsOnly = 1;
-    } catch (e) {}
-  }
-
-  elHtIn.value = defaultDepartDate();
-  elHtOut.value = addDays(elHtIn.value, 1);
-  elHtIn.min = toYMD(new Date());
-  loadHotelPrefs();
-  syncHotelDates(false);
-  refreshHotelChips();
-
-  function money(n) { return "$" + Number(n).toLocaleString("en-US"); }
-
-  // Drawn rather than emoji glyphs: an emoji carries its own colour and
-  // cannot be tinted, and renders differently on every platform.
-  var PAW_SVG =
-    '<svg class="paw-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
-    '<ellipse cx="5.6" cy="11.2" rx="2.5" ry="3.1"/>' +
-    '<ellipse cx="10" cy="7.4" rx="2.6" ry="3.4"/>' +
-    '<ellipse cx="15.2" cy="7.4" rx="2.6" ry="3.4"/>' +
-    '<ellipse cx="19.5" cy="11.2" rx="2.5" ry="3.1"/>' +
-    '<path d="M12.5 12.6c3.1 0 5.9 2.6 5.9 5.1 0 1.9-1.6 2.9-3.4 2.9-1.1 0-1.8-.4-2.5-.4s-1.4.4-2.5.4c-1.8 0-3.4-1-3.4-2.9 0-2.5 2.8-5.1 5.9-5.1z"/>' +
-    "</svg>";
-  var PLANE_SVG =
-    '<svg class="paw-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
-    '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2.5 1.5V22l4-1 4 1v-1.5L13 19v-5.5l8 2.5z"/>' +
-    "</svg>";
-  var COCKTAIL_SVG =
-    '<svg class="paw-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
-    '<path d="M21 5V3H3v2l8 9v5H6v2h12v-2h-5v-5l8-9z"/>' +
-    "</svg>";
-  // Drawn with a stroke rather than a fill — a hanger's silhouette is a thin
-  // wire, and a solid triangle just reads as a warning sign at this size.
-  var HANGER_SVG =
-    '<svg class="paw-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-    'stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-    '<circle cx="12" cy="4" r="2" fill="currentColor" stroke="none"/>' +
-    '<path d="M12 6.5C12 6.5 3.5 10.5 3.5 15"/>' +
-    '<path d="M12 6.5C12 6.5 20.5 10.5 20.5 15"/>' +
-    '<path d="M3.5 15L20.5 15"/>' +
-    "</svg>";
-  var ICON_SVGS = { paw: PAW_SVG, plane: PLANE_SVG, cocktail: COCKTAIL_SVG, hanger: HANGER_SVG };
-
-  function hotelFlagHTML(p) {
-    var out = [];
-    if (p.cheapest) out.push('<span class="fl-flag cheap">Lowest</span>');
-    if (p.topRated) out.push('<span class="fl-flag rated">Top rated</span>');
-    if (p.deal) out.push('<span class="fl-flag deal">' + esc(p.deal) + "</span>");
-    // the amenities worth seeing without opening the listing
-    (p.badges || []).forEach(function (b) {
-      out.push('<span class="fl-flag ' + esc(b.cls) + '" title="' + esc(b.title) +
-        '" aria-label="' + esc(b.title) + '">' +
-        (ICON_SVGS[b.icon] || esc(b.label)) + "</span>");
-    });
-    return out.length ? '<div class="fl-flags">' + out.join("") + "</div>" : "";
-  }
-
-  function propertyHTML(p) {
-    var cls = [];
-    if (p.stars) cls.push('<span class="ht-stars">' + new Array(p.stars + 1).join("★") + "</span>");
-    if (p.kind === "rental") cls.push("Vacation rental");
-    if (p.locationRating != null) cls.push("Location " + p.locationRating.toFixed(1));
-
-    var rate = p.rating != null
-      ? '<div class="ht-rate"><span class="sc">' + p.rating.toFixed(1) + "</span>" +
-        (p.reviews != null ? '<span class="rv">' + p.reviews.toLocaleString("en-US") + " reviews</span>" : "") +
-        "</div>"
-      : "";
-
-    var price = p.perNight != null
-      ? '<div class="amt">' + money(p.perNight) + '</div><div class="per">/night</div>' +
-        (p.total != null ? '<div class="tot">' + money(p.total) + " total</div>" : "")
-      : '<div class="amt">–</div><div class="per">no rate</div>';
-
-    return '<div class="ht-item' + (p.token ? " tappable" : "") + '" id="' + p.domId + '"' +
-        (p.token ? ' data-token="' + esc(p.token) + '" role="button" tabindex="0"' : "") + ">" +
-      '<div class="ht-top">' +
-        (p.thumb
-          ? '<img class="ht-thumb" src="' + esc(p.thumb) + '" alt="" loading="lazy">'
-          : '<div class="ht-thumb ph">⌂</div>') +
-        '<div class="ht-id">' +
-          '<div class="nm">' + esc(p.name) + "</div>" +
-          (cls.length ? '<div class="cls">' + cls.join(" &middot; ") + "</div>" : "") +
-          rate +
-        "</div>" +
-        '<div class="ht-price">' + price + "</div>" +
-      "</div>" +
-      (p.amenities.length ? '<div class="ht-amen">' + esc(p.amenities.slice(0, 4).join(" · ")) + "</div>" : "") +
-      hotelFlagHTML(p) +
-      "</div>";
-  }
-
-  function hotelTileHTML(label, p, extraCls) {
-    if (!p) {
-      return '<button class="fl-tile ht-tile ' + extraCls + '" disabled>' +
-        '<div class="lbl">' + label + '</div><div class="amt">–</div>' +
-        '<div class="sub">none found</div></button>';
-    }
-    var sub = [p.name, p.rating != null ? p.rating.toFixed(1) + "★" : null]
-      .filter(Boolean).join(" · ");
-    return '<button class="fl-tile ht-tile ' + extraCls + '" data-target="' + p.domId + '">' +
-      '<div class="lbl">' + label + '</div>' +
-      '<div class="amt">' + (p.perNight != null ? money(p.perNight) : "–") + "</div>" +
-      '<div class="sub">' + esc(sub) + "</div></button>";
-  }
-
-  var HT_SORTS = [
-    { id: "deals", label: "Deals" },
-    { id: "price", label: "Price" },
-    { id: "rating", label: "Rating" }
-  ];
-  var htSortBy = "deals"; // deals lead by default
-  var htResults = [];
-
-  function byPrice(a, b) {
-    return (a.perNight == null ? 1e9 : a.perNight) - (b.perNight == null ? 1e9 : b.perNight);
-  }
-
-  function compareHotels(a, b) {
-    if (htSortBy === "rating") {
-      // unrated properties sort last rather than to the top as 0
-      return (b.rating == null ? -1 : b.rating) - (a.rating == null ? -1 : a.rating) || byPrice(a, b);
-    }
-    if (htSortBy === "deals") {
-      // anything Google marks as under its usual price leads, steepest
-      // discount first; a deal that does not say how much still beats a
-      // full-price room. Everything else falls back to price.
-      var ad = a.deal ? 1 : 0, bd = b.deal ? 1 : 0;
-      if (ad !== bd) return bd - ad;
-      if (ad === 1) {
-        var ap = a.dealPct == null ? -1 : a.dealPct, bp = b.dealPct == null ? -1 : b.dealPct;
-        if (ap !== bp) return bp - ap;
-      }
-      return byPrice(a, b);
-    }
-    return byPrice(a, b);
-  }
-
-  function renderHotels(list) {
-    if (list !== htResults) {
-      htResults = list.slice();
-      htSortBy = "deals";
-    }
-    htResults.sort(compareHotels);
-    for (var i = 0; i < htResults.length; i++) htResults[i].domId = "ht-it-" + i;
-
-    var cheapest = htResults.filter(function (p) { return p.cheapest; })[0] || htResults[0];
-    var best = htResults.filter(function (p) { return p.topRated; })[0] || null;
-
-    var html = '<div class="fl-sorts">' +
-      HT_SORTS.map(function (s) {
-        return '<button data-sort="' + s.id + '" class="fl-sort' +
-          (htSortBy === s.id ? " active" : "") + '">' + s.label + "</button>";
-      }).join("") +
-      "</div>" +
-      '<div class="fl-tiles">' +
-      hotelTileHTML("Lowest nightly", cheapest, "") +
-      hotelTileHTML("Top rated", best, "best") +
-      "</div>";
-    html += htResults.map(propertyHTML).join("");
-    elHtResults.innerHTML = html;
-  }
-
-  elHtResults.addEventListener("click", function (e) {
-    var sortBtn = e.target.closest("[data-sort]");
-    if (sortBtn) {
-      htSortBy = sortBtn.getAttribute("data-sort");
-      renderHotels(htResults);
-      return;
-    }
-    var tile = e.target.closest(".fl-tile[data-target]");
-    if (tile) {
-      var row = document.getElementById(tile.getAttribute("data-target"));
-      if (!row) return;
-      row.scrollIntoView({ behavior: "smooth", block: "center" });
-      row.classList.remove("flash");
-      void row.offsetWidth;
-      row.classList.add("flash");
-      return;
-    }
-    var card = e.target.closest(".ht-item[data-token]");
-    if (card) openHotel(card.getAttribute("data-token"));
-  });
-  // the card carries role=button, so the keyboard has to reach it too
-  elHtResults.addEventListener("keydown", function (e) {
-    if (e.key !== "Enter" && e.key !== " ") return;
-    var card = e.target.closest(".ht-item[data-token]");
-    if (!card) return;
-    e.preventDefault();
-    openHotel(card.getAttribute("data-token"));
-  });
-
-  // ---- the detail sheet ----
-
-  var elSheet = document.getElementById("htSheet");
-  var elSheetBody = document.getElementById("htBody");
-  var htDetailSeq = 0; // so a slow response cannot overwrite a newer one
-
-  function closeHotel() {
-    elSheet.classList.remove("on");
-    document.body.style.overflow = "";
-    htDetailSeq++;
-  }
-  document.getElementById("htClose").addEventListener("click", closeHotel);
-  document.getElementById("htScrim").addEventListener("click", closeHotel);
-  document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" && elSheet.classList.contains("on")) closeHotel();
-  });
-
-  function openHotel(token) {
-    var mine = ++htDetailSeq;
-    elSheet.classList.add("on");
-    document.body.style.overflow = "hidden";
-    elSheetBody.scrollTop = 0;
-    elSheetBody.innerHTML = '<div class="ht-load">Loading the full listing…</div>';
-    fetch("/api/hotel?token=" + encodeURIComponent(token) +
-          "&checkIn=" + encodeURIComponent(elHtIn.value) +
-          "&checkOut=" + encodeURIComponent(elHtOut.value) +
-          "&adults=" + htAdults, { headers: flightHeaders() })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (mine !== htDetailSeq) return; // closed, or another card was tapped
-        if (d.error || !d.details) {
-          elSheetBody.innerHTML = '<div class="ht-load err">' + esc(d.error || "No details available") + "</div>";
-          return;
-        }
-        elSheetBody.innerHTML = detailHTML(d.details);
-      })
-      .catch(function (err) {
-        if (mine !== htDetailSeq) return;
-        elSheetBody.innerHTML = '<div class="ht-load err">Could not load: ' + esc(err.message) + "</div>";
-      });
-  }
-
-  function section(title, inner) {
-    if (!inner) return "";
-    return '<div class="ht-sec"><div class="ht-sec-h">' + title + "</div>" + inner + "</div>";
-  }
-  function kv(k, v) {
-    if (!v) return "";
-    return '<div class="ht-kv"><div class="k">' + k + '</div><div class="v">' + esc(v) + "</div></div>";
-  }
-
-  // OpenStreetMap's embed needs no key of its own — the SerpApi key is the
-  // only credential this page asks anyone for.
-  function mapHTML(d) {
-    if (d.lat == null || d.lon == null) return "";
-    var dx = 0.005, dy = 0.004;
-    var bbox = [d.lon - dx, d.lat - dy, d.lon + dx, d.lat + dy].join(",");
-    var src = "https://www.openstreetmap.org/export/embed.html?bbox=" + encodeURIComponent(bbox) +
-      "&layer=mapnik&marker=" + encodeURIComponent(d.lat + "," + d.lon);
-    return '<iframe class="ht-map" src="' + esc(src) + '" loading="lazy" title="Map"></iframe>' +
-      '<div class="ht-coord">' + d.lat.toFixed(5) + ", " + d.lon.toFixed(5) + "</div>";
-  }
-
-  function detailHTML(d) {
-    var out = "";
-
-    if (d.images.length) {
-      out += '<div class="ht-gal">' + d.images.map(function (src) {
-        return '<img src="' + esc(src) + '" alt="" loading="lazy">';
-      }).join("") + "</div>" +
-      '<div class="ht-count">' + d.images.length + (d.images.length === 1 ? " photo" : " photos") + "</div>";
-    }
-
-    var sub = [];
-    if (d.stars) sub.push('<span class="ht-stars">' + new Array(d.stars + 1).join("★") + "</span>");
-    if (d.kind === "rental") sub.push("Vacation rental");
-    if (d.eco) sub.push("Eco certified");
-    out += '<div class="ht-d-name">' + esc(d.name || "This stay") + "</div>";
-    if (sub.length) out += '<div class="ht-d-sub">' + sub.join(" &middot; ") + "</div>";
-    if (d.rating != null) {
-      out += '<div class="ht-d-rate"><span class="big">' + d.rating.toFixed(1) + "</span>" +
-        '<span class="of">out of 5' + (d.reviews != null ? " · " + d.reviews.toLocaleString("en-US") + " reviews" : "") +
-        "</span></div>";
-    }
-
-    // what the stay costs
-    var priceRows = "";
-    if (d.perNight != null) priceRows += kv("Per night", money(d.perNight));
-    if (d.total != null) priceRows += kv("Stay total", money(d.total));
-    if (d.typicalLow != null && d.typicalHigh != null) {
-      priceRows += kv("Usual range", money(d.typicalLow) + " – " + money(d.typicalHigh));
-    }
-    out += section("Rates", priceRows);
-
-    // the same room at each site that sells it
-    if (d.prices.length) {
-      out += section("Where it is listed", d.prices.map(function (p) {
-        return '<div class="ht-src">' +
-          (p.logo ? '<img src="' + esc(p.logo) + '" alt="" loading="lazy">' : "") +
-          '<div class="nm">' + esc(p.source) + (p.official ? ' <span class="off">Official</span>' : "") + "</div>" +
-          '<div class="pr">' + (p.perNight != null ? money(p.perNight) : "–") +
-          (p.total != null ? "<small>" + money(p.total) + " total</small>" : "") +
-          "</div></div>";
-      }).join(""));
-    }
-
-    out += section("Where it is",
-      kv("Address", d.address) + kv("Phone", d.phone) +
-      kv("Check in", d.checkInTime) + kv("Check out", d.checkOutTime) +
-      (d.locationRating != null ? kv("Location", d.locationRating.toFixed(1) + " out of 5") : ""));
-
-    out += section("On the map", mapHTML(d));
-
-    if (d.histogram.length) {
-      out += section("How it is rated", d.histogram.map(function (r) {
-        return '<div class="ht-bar"><div class="st">' + r.stars + "★</div>" +
-          '<div class="track"><div class="fill" style="width:' + (r.share * 100).toFixed(1) + '%"></div></div>' +
-          '<div class="ct">' + r.count.toLocaleString("en-US") + "</div></div>";
-      }).join(""));
-    }
-
-    if (d.reviewTopics.length) {
-      out += section("What reviewers mention", d.reviewTopics.map(function (t) {
-        var tot = t.positive + t.negative + t.neutral;
-        var pct = function (n) { return tot ? (n / tot * 100).toFixed(1) + "%" : "0%"; };
-        return '<div class="ht-topic"><div class="th">' +
-          '<span class="nm">' + esc(t.name) + "</span>" +
-          '<span class="mn">' + t.mentioned.toLocaleString("en-US") + " mentions</span></div>" +
-          (tot ? '<div class="ht-split">' +
-            '<i class="pos" style="width:' + pct(t.positive) + '"></i>' +
-            '<i class="neu" style="width:' + pct(t.neutral) + '"></i>' +
-            '<i class="neg" style="width:' + pct(t.negative) + '"></i></div>' : "") +
-          "</div>";
-      }).join(""));
-    }
-
-    if (d.amenities.length) {
-      out += section("Amenities", '<div class="ht-chiplist">' +
-        d.amenities.map(function (a) { return "<span>" + esc(a) + "</span>"; }).join("") + "</div>");
-    }
-    if (d.excluded.length) {
-      out += section("Not available", '<div class="ht-chiplist no">' +
-        d.excluded.map(function (a) { return "<span>" + esc(a) + "</span>"; }).join("") + "</div>");
-    }
-
-    if (d.nearby.length) {
-      out += section("Nearby", d.nearby.map(function (n) {
-        return '<div class="ht-kv ht-near"><div class="k">' + esc(n.name) + "</div>" +
-          '<div class="v">' + esc(n.transport.join(" · ") || "—") + "</div></div>";
-      }).join(""));
-    }
-
-    if (d.description) {
-      out += section("About", '<div class="ht-desc">' + esc(d.description) + "</div>");
-    }
-    return out;
-  }
-
-  function searchHotels() {
-    if (!hotelsEnabled) return;
-    var q = elHtWhere.value.trim().replace(/\\s+/g, " ");
-    if (!q) { setHotelMsg("Say where you want to stay", true); return; }
-    var nights = nightsBetween(elHtIn.value, elHtOut.value);
-    if (nights < 1) { setHotelMsg("Check-out has to be after check-in", true); return; }
-    elHtGo.disabled = true;
-    setHotelMsg("Searching stays…");
-    elHtResults.innerHTML = "";
-    fetch("/api/hotels?q=" + encodeURIComponent(q) +
-          "&checkIn=" + encodeURIComponent(elHtIn.value) +
-          "&checkOut=" + encodeURIComponent(elHtOut.value) +
-          "&adults=" + htAdults +
-          "&brandsOnly=" + htBrandsOnly, { headers: flightHeaders() })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (d.enabled === false) {
-          setSerpEnabled(false);
-          showKeyBox(true);
-          setHotelMsg("Add a SerpApi key above to search", true);
-          return;
-        }
-        var list = d.properties || [];
-        if (!list.length) {
-          if (d.brandsOnly && d.total) {
-            setHotelMsg("None of the " + d.total + " found are one of the top brands", true);
-          } else if (d.error) {
-            setHotelMsg(d.error, true);
-          } else {
-            setHotelMsg("No stays found for those dates", true);
-          }
-          return;
-        }
-        renderHotels(list);
-        var brandNote = d.brandsOnly && d.total > list.length
-          ? " · top brands only (" + (d.total - list.length) + " hidden)" : "";
-        setHotelMsg(list.length + (list.length === 1 ? " stay · " : " stays · ") + q + " · " +
-          dayLabel(d.checkIn) + " → " + dayLabel(d.checkOut) + " · " + d.nights +
-          (d.nights === 1 ? " night" : " nights") + brandNote);
-      })
-      .catch(function (e) { setHotelMsg("Search failed: " + e.message, true); })
-      .then(function () { elHtGo.disabled = false; });
-  }
-  elHtGo.addEventListener("click", searchHotels);
-
-  probeFlights();
-
-  document.getElementById("jumpFlights").addEventListener("click", function () {
-    document.getElementById("flights").scrollIntoView({ behavior: "smooth", block: "start" });
-  });
-
   // ---------- passcode ----------
   //
   // This is a privacy screen, not access control. It keeps the dashboard off
   // the glass when the phone is in someone else's hand; it does not protect
   // the data, which the same endpoints still serve to anyone who asks.
 
-  var PIN = "1123";
+  var PIN = "1212";
   var elPin = document.getElementById("pinGate");
   var pinBuf = "";
 
@@ -8735,7 +8415,6 @@ connectCoinbase();
 connectBitstamp();
 startLirrBoard();
 startAmtrakBoard();
-startPennTracks();
 server.listen(PORT, () => {
   console.log(`\nBitcoin ticker running at http://localhost:${PORT}\n`);
 });
