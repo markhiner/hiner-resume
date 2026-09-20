@@ -19,7 +19,7 @@ const COINBASE_WS = "wss://ws-feed.exchange.coinbase.com";
 const BITSTAMP_WS = "wss://ws.bitstamp.net";
 
 const MAX_SECOND_TICKS = 3600; // 1 hour @ 1/sec — full resolution window
-const MAX_MINUTE_BARS = 4320; // 3 days @ 1/min — long-range window
+const MAX_MINUTE_BARS = 10080; // 7 days @ 1/min — long-range window
 const MAX_TRADES = 40; // rapid-fire trade ticker buffer
 const SAVE_INTERVAL_MS = 60_000;
 const STALE_MS = 20_000; // force-reconnect a feed that's gone quiet
@@ -124,7 +124,7 @@ function loadHistory() {
     // well under an hour until they finally age out.
     const now = Date.now();
     if (Array.isArray(parsed.minuteBars)) {
-      minuteBars = parsed.minuteBars.filter((b) => b && now - b.t < 3 * 24 * 60 * 60 * 1000).slice(-MAX_MINUTE_BARS);
+      minuteBars = parsed.minuteBars.filter((b) => b && now - b.t < 7 * 24 * 60 * 60 * 1000).slice(-MAX_MINUTE_BARS);
     }
     if (Array.isArray(parsed.secondTicks)) {
       secondTicks = parsed.secondTicks.filter((p) => p && now - p.t < 60 * 60 * 1000).slice(-MAX_SECOND_TICKS);
@@ -1579,17 +1579,30 @@ function getHistory(range) {
     const bars = minuteBars.concat(currentBar ? [currentBar] : []).filter((b) => b.t >= cutoff);
     return bucketize(bars, 360);
   }
+  if (range === "12h") {
+    const cutoff = now - 12 * 60 * 60 * 1000;
+    const bars = minuteBars.concat(currentBar ? [currentBar] : []).filter((b) => b.t >= cutoff);
+    return bucketize(bars, 360);
+  }
+  if (range === "24h") {
+    const cutoff = now - 24 * 60 * 60 * 1000;
+    const bars = minuteBars.concat(currentBar ? [currentBar] : []).filter((b) => b.t >= cutoff);
+    return bucketize(bars, 360);
+  }
   if (range === "3d") {
     const cutoff = now - 3 * 24 * 60 * 60 * 1000;
-    // 3 days at 1 bar/min is up to 4320 points — MAX_MINUTE_BARS covers the
-    // whole window, but only once the buffer has actually run that long
-    // since this feature shipped (or since the last restart cleared it).
+    // Several days at 1 bar/min is thousands of points — MAX_MINUTE_BARS
+    // covers the whole window, but only once the buffer has actually run
+    // that long since this feature shipped (or since the last restart
+    // cleared it).
     const bars = minuteBars.concat(currentBar ? [currentBar] : []).filter((b) => b.t >= cutoff);
     return bucketize(bars, 500);
   }
-  const cutoff = now - 24 * 60 * 60 * 1000;
+  // "7d" and any unrecognized range fall through to the full 7-day window —
+  // MAX_MINUTE_BARS is sized to hold exactly this much.
+  const cutoff = now - 7 * 24 * 60 * 60 * 1000;
   const bars = minuteBars.concat(currentBar ? [currentBar] : []).filter((b) => b.t >= cutoff);
-  return bucketize(bars, 360);
+  return bucketize(bars, 500);
 }
 
 // ---------- flight search (SerpApi Google Flights) ----------
@@ -6494,16 +6507,30 @@ body {
 canvas#chart { width: 100%; height: 158px; display: block; }
 .chart-axis { display: flex; justify-content: space-between; padding: 3px 4px 0; font-size: 9.5px; color: var(--text3); }
 
-/* ── outlook (chance) card ── */
+/* ── trend chips card ── */
 .outlook-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 10px 13px; }
-.trend-headline { font-size: 14px; font-weight: 700; line-height: 1.35; color: var(--text1); }
-.trend-headline b.up { color: var(--green); }
-.trend-headline b.down { color: var(--red); }
-.gauge { position: relative; height: 7px; border-radius: 4px; margin: 8px 0 5px; background: linear-gradient(90deg, var(--red) 0%, var(--yellow) 50%, var(--green) 100%); }
-.gauge-pointer { position: absolute; top: -4px; width: 3px; height: 16px; background: #fff; border-radius: 2px; box-shadow: 0 0 4px rgba(0,0,0,0.6); transform: translateX(-50%); animation: gaugePulse 1.4s ease-in-out infinite; }
-@keyframes gaugePulse { 0%, 100% { opacity: 1; transform: translateX(-50%) scaleY(1); } 50% { opacity: 0.5; transform: translateX(-50%) scaleY(1.3); } }
-.gauge-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text3); }
-.stat-chips { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.stat-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ── momentum (replaces the old probability gauge) ── */
+.momentum { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.momentum .m-icons { font-size: 16px; line-height: 1; letter-spacing: 1px; }
+.momentum .m-label { font-size: 12.5px; font-weight: 800; color: var(--text2); }
+.momentum.up .m-label { color: var(--green); }
+.momentum.down .m-label { color: var(--red); }
+.momentum.flat .m-label { color: var(--text3); font-weight: 700; }
+.momentum-bar { flex: 1; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.06); overflow: hidden; max-width: 90px; }
+.momentum-bar > i { display: block; height: 100%; border-radius: 3px; transition: width 0.6s ease; background: var(--text3); }
+.momentum.up .momentum-bar > i { background: var(--green); }
+.momentum.down .momentum-bar > i { background: var(--red); }
+.momentum.tier3 .m-icons { animation: momentumPulse 1s ease-in-out infinite; }
+@keyframes momentumPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.65; transform: scale(1.15); } }
+
+/* ── fixed 2-minute live pulse chart ── */
+.pulse-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 8px 10px 6px; }
+.pulse-hdr { display: flex; align-items: center; gap: 6px; font-size: 9.5px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--text3); padding: 0 2px 4px; }
+.pulse-hdr .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulseDot 1.6s ease-in-out infinite; }
+@keyframes pulseDot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+canvas#chart2m { width: 100%; height: 64px; display: block; }
 .chip { font-size: 10px; font-weight: 700; padding: 4px 9px; border-radius: 20px; background: rgba(255,255,255,0.05); color: var(--text2); }
 .chip.green { color: var(--green); background: var(--green-dim); }
 .chip.red { color: var(--red); background: var(--red-dim); }
@@ -6776,14 +6803,20 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     <div id="outlookBody"><div class="trend-warmup">Gathering data for a projection…</div></div>
   </div>
 
+  <div class="pulse-card">
+    <div class="pulse-hdr"><span class="dot"></span>Last 2 minutes</div>
+    <canvas id="chart2m"></canvas>
+  </div>
+
   <div class="range-row-sm">
-    <button class="range-btn-sm" data-range="2m">2m</button>
     <button class="range-btn-sm" data-range="5m">5m</button>
-    <button class="range-btn-sm active" data-range="1h">1</button>
-    <button class="range-btn-sm" data-range="3h">3</button>
-    <button class="range-btn-sm" data-range="6h">6</button>
-    <button class="range-btn-sm" data-range="24h">24</button>
+    <button class="range-btn-sm active" data-range="1h">1h</button>
+    <button class="range-btn-sm" data-range="3h">3h</button>
+    <button class="range-btn-sm" data-range="6h">6h</button>
+    <button class="range-btn-sm" data-range="12h">12h</button>
+    <button class="range-btn-sm" data-range="24h">24h</button>
     <button class="range-btn-sm" data-range="3d">3d</button>
+    <button class="range-btn-sm" data-range="7d">7d</button>
   </div>
 
   <div class="chart-card">
@@ -6828,10 +6861,15 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 (function () {
   "use strict";
+
+  function esc(v) {
+    return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
 
   var state = {
     range: "1h",
@@ -7273,17 +7311,38 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   }
   loadCapture();
 
+  function nycStamp(t) {
+    return new Date(t).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour12: false }) + " ET";
+  }
+
   function captureCSV() {
-    var rows = ["settle_hour,second,timestamp_iso,timestamp_local,brti_price,running_avg"];
+    var now = new Date();
+    var finalAvg = settle.samples.length ? settle.sum / settle.samples.length : null;
+    // A metadata block ahead of the table — spreadsheet apps tolerate the
+    // ragged row lengths fine (extra columns just read blank), and it turns
+    // a bare number grid into something that reads as a real report: what
+    // this is, when it was pulled, and the one number (the settlement
+    // average) that actually mattered, without having to open the file and
+    // hunt for the last row.
+    var meta = [
+      "BTC/USD BRTI \\u2014 60-Second Settlement Capture",
+      "Source,CF Benchmarks BRTI (the price Kalshi settles its hourly BTC markets on)",
+      "Settlement hour," + (settle.hourLabel || settle.hourKey || ""),
+      "Generated (UTC)," + now.toISOString(),
+      "Generated (NYC)," + now.toLocaleString("en-US", { timeZone: "America/New_York" }) + " ET",
+      "Samples," + settle.samples.length,
+      finalAvg != null ? "Settlement average,$" + finalAvg.toFixed(4) : "Settlement average,(incomplete)",
+      "",
+    ];
+    var rows = meta.concat(["second,timestamp_utc,timestamp_nyc,brti_price,running_avg"]);
     var sum = 0;
     for (var i = 0; i < settle.samples.length; i++) {
       var s = settle.samples[i];
       sum += s.px;
       rows.push([
-        settle.hourKey || "",
         i + 1,
         new Date(s.t).toISOString(),
-        hhmmss(s.t),
+        nycStamp(s.t),
         s.px.toFixed(2),
         (sum / (i + 1)).toFixed(4),
       ].join(","));
@@ -7342,13 +7401,13 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   }
 
   var RANGE_MS = {
-    "2m": 120000, "5m": 300000, "1h": 3600000, "3h": 3 * 3600000, "6h": 6 * 3600000,
-    "24h": 24 * 3600000, "3d": 3 * 24 * 3600000,
+    "5m": 300000, "1h": 3600000, "3h": 3 * 3600000, "6h": 6 * 3600000, "12h": 12 * 3600000,
+    "24h": 24 * 3600000, "3d": 3 * 24 * 3600000, "7d": 7 * 24 * 3600000,
   };
   // ranges fed by the live websocket feed, second by second, rather than by
   // the 30s poll — both are windows short enough that a 30s-stale chart
   // would visibly lag behind the price ticking by on the header above it
-  var LIVE_RANGES = { "2m": true, "5m": true, "1h": true };
+  var LIVE_RANGES = { "5m": true, "1h": true };
 
   function drawChart() {
     var rect = canvas.getBoundingClientRect();
@@ -7458,10 +7517,10 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 
     var axisFmt = function (t) {
       var d = new Date(t);
-      if (state.range === "3d") {
+      if (state.range === "3d" || state.range === "7d") {
         return d.toLocaleDateString([], { weekday: "short" }) + " " + d.toLocaleTimeString([], { hour: "numeric" });
       }
-      return state.range === "24h"
+      return state.range === "24h" || state.range === "12h"
         ? d.toLocaleTimeString([], { hour: "numeric" })
         : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     };
@@ -7469,7 +7528,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     document.getElementById("axisEnd").textContent = axisFmt(tLast);
   }
 
-  window.addEventListener("resize", function () { resizeCanvas(); drawChart(); });
+  window.addEventListener("resize", function () { resizeCanvas(); drawChart(); resize2mCanvas(); });
   // the window ends at now, so it has to keep scrolling even when nothing is
   // arriving — otherwise a quiet feed freezes the axis and the line drifts
   // out of step with the clock
@@ -7507,6 +7566,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
   });
 
   function appendLivePoint(avg, vol) {
+    push2m(avg); // always-on 2-minute pulse chart, independent of the selected range
     if (!LIVE_RANGES[state.range]) return;
     if (avg == null || !isFinite(avg)) return; // benchmark has no price right now
     var now = Date.now();
@@ -7530,6 +7590,106 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     drawChart();
   }
 
+  // ---------- 2-minute pulse chart ----------
+  // A fixed, non-interactive window (always "now minus 2 minutes") that
+  // exists purely to show the shape of the last couple minutes at a glance.
+  // Two things make it read as fluid rather than a stepped price ticker:
+  // the window is redrawn every animation frame using the actual clock
+  // (not just when a new tick lands), so the line keeps creeping left in
+  // real time between ticks; and the newest value eases toward its real
+  // target instead of snapping straight to it, so a fresh print glides in
+  // rather than jolting the line.
+  var chart2mEl = document.getElementById("chart2m");
+  var ctx2m = chart2mEl.getContext("2d");
+  var live2m = [];
+  var live2mDisplay = null;
+  var LIVE2M_SPAN_MS = 120000;
+
+  function resize2mCanvas() {
+    var dpr = window.devicePixelRatio || 1;
+    var rect = chart2mEl.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    chart2mEl.width = Math.round(rect.width * dpr);
+    chart2mEl.height = Math.round(rect.height * dpr);
+    ctx2m.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function push2m(avg) {
+    if (avg == null || !isFinite(avg)) return;
+    var now = Date.now();
+    var sec = Math.floor(now / 1000) * 1000;
+    var last = live2m[live2m.length - 1];
+    if (last && last.t >= sec) last.avg = avg;
+    else live2m.push({ t: sec, avg: avg });
+    var cutoff = now - LIVE2M_SPAN_MS - 4000;
+    while (live2m.length && live2m[0].t < cutoff) live2m.shift();
+  }
+
+  function draw2mChart() {
+    requestAnimationFrame(draw2mChart);
+    var rect = chart2mEl.getBoundingClientRect();
+    var w = rect.width, h = rect.height;
+    if (!w || !h || live2m.length < 2) return;
+
+    var now = Date.now();
+    var tRight = now, tLeft = tRight - LIVE2M_SPAN_MS;
+
+    var target = live2m[live2m.length - 1].avg;
+    if (live2mDisplay == null) live2mDisplay = target;
+    live2mDisplay += (target - live2mDisplay) * 0.15;
+
+    var pts = live2m.map(function (p) { return { x: p.t, y: p.avg }; });
+    pts[pts.length - 1] = { x: pts[pts.length - 1].x, y: live2mDisplay };
+    pts.push({ x: now, y: live2mDisplay }); // keeps the line reaching the right edge between ticks
+
+    var vals = pts.map(function (p) { return p.y; });
+    var vMin = Math.min.apply(null, vals), vMax = Math.max.apply(null, vals);
+    var pad = Math.max((vMax - vMin) * 0.2, 0.25);
+    vMin -= pad; vMax += pad;
+
+    function X(t) { return ((t - tLeft) / (tRight - tLeft)) * w; }
+    function Y(v) { return h - ((v - vMin) / (vMax - vMin || 1)) * h; }
+
+    ctx2m.clearRect(0, 0, w, h);
+
+    // A quadratic curve through the midpoint of each segment smooths every
+    // vertex out — a plain polyline at 1 point/sec reads as a jointed
+    // staircase; this reads as one continuous stroke.
+    ctx2m.beginPath();
+    ctx2m.moveTo(X(pts[0].x), Y(pts[0].y));
+    for (var i = 1; i < pts.length; i++) {
+      var prevX = X(pts[i - 1].x), prevY = Y(pts[i - 1].y);
+      var curX = X(pts[i].x), curY = Y(pts[i].y);
+      var midX = (prevX + curX) / 2, midY = (prevY + curY) / 2;
+      ctx2m.quadraticCurveTo(prevX, prevY, midX, midY);
+      if (i === pts.length - 1) ctx2m.lineTo(curX, curY);
+    }
+    var up = live2mDisplay >= pts[0].y;
+    var color = up ? "#22c55e" : "#ef4444";
+    ctx2m.strokeStyle = color;
+    ctx2m.lineWidth = 2;
+    ctx2m.lineJoin = "round";
+    ctx2m.lineCap = "round";
+    ctx2m.stroke();
+
+    var lastPt = pts[pts.length - 1];
+    ctx2m.lineTo(X(lastPt.x), h);
+    ctx2m.lineTo(X(pts[0].x), h);
+    ctx2m.closePath();
+    var grad = ctx2m.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, color + "33");
+    grad.addColorStop(1, color + "00");
+    ctx2m.fillStyle = grad;
+    ctx2m.fill();
+
+    ctx2m.beginPath();
+    ctx2m.arc(X(now), Y(live2mDisplay), 3, 0, Math.PI * 2);
+    ctx2m.fillStyle = color;
+    ctx2m.fill();
+  }
+  resize2mCanvas();
+  requestAnimationFrame(draw2mChart);
+
   // ---------- trend widget ----------
   // The probability itself is computed server-side (trend.model) — one
   // source of truth shared with /api/trend and the Python lab. This just
@@ -7545,26 +7705,8 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     }
 
     var m = trend.model;
-    var probPct = Math.round(m.probAbove * 100); // always "P(above)" — matches the gauge and the Kalshi card
-    var direction = probPct >= 50 ? "up" : "down";
-    var headlinePct = direction === "up" ? probPct : 100 - probPct; // P(the stated direction)
+    var probPct = Math.round(m.probAbove * 100); // still feeds the Kalshi compare card below
     var earlyRead = trend.sampleMinutes < 10;
-
-    var targetLabel = new Date(m.settleTs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-
-    var edge = Math.abs(m.probAbove - 0.5);
-    var confidence = edge > 0.25 ? "Strong" : edge > 0.1 ? "Leaning" : "Toss-up";
-
-    var headline =
-      '<div class="trend-headline">' +
-      headlinePct + "% chance BTC is <b class=\\"" + direction + "\\">" + (direction === "up" ? "above" : "below") + "</b> " +
-      "$" + Math.round(m.threshold).toLocaleString("en-US") +
-      " by <b>" + targetLabel + "</b></div>";
-
-    var pointerPct = Math.min(Math.max(probPct, 2), 98);
-    var gauge =
-      '<div class="gauge"><div class="gauge-pointer" style="left:' + pointerPct + '%"></div></div>' +
-      '<div class="gauge-labels"><span>Below</span><span>' + confidence + "</span><span>Above</span></div>";
 
     var chips = '<div class="stat-chips">';
     if (trend.rsi != null) {
@@ -7580,9 +7722,33 @@ canvas#chart { width: 100%; height: 158px; display: block; }
     if (earlyRead) chips += '<span class="chip yellow">Warming up</span>';
     chips += "</div>";
 
-    body.innerHTML = headline + gauge + chips;
+    body.innerHTML = momentumBadge(trend) + chips;
     lastModelPct = probPct;
     renderKalshi(trend.kalshi, probPct);
+  }
+
+  // A quick "how's it been acting lately" read, in place of the old
+  // probability gauge — that number swung on noise more than it was worth
+  // trusting, but the raw streak length underneath it is just a fact
+  // (BTC has printed higher, or lower, for N minutes running) and reads
+  // fine as a temperature rather than a forecast.
+  function momentumBadge(trend) {
+    if (!trend.streakCount || trend.streakCount < 2 || trend.streakDirection === "flat") {
+      return '<div class="momentum flat"><span class="m-icons">\\u2192</span><span class="m-label">Flat / choppy</span></div>';
+    }
+    var up = trend.streakDirection === "up";
+    var n = trend.streakCount;
+    var tier = n >= 7 ? 3 : n >= 4 ? 2 : 1;
+    var icons = (up ? "\\ud83d\\udd25" : "\\ud83e\\uddca").repeat(tier);
+    var label = up
+      ? (tier === 3 ? "On fire" : tier === 2 ? "Hot streak" : "Warming up")
+      : (tier === 3 ? "Free falling" : tier === 2 ? "Cooling off" : "Slipping");
+    var barPct = tier === 3 ? 100 : tier === 2 ? 66 : 33;
+    return '<div class="momentum ' + (up ? "up" : "down") + " tier" + tier + '">' +
+      '<span class="m-icons">' + icons + '</span>' +
+      '<span class="m-label">' + label + " \\u00b7 " + n + "m " + (up ? "up" : "down") + '</span>' +
+      '<span class="momentum-bar"><i style="width:' + barPct + '%"></i></span>' +
+      '</div>';
   }
 
   // remembered so the 1/sec Kalshi refresh can redraw the comparison card
