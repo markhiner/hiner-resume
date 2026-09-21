@@ -1093,6 +1093,63 @@ async function tradePosition(ticker, action) {
   };
 }
 
+// Opens a brand-new position on any strike — the counterpart to
+// tradePosition() above, which only ever acts on a position already held.
+// Same YES-leg pricing convention (buying NO is selling YES, priced to
+// cross so it fills immediately), but deliberately NOT reduce_only, since
+// opening exposure is the entire point. It also takes a user-chosen count
+// rather than a fixed lot, so the one safety rail left is a hard ceiling
+// (MAX_OPEN_COUNT) against a fat-fingered quantity — everything else
+// (PIN, confirm-twice on the client, IOC so nothing rests) is unchanged.
+const MAX_OPEN_COUNT = Number(process.env.MAX_OPEN_COUNT || 500);
+
+async function openPosition(ticker, side, count) {
+  if (side !== "yes" && side !== "no") throw new Error("side must be yes or no");
+  if (!Number.isInteger(count) || count <= 0) throw new Error("count must be a positive whole number");
+  if (count > MAX_OPEN_COUNT) throw new Error(`count exceeds the ${MAX_OPEN_COUNT}-contract cap (MAX_OPEN_COUNT)`);
+
+  const { market } = await kalshiGET(`/markets/${encodeURIComponent(ticker)}`);
+  if (!market) throw new Error("market not found");
+  if (market.status && market.status !== "active") throw new Error(`market is ${market.status}`);
+
+  const buyingYes = side === "yes";
+  const orderSide = buyingYes ? "bid" : "ask";
+  const priceKey = buyingYes ? "yes_ask" : "yes_bid";
+  const price = money(market, priceKey);
+  if (price == null || price <= 0 || price >= 1) throw new Error("no usable quote to trade against");
+  const shownPrice = buyingYes ? price : 1 - price;
+
+  const order = {
+    ticker,
+    side: orderSide,
+    count: String(count),
+    price: price.toFixed(2),
+    time_in_force: "immediate_or_cancel",
+    self_trade_prevention_type: "taker_at_cross",
+    client_order_id: crypto.randomUUID(),
+  };
+
+  console.log(
+    `OPEN ${side.toUpperCase()} x${count} ${ticker} -> ${orderSide} @ $${order.price} yes-leg ` +
+    `(= ${Math.round(shownPrice * 100)}c on the ${side} leg)`
+  );
+  const resp = await kalshiAuthPOST(KALSHI_TRADE_API, "/portfolio/events/orders", order);
+  const filled = resp && (resp.fill_count != null ? resp.fill_count : null);
+  console.log("  order ack:", JSON.stringify(resp));
+  await pollPortfolio(); // refresh immediately so the new position shows up
+  return {
+    ok: true,
+    action: "open",
+    ticker,
+    side,
+    count,
+    priceCents: Math.round(shownPrice * 100),
+    orderPriceCents: Math.round(price * 100),
+    filled,
+    order: resp,
+  };
+}
+
 function dollars(obj, dollarsKey, centsKey) {
   const d = parseFloat(obj?.[dollarsKey]);
   if (Number.isFinite(d)) return d;
@@ -3403,6 +3460,46 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Opens a new position on any strike from the ladder, at a user-chosen
+  // size — see openPosition() for why this has a different safety model
+  // (a hard MAX_OPEN_COUNT ceiling) than the fixed-lot +10 button above.
+  if (url.pathname === "/api/open-position" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => {
+      body += c;
+      if (body.length > 4096) { req.destroy(); }
+    });
+    req.on("end", async () => {
+      const send = (code, obj) => {
+        res.writeHead(code, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(obj));
+      };
+      if (!portfolioState.sellEnabled) return send(403, { error: "trading is not enabled on this server" });
+      let payload;
+      try { payload = JSON.parse(body || "{}"); } catch { return send(400, { error: "bad request" }); }
+
+      const given = Buffer.from(String(payload.pin || ""));
+      const want = Buffer.from(SELL_PIN);
+      const pinOk = given.length === want.length && crypto.timingSafeEqual(given, want);
+      if (!pinOk) {
+        console.warn("Rejected /api/open-position: bad PIN");
+        return send(401, { error: "incorrect PIN" });
+      }
+      if (!payload.ticker) return send(400, { error: "ticker required" });
+      if (payload.side !== "yes" && payload.side !== "no") return send(400, { error: "side must be yes or no" });
+      const count = Math.trunc(Number(payload.count));
+      if (!Number.isFinite(count) || count <= 0) return send(400, { error: "count must be a positive whole number" });
+
+      try {
+        send(200, await openPosition(String(payload.ticker), payload.side, count));
+      } catch (e) {
+        console.error("OPEN failed:", e.message);
+        send(502, { error: e.message });
+      }
+    });
+    return;
+  }
+
   // Decoy thumbnails, dropped in beside this file as pica.png … picz.png.
   // Read fresh each time rather than listed at boot, so adding one is a matter
   // of copying the file in — no restart.
@@ -3459,6 +3556,22 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/api/kalshi") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ...kalshiState, quote: quoteSnapshot() }));
+    return;
+  }
+  // The full strike ladder for the live hourly event, for the "buy a new
+  // position" strike picker. This rides the slow 20s structure refresh
+  // (kalshiLadder), not the 400ms quote loop — fine for browsing, since
+  // openPosition() always re-fetches that one market fresh at order time
+  // regardless of what price the picker last showed.
+  if (url.pathname === "/api/kalshi-ladder") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      eventTicker: kalshiEvent ? kalshiEvent.ticker : null,
+      closeTime: kalshiEvent ? kalshiEvent.close : null,
+      refPrice: benchmarkPrice(),
+      maxOpenCount: MAX_OPEN_COUNT,
+      ladder: kalshiLadder,
+    }));
     return;
   }
   if (url.pathname === "/api/flights") {
@@ -6596,6 +6709,66 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
 .port-badge.settling { background: rgba(245,197,24,0.16); color: var(--yellow); }
 .port-prov { font-size: 8.5px; color: var(--text3); text-align: center; letter-spacing: 0.3px; }
 
+.kalshi-trade-btn {
+  background: var(--panel2); border: 1px solid rgba(34,197,94,0.5); color: var(--green);
+  font-size: 10px; font-weight: 800; padding: 3px 9px; border-radius: 6px; letter-spacing: 0.3px;
+}
+.kalshi-trade-btn:active { background: var(--panel); }
+
+/* ── new-position sheet (same slide-up pattern used elsewhere) ── */
+.trade-sheet { position: fixed; inset: 0; z-index: 70; display: none; }
+.trade-sheet.on { display: block; }
+.trade-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
+.trade-panel {
+  position: absolute; left: 0; right: 0; bottom: 0; top: 60px;
+  background: var(--bg); border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0; overflow: hidden; display: flex; flex-direction: column;
+  animation: tradeUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+@keyframes tradeUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
+.trade-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 8px auto 0; flex-shrink: 0; }
+.trade-close {
+  position: absolute; top: 8px; right: 10px; z-index: 2;
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
+  font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.trade-close:active { background: var(--panel); color: var(--text1); }
+.trade-head { padding: 10px 16px 6px; flex-shrink: 0; }
+.trade-title { font-size: 17px; font-weight: 800; padding-right: 30px; }
+.trade-sub { font-size: 11.5px; color: var(--text2); margin-top: 2px; }
+.trade-list { flex: 1; overflow-y: auto; padding: 4px 16px 10px; }
+.trade-row { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--border); }
+.trade-strike { font-size: 13px; font-weight: 700; color: var(--text1); }
+.trade-strike .vol { display: block; font-size: 9.5px; color: var(--text3); font-weight: 500; }
+.trade-side-btn { min-width: 62px; padding: 6px 8px; border-radius: 7px; font-size: 12px; font-weight: 800; text-align: center; }
+.trade-side-btn.yes { border: 1px solid rgba(34,197,94,0.5); background: rgba(34,197,94,0.12); color: var(--green); }
+.trade-side-btn.no { border: 1px solid rgba(239,68,68,0.5); background: rgba(239,68,68,0.12); color: var(--red); }
+.trade-side-btn.sel { outline: 2px solid #fff; outline-offset: -1px; }
+.trade-side-btn:disabled { opacity: 0.35; }
+.trade-empty { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 20px 0; }
+.trade-ticket { flex-shrink: 0; padding: 10px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--panel); }
+.trade-ticket-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; margin-bottom: 8px; color: var(--text2); }
+.trade-ticket-row b { color: var(--text1); }
+.trade-qty-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.trade-qty-row input {
+  flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text1);
+  border-radius: 8px; padding: 8px 10px; font-size: 15px; font-variant-numeric: tabular-nums;
+}
+.trade-qty-cost { font-size: 12px; color: var(--text2); white-space: nowrap; }
+.trade-confirm-btn {
+  display: block; width: 100%; padding: 11px; border-radius: 9px;
+  font-size: 14px; font-weight: 800; letter-spacing: 0.3px;
+  background: rgba(34,197,94,0.16); color: var(--green); border: 1px solid rgba(34,197,94,0.5);
+}
+.trade-confirm-btn.no-side { background: rgba(239,68,68,0.16); color: var(--red); border-color: rgba(239,68,68,0.5); }
+.trade-confirm-btn.confirm { background: var(--green); color: #000; }
+.trade-confirm-btn.no-side.confirm { background: var(--red); color: #fff; }
+.trade-confirm-btn:disabled { opacity: 0.4; }
+.trade-msg { font-size: 11px; margin-top: 8px; text-align: center; color: var(--text3); min-height: 14px; }
+.trade-msg.ok { color: var(--green); }
+.trade-msg.err { color: var(--red); }
+
 /* the win announcement — lives outside the positions card so the 1/sec
    rebuild of that card can't restart its animation mid-flight */
 .win-toast {
@@ -6833,6 +7006,28 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
   <div class="win-toast" id="winToast"></div>
 
   <div class="portfolio-card" id="portfolioCard" style="display:none"></div>
+
+  <div class="trade-sheet" id="tradeSheet" role="dialog" aria-modal="true" aria-label="New Kalshi position">
+    <div class="trade-scrim" id="tradeScrim"></div>
+    <div class="trade-panel">
+      <div class="trade-grip"></div>
+      <button class="trade-close" id="tradeClose" aria-label="Close">&times;</button>
+      <div class="trade-head">
+        <div class="trade-title">New Position</div>
+        <div class="trade-sub" id="tradeSub">&mdash;</div>
+      </div>
+      <div class="trade-list" id="tradeList"><div class="trade-empty">Loading strikes&hellip;</div></div>
+      <div class="trade-ticket" id="tradeTicket" style="display:none;">
+        <div class="trade-ticket-row"><span id="tradeTicketDesc">&mdash;</span><b id="tradeTicketPrice">&mdash;</b></div>
+        <div class="trade-qty-row">
+          <input type="number" id="tradeQty" min="1" step="1" inputmode="numeric" placeholder="Contracts">
+          <span class="trade-qty-cost" id="tradeQtyCost"></span>
+        </div>
+        <button class="trade-confirm-btn" id="tradeConfirmBtn" disabled>Pick a side</button>
+        <div class="trade-msg" id="tradeMsg"></div>
+      </div>
+    </div>
+  </div>
 
   <div class="trades-card">
     <div class="trades-hdr"><span class="live-chip"></span>Live Trade Feed</div>
@@ -7824,7 +8019,9 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
       card.style.display = "none";
       return;
     }
-    var html = '<div class="kalshi-hdr"><span class="kalshi-title">Open Positions</span></div>';
+    var html = '<div class="kalshi-hdr"><span class="kalshi-title">Open Positions</span>' +
+      (p.sellEnabled ? '<button class="kalshi-trade-btn" id="openTradeBtn">+ New Position</button>' : "") +
+      "</div>";
     if (!p.positions.length) {
       html += '<div class="port-empty">No open contracts</div>';
     } else {
@@ -8077,6 +8274,191 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
       .then(function () {
         document.querySelectorAll(".port-sell, .port-buy").forEach(function (b) { b.disabled = false; });
       });
+  });
+
+  // ---------- opening a new position ----------
+  // A separate flow from the SELL/+10 buttons above: those only ever act on
+  // a position already held, at a fixed small lot. This opens a brand-new
+  // position on any strike in the live hourly ladder, at a size the user
+  // types in — so the safety rail here is different too: no reduce_only
+  // (opening exposure is the point), no fixed lot (the whole point is a
+  // chosen size), just the PIN, the same two-tap confirm, IOC so nothing
+  // rests, and a hard server-side ceiling (MAX_OPEN_COUNT) against a
+  // fat-fingered quantity.
+
+  var tradeSheetEl = document.getElementById("tradeSheet");
+  var tradeListEl = document.getElementById("tradeList");
+  var tradeTicketEl = document.getElementById("tradeTicket");
+  var tradeQtyEl = document.getElementById("tradeQty");
+  var tradeConfirmBtn = document.getElementById("tradeConfirmBtn");
+  var tradeSelected = null; // { ticker, side, price, desc }
+  var tradeArmed = false;
+  var tradeArmTimer = null;
+  var tradeMaxCount = null;
+
+  function setTradeMsg(text, cls) {
+    var el = document.getElementById("tradeMsg");
+    el.textContent = text || "";
+    el.className = "trade-msg " + (cls || "");
+  }
+
+  function tradeDisarm() {
+    if (tradeArmTimer) clearTimeout(tradeArmTimer);
+    tradeArmTimer = null;
+    tradeArmed = false;
+    if (tradeSelected) tradeConfirmBtn.textContent = "BUY " + tradeSelected.side.toUpperCase();
+    tradeConfirmBtn.classList.remove("confirm");
+  }
+
+  function updateTradeCost() {
+    var qty = parseInt(tradeQtyEl.value, 10);
+    var costEl = document.getElementById("tradeQtyCost");
+    if (tradeSelected && qty > 0) {
+      costEl.textContent = "\\u2248 $" + (qty * tradeSelected.price).toFixed(2);
+    } else {
+      costEl.textContent = "";
+    }
+    tradeConfirmBtn.disabled = !(tradeSelected && qty > 0 && (tradeMaxCount == null || qty <= tradeMaxCount));
+  }
+  tradeQtyEl.addEventListener("input", function () { tradeDisarm(); updateTradeCost(); });
+
+  function selectTradeRow(btn) {
+    tradeDisarm();
+    document.querySelectorAll(".trade-side-btn").forEach(function (b) { b.classList.remove("sel"); });
+    btn.classList.add("sel");
+    tradeSelected = {
+      ticker: btn.getAttribute("data-ticker"),
+      side: btn.getAttribute("data-side"),
+      price: parseFloat(btn.getAttribute("data-price")),
+      desc: btn.getAttribute("data-desc"),
+    };
+    document.getElementById("tradeTicketDesc").textContent = tradeSelected.desc;
+    document.getElementById("tradeTicketPrice").textContent =
+      tradeSelected.side.toUpperCase() + " \\u00b7 " + Math.round(tradeSelected.price * 100) + "\\u00a2";
+    tradeConfirmBtn.textContent = "BUY " + tradeSelected.side.toUpperCase();
+    tradeConfirmBtn.classList.toggle("no-side", tradeSelected.side === "no");
+    tradeTicketEl.style.display = "";
+    setTradeMsg("", "");
+    updateTradeCost();
+  }
+
+  function renderLadder(data) {
+    tradeMaxCount = data.maxOpenCount || null;
+    if (tradeMaxCount) tradeQtyEl.max = tradeMaxCount;
+    var closeStr = data.closeTime
+      ? new Date(data.closeTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      : "";
+    document.getElementById("tradeSub").textContent =
+      (closeStr ? "Settles " + closeStr : "") +
+      (data.refPrice ? " \\u00b7 BTC " + fmtUSDShort(data.refPrice) + " now" : "");
+    var ladder = data.ladder || [];
+    if (!ladder.length) {
+      tradeListEl.innerHTML = '<div class="trade-empty">No live strikes right now.</div>';
+      return;
+    }
+    tradeListEl.innerHTML = ladder.map(function (r) {
+      var yesAsk = r.ask, yesBid = r.bid;
+      var noAsk = Number.isFinite(yesBid) ? 1 - yesBid : null;   // buying NO lifts against the yes bid
+      var yesOk = Number.isFinite(yesAsk) && yesAsk > 0 && yesAsk < 1;
+      var noOk = Number.isFinite(noAsk) && noAsk > 0 && noAsk < 1;
+      var desc = "$" + Math.round(r.strike).toLocaleString("en-US") + "+";
+      return '<div class="trade-row">' +
+        '<span class="trade-strike">' + esc(desc) +
+          (r.vol ? '<span class="vol">' + Math.round(r.vol).toLocaleString() + " vol</span>" : "") + "</span>" +
+        '<button class="trade-side-btn yes" data-ticker="' + esc(r.ticker) + '" data-side="yes" ' +
+          'data-price="' + (yesOk ? yesAsk : "") + '" data-desc="' + esc(desc) + '"' +
+          (yesOk ? "" : " disabled") + ">YES" + (yesOk ? " " + Math.round(yesAsk * 100) + "\\u00a2" : "") + "</button>" +
+        '<button class="trade-side-btn no" data-ticker="' + esc(r.ticker) + '" data-side="no" ' +
+          'data-price="' + (noOk ? noAsk : "") + '" data-desc="' + esc(desc) + '"' +
+          (noOk ? "" : " disabled") + ">NO" + (noOk ? " " + Math.round(noAsk * 100) + "\\u00a2" : "") + "</button>" +
+        "</div>";
+    }).join("");
+  }
+
+  function openTradeSheet() {
+    tradeSheetEl.classList.add("on");
+    document.body.style.overflow = "hidden";
+    tradeSelected = null;
+    tradeTicketEl.style.display = "none";
+    tradeListEl.innerHTML = '<div class="trade-empty">Loading strikes\\u2026</div>';
+    ensurePin();
+    fetch("/api/kalshi-ladder")
+      .then(function (r) { return r.json(); })
+      .then(renderLadder)
+      .catch(function (e) { tradeListEl.innerHTML = '<div class="trade-empty">Failed to load: ' + esc(e.message) + "</div>"; });
+  }
+
+  function closeTradeSheet() {
+    tradeSheetEl.classList.remove("on");
+    document.body.style.overflow = "";
+    tradeDisarm();
+  }
+
+  document.getElementById("tradeClose").addEventListener("click", closeTradeSheet);
+  document.getElementById("tradeScrim").addEventListener("click", closeTradeSheet);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && tradeSheetEl.classList.contains("on")) closeTradeSheet();
+  });
+
+  document.getElementById("portfolioCard").addEventListener("click", function (ev) {
+    if (ev.target.closest("#openTradeBtn")) openTradeSheet();
+  });
+
+  tradeListEl.addEventListener("click", function (ev) {
+    var btn = ev.target.closest(".trade-side-btn");
+    if (!btn || btn.disabled) return;
+    selectTradeRow(btn);
+  });
+
+  tradeConfirmBtn.addEventListener("click", function () {
+    if (!tradeSelected) return;
+    var qty = parseInt(tradeQtyEl.value, 10);
+    if (!(qty > 0)) return;
+
+    if (!tradeArmed) {
+      tradeArmed = true;
+      tradeConfirmBtn.classList.add("confirm");
+      tradeConfirmBtn.textContent = "CONFIRM?";
+      tradeArmTimer = setTimeout(tradeDisarm, 5000);
+      return;
+    }
+
+    tradeDisarm();
+    var pin = localStorage.getItem("sellPin");
+    if (!pin) {
+      pinAsked = false;
+      ensurePin();
+      pin = localStorage.getItem("sellPin");
+      if (!pin) { setTradeMsg("No PIN set", "err"); return; }
+    }
+    setTradeMsg("Buying\\u2026", "");
+    tradeConfirmBtn.disabled = true;
+
+    fetch("/api/open-position", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker: tradeSelected.ticker, side: tradeSelected.side, count: qty, pin: pin }),
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (res.ok) {
+          localStorage.setItem("sellPin", pin);
+          var f = res.j.filled;
+          if (f != null && Number(f) < Number(res.j.count)) {
+            setTradeMsg("Filled " + f + " of " + res.j.count + " @ " + res.j.priceCents + "\\u00a2", "ok");
+          } else {
+            setTradeMsg("Bought " + res.j.count + " " + res.j.side.toUpperCase() + " @ " + res.j.priceCents + "\\u00a2", "ok");
+          }
+        } else {
+          if (res.j && /PIN/i.test(res.j.error || "")) {
+            localStorage.removeItem("sellPin");
+            pinAsked = false;
+          }
+          setTradeMsg(res.j && res.j.error ? res.j.error : "Buy failed", "err");
+        }
+      })
+      .catch(function (e) { setTradeMsg("Buy failed: " + e.message, "err"); })
+      .then(function () { updateTradeCost(); });
   });
 
   // ---------- live trade ticker ----------
