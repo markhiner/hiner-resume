@@ -3709,6 +3709,11 @@ const server = http.createServer((req, res) => {
     res.end(travelPage);
     return;
   }
+  if (url.pathname === "/rundown") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(rundownPage);
+    return;
+  }
   if (url.pathname === "/amtrak-nec-map") {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(amtrakNECMapPage);
@@ -6422,6 +6427,334 @@ body {
 </body>
 </html>`;
 
+// A TV-rundown builder: a fixed sequence of story slots (A, a topic
+// callout unique to the top story, an "other topic" filler, A2, then
+// B/C/D each with a name and an optional TELL), matching the layout and
+// exact bold/italic/all-caps formatting of the reference rundown the
+// user supplied. Every field left blank is simply omitted from the
+// exported document rather than printed empty — that's what makes the
+// "optional, grayed out until typed into" fields behave like optional
+// fields at all. Entirely client-side: autosaves to localStorage (this
+// dashboard has exactly one owner, same as the Kalshi credentials, so
+// there's no reason for a server round trip here) and exports a real
+// .docx built in-browser with JSZip, matching the reference's Arial/bold/
+// italic/13pt runs and paragraph spacing exactly.
+const rundownPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<title>Rundown Builder</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
+  --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --yellow: #f5c518; --green: #22c55e;
+}
+html, body { background: var(--bg); color: var(--text1); height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  min-height: 100%;
+}
+#app { max-width: 480px; margin: 0 auto; padding: 14px 14px 40px; }
+
+.rd-topbar { display: flex; align-items: center; gap: 10px; padding: 4px 2px 4px; }
+.rd-back {
+  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text1);
+  display: flex; align-items: center; justify-content: center; font-size: 16px; text-decoration: none;
+}
+.rd-back:active { background: var(--panel); }
+.rd-brand { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--text2); text-transform: uppercase; }
+.rd-save { margin-left: auto; font-size: 10.5px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.rd-save.ok { color: var(--green); }
+
+.rd-actions { display: flex; gap: 8px; padding: 10px 2px 16px; }
+.rd-btn {
+  flex: 1; padding: 10px; border-radius: 9px; border: 1px solid var(--border);
+  background: var(--panel2); color: var(--text1); font-size: 13px; font-weight: 800; letter-spacing: 0.3px;
+}
+.rd-btn:active { background: var(--panel); }
+.rd-btn.primary { background: rgba(34,197,94,0.16); border-color: rgba(34,197,94,0.5); color: var(--green); }
+.rd-btn.danger { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); color: #ef4444; flex: 0 0 auto; padding: 10px 14px; }
+
+.rd-section { margin-bottom: 6px; }
+.rd-section-hdr { font-size: 10.5px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; color: var(--yellow); padding: 14px 2px 8px; }
+.rd-field { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 9px 11px; margin-bottom: 8px; transition: opacity 0.2s ease, border-color 0.2s ease; }
+.rd-field.gray { opacity: 0.5; border-style: dashed; }
+.rd-field.gray.active { opacity: 1; border-style: solid; }
+.rd-label { font-size: 9.5px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text3); margin-bottom: 5px; display: flex; justify-content: space-between; }
+.rd-label .opt { font-weight: 600; font-style: italic; letter-spacing: 0; text-transform: none; color: var(--text3); }
+.rd-input {
+  width: 100%; background: transparent; border: none; color: var(--text1);
+  font-family: Arial, Helvetica, sans-serif; font-weight: 700; font-size: 15px;
+  resize: none; overflow: hidden; min-height: 22px; line-height: 1.35;
+}
+.rd-input.italic { font-style: italic; }
+.rd-input::placeholder { color: var(--text3); font-weight: 600; font-style: normal; text-transform: none; }
+.rd-input:focus { outline: none; }
+
+.rd-foot { text-align: center; color: var(--text3); font-size: 10.5px; padding: 18px 4px 0; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="rd-topbar">
+    <a class="rd-back" href="/" aria-label="Back to BTC ticker">&larr;</a>
+    <span class="rd-brand">Rundown Builder</span>
+    <span class="rd-save" id="rdSave">&mdash;</span>
+  </div>
+
+  <div class="rd-actions">
+    <button class="rd-btn primary" id="rdExport">Export .DOCX</button>
+    <button class="rd-btn danger" id="rdClear" title="Clear everything">Clear</button>
+  </div>
+
+  <div class="rd-section" id="rdFields"></div>
+
+  <div class="rd-foot">Autosaves to this device every few seconds &middot; nothing is sent to a server</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // Each entry is one line of the rundown, in export order. "label" is
+  // what's shown above the box in this UI; "prefix" is the static text
+  // the export prepends (never typed by the user); "gray" self-gates the
+  // field's box between dim/"optional" and fully active based on whether
+  // it has content; "noGapAfter" suppresses the blank spacer paragraph
+  // that otherwise follows every field in the exported document — used
+  // only between the topic callout and its name, which sit tight against
+  // each other in the reference with no gap, unlike every other pair.
+  var FIELDS = [
+    { id: "a",         label: "A",                       prefix: "A: ",            italic: false, gray: false },
+    { id: "aName",     label: "Name / Source",           prefix: "> ",             italic: true,  gray: false },
+    { id: "topic",     label: "Topic callout (optional)", prefix: "",              italic: true,  gray: true, wrap: "asterisk", noGapAfter: true },
+    { id: "topicName", label: "Topic callout name",      prefix: "> ",             italic: true,  gray: false },
+    { id: "a2",        label: "A2 (optional)",           prefix: "A2: ",           italic: false, gray: true },
+    { id: "a2Name",    label: "Name / Source",           prefix: "> ",             italic: true,  gray: false },
+    { id: "a2Tell",    label: "Tell (optional)",         prefix: "TELL: ",         italic: false, gray: true },
+    { id: "otherTopic",label: "Other topic (optional)",  prefix: "OTHER TOPIC: ",  italic: false, gray: true },
+    { id: "b",         label: "B",                       prefix: "B: ",            italic: false, gray: false },
+    { id: "bName",     label: "Name / Source",           prefix: "> ",             italic: true,  gray: false },
+    { id: "bTell",     label: "Tell (optional)",         prefix: "TELL: ",         italic: false, gray: true },
+    { id: "c",         label: "C",                       prefix: "C: ",            italic: false, gray: false },
+    { id: "cName",     label: "Name / Source",           prefix: "> ",             italic: true,  gray: false },
+    { id: "cTell",     label: "Tell (optional)",         prefix: "TELL: ",         italic: false, gray: true },
+    { id: "d",         label: "D",                       prefix: "D: ",            italic: false, gray: false },
+    { id: "dName",     label: "Name / Source",           prefix: "> ",             italic: true,  gray: false },
+    { id: "dTell",     label: "Tell (optional)",         prefix: "TELL: ",         italic: false, gray: true },
+  ];
+  // Purely cosmetic section headers dropped in above certain fields.
+  var SECTION_BEFORE = { a: "Top Story", a2: "A2", b: "Story B", c: "Story C", d: "Story D" };
+
+  var STORE_KEY = "rundownDraft";
+
+  var host = document.getElementById("rdFields");
+  host.innerHTML = FIELDS.map(function (f) {
+    var section = SECTION_BEFORE[f.id] ? '<div class="rd-section-hdr">' + SECTION_BEFORE[f.id] + "</div>" : "";
+    var optTag = f.gray ? '<span class="opt">grayed out until filled</span>' : "";
+    return section +
+      '<div class="rd-field' + (f.gray ? " gray" : "") + '" id="wrap-' + f.id + '">' +
+        '<div class="rd-label"><span>' + f.label + "</span>" + optTag + "</div>" +
+        '<textarea class="rd-input' + (f.italic ? " italic" : "") + '" id="f-' + f.id + '" rows="1" ' +
+          'placeholder="' + (f.gray ? "Type to activate\\u2026" : "Type here\\u2026") + '"></textarea>' +
+      "</div>";
+  }).join("");
+
+  function autosize(el) {
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  }
+
+  // Forces real uppercase characters into the field as you type (not just
+  // a CSS text-transform) so what's on screen is exactly what ends up in
+  // the exported document. Cursor position is preserved across the
+  // rewrite, since naively reassigning .value snaps it to the end.
+  function uppercaseInPlace(el) {
+    var start = el.selectionStart, end = el.selectionEnd;
+    var upper = el.value.toUpperCase();
+    if (upper !== el.value) {
+      el.value = upper;
+      try { el.setSelectionRange(start, end); } catch (e) {}
+    }
+  }
+
+  var fields = {};
+  FIELDS.forEach(function (f) {
+    var el = document.getElementById("f-" + f.id);
+    fields[f.id] = el;
+    el.addEventListener("input", function () {
+      uppercaseInPlace(el);
+      autosize(el);
+      if (f.gray) {
+        document.getElementById("wrap-" + f.id).classList.toggle("active", el.value.trim().length > 0);
+      }
+      scheduleSave();
+    });
+  });
+
+  // ---------- autosave ----------
+  // Debounced on every keystroke, plus an unconditional save every few
+  // seconds as a backstop \\u2014 either one alone would be fine, but together
+  // neither a burst of typing nor a long idle stretch can lose anything.
+
+  var saveTimer = null;
+  var saveEl = document.getElementById("rdSave");
+
+  function currentDraft() {
+    var out = {};
+    FIELDS.forEach(function (f) { out[f.id] = fields[f.id].value; });
+    return out;
+  }
+
+  function doSave() {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(currentDraft()));
+      var t = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      saveEl.textContent = "Saved " + t;
+      saveEl.classList.add("ok");
+    } catch (e) {
+      saveEl.textContent = "Save failed";
+      saveEl.classList.remove("ok");
+    }
+  }
+
+  function scheduleSave() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(doSave, 600);
+  }
+
+  setInterval(doSave, 4000);
+
+  function loadDraft() {
+    var raw;
+    try { raw = localStorage.getItem(STORE_KEY); } catch (e) { return; }
+    if (!raw) return;
+    var saved;
+    try { saved = JSON.parse(raw); } catch (e) { return; }
+    FIELDS.forEach(function (f) {
+      if (typeof saved[f.id] !== "string") return;
+      fields[f.id].value = saved[f.id];
+      autosize(fields[f.id]);
+      if (f.gray) document.getElementById("wrap-" + f.id).classList.toggle("active", saved[f.id].trim().length > 0);
+    });
+  }
+  loadDraft();
+
+  document.getElementById("rdClear").addEventListener("click", function () {
+    if (!window.confirm("Clear the whole rundown? This can't be undone.")) return;
+    FIELDS.forEach(function (f) {
+      fields[f.id].value = "";
+      autosize(fields[f.id]);
+      if (f.gray) document.getElementById("wrap-" + f.id).classList.remove("active");
+    });
+    doSave();
+  });
+
+  // ---------- .docx export ----------
+  // A hand-built, minimal-but-valid OOXML package (via JSZip) rather than
+  // a docx-writing library \\u2014 the whole document is a handful of fixed
+  // paragraph styles, so there's nothing a library would buy here that
+  // isn't simpler to just write directly, and it keeps this page's only
+  // dependency to JSZip itself.
+
+  function xmlEsc(s) {
+    return String(s || "").replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; });
+  }
+
+  function paragraphXml(text, italic) {
+    var rPr = '<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:b/><w:bCs/>' +
+      (italic ? "<w:i/><w:iCs/>" : "") + '<w:sz w:val="26"/><w:szCs w:val="26"/>';
+    return "<w:p><w:pPr><w:rPr>" + rPr + "</w:rPr></w:pPr>" +
+      "<w:r><w:rPr>" + rPr + '</w:rPr><w:t xml:space="preserve">' + xmlEsc(text) + "</w:t></w:r></w:p>";
+  }
+  var BLANK_P = "<w:p/>";
+
+  function buildDocumentXml() {
+    var body = "";
+    FIELDS.forEach(function (f) {
+      var raw = fields[f.id].value.trim();
+      if (!raw) return;
+      var text = f.wrap === "asterisk" ? "*" + raw + "*" : f.prefix + raw;
+      body += paragraphXml(text, f.italic);
+      if (!f.noGapAfter) body += BLANK_P;
+    });
+    if (!body) body = paragraphXml("", false);
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+      "<w:body>" + body +
+      '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/>' +
+      '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>' +
+      "</w:sectPr></w:body></w:document>";
+  }
+
+  var CONTENT_TYPES_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+    '<Default Extension="xml" ContentType="application/xml"/>' +
+    '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+    '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>' +
+    "</Types>";
+
+  var ROOT_RELS_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+    "</Relationships>";
+
+  var DOC_RELS_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+    "</Relationships>";
+
+  var STYLES_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+    '<w:docDefaults><w:rPrDefault><w:rPr>' +
+    '<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:sz w:val="26"/><w:szCs w:val="26"/>' +
+    "</w:rPr></w:rPrDefault></w:docDefaults>" +
+    '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>' +
+    "</w:styles>";
+
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+  document.getElementById("rdExport").addEventListener("click", function () {
+    if (!window.JSZip) { window.alert("Export library failed to load \\u2014 check your connection and reload."); return; }
+    var zip = new JSZip();
+    zip.file("[Content_Types].xml", CONTENT_TYPES_XML);
+    zip.folder("_rels").file(".rels", ROOT_RELS_XML);
+    var word = zip.folder("word");
+    word.file("document.xml", buildDocumentXml());
+    word.file("styles.xml", STYLES_XML);
+    word.folder("_rels").file("document.xml.rels", DOC_RELS_XML);
+
+    zip.generateAsync({
+      type: "blob",
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }).then(function (blob) {
+      var d = new Date();
+      var name = "rundown-" + d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + ".docx";
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    });
+  });
+})();
+</script>
+</body>
+</html>`;
+
 const htmlPage = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6808,7 +7141,8 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
 }
 .jump-flights:active { background: var(--panel); color: var(--text1); }
 .jump-trains { right: 32px; }
-.stealth-btn { right: 64px; font-size: 14px; }
+.rundown-btn { right: 64px; }
+.stealth-btn { right: 96px; font-size: 14px; }
 
 
 /* ── passcode ──
@@ -6953,6 +7287,7 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
     <span class="status-word" id="statusWord">LIVE</span>
     <a class="jump-flights jump-trains" href="/trains" aria-label="Open trains page" title="Trains">&#128646;</a>
     <a class="jump-flights" href="/travel" aria-label="Open travel page" title="Flights &amp; hotels">&#9992;</a>
+    <a class="jump-flights rundown-btn" href="/rundown" aria-label="Open rundown builder" title="Rundown">&#128203;</a>
     <button class="jump-flights stealth-btn" id="stealthBtn" aria-label="Stealth mode">&#9680;</button>
   </div>
 
