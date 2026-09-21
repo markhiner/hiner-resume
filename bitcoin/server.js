@@ -7677,7 +7677,8 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
     ctx2m.lineTo(X(pts[0].x), h);
     ctx2m.closePath();
     var grad = ctx2m.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, color + "33");
+    grad.addColorStop(0, color + "b3");
+    grad.addColorStop(0.55, color + "40");
     grad.addColorStop(1, color + "00");
     ctx2m.fillStyle = grad;
     ctx2m.fill();
