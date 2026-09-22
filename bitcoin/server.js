@@ -3959,10 +3959,10 @@ body {
    so a status color that only worked against that one background (this
    yellow, for instance, was unreadable once a row could itself be yellow)
    won't hold up. A translucent dark badge darkens whatever's under it by a
-   consistent amount regardless of the row's own color, so this amber stays
+   consistent amount regardless of the row's own color, so white text stays
    legible either way; the other two states just dim the row's own
    (already contrast-checked) text color instead of hardcoding a new one. */
-.c-status.delayed { background: rgba(0,0,0,0.38); color: #f5c518; padding: 2px 6px; border-radius: 4px; font-weight: 800; }
+.c-status.delayed { background: rgba(0,0,0,0.38); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 800; }
 .c-status.gone { opacity: 0.75; font-style: italic; }
 .c-status.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
@@ -4149,15 +4149,13 @@ body {
   // server already classifies each train into (Amtrak's own per-route
   // color isn't used here — this is deliberately the same small,
   // consistent set across both pages rather than dozens of near-identical
-  // route-specific shades). None of the five backgrounds is dark enough for
-  // white text to beat a dark, hue-matched foreground on contrast, so every
-  // row gets one of those instead.
+  // route-specific shades). White text over every row, per instruction.
   var SERVICE_COLORS = {
-    acela:    { bg: "#21b8a4", fg: "#08302c" },
-    regional: { bg: "#1f66c2", fg: "#07203f" },
-    keystone: { bg: "#eddf15", fg: "#332f00" },
-    empire:   { bg: "#358f54", fg: "#0c2e1c" },
-    longdist: { bg: "#ba3a3a", fg: "#3a0d0d" },
+    acela:    { bg: "#21b8a4", fg: "#ffffff" },
+    regional: { bg: "#1f66c2", fg: "#ffffff" },
+    keystone: { bg: "#eddf15", fg: "#ffffff" },
+    empire:   { bg: "#358f54", fg: "#ffffff" },
+    longdist: { bg: "#ba3a3a", fg: "#ffffff" },
   };
 
   function boardRowHTML(row, idx, kind) {
