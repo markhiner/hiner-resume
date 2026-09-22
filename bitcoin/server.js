@@ -3257,9 +3257,9 @@ function amtrakServiceType(routeName) {
 }
 
 const NEC_SERVICE_COLORS = {
-  acela: "#22e6d2",
+  acela: "#21b8a4",
   regional: "#1f66c2",
-  keystone: "#e8da17",
+  keystone: "#b5af38",
   empire: "#358f54",
   longdist: "#ba3a3a",
 };
@@ -4152,9 +4152,9 @@ body {
   // route-specific shades). Acela and Keystone are light enough that white
   // text loses contrast, so those two get a dark foreground instead.
   var SERVICE_COLORS = {
-    acela:    { bg: "#22e6d2", fg: "#08302c" },
+    acela:    { bg: "#21b8a4", fg: "#08302c" },
     regional: { bg: "#1f66c2", fg: "#ffffff" },
-    keystone: { bg: "#e8da17", fg: "#332f00" },
+    keystone: { bg: "#b5af38", fg: "#332f00" },
     empire:   { bg: "#358f54", fg: "#ffffff" },
     longdist: { bg: "#ba3a3a", fg: "#ffffff" },
   };
@@ -4627,9 +4627,9 @@ const amtrakNECMapPage = `<!DOCTYPE html>
   <div id="map"></div>
   <div class="legend">
     <div style="font-weight: bold; margin-bottom: 8px;">Service Types</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #22e6d2;"></div> Acela</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #21b8a4;"></div> Acela</div>
     <div class="legend-item"><div class="legend-dot" style="background: #1f66c2;"></div> Regional</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #e8da17;"></div> Keystone</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #b5af38;"></div> Keystone</div>
     <div class="legend-item"><div class="legend-dot" style="background: #358f54;"></div> Empire/Adirondack</div>
     <div class="legend-item"><div class="legend-dot" style="background: #ba3a3a;"></div> Long Distance</div>
   </div>
@@ -4699,9 +4699,9 @@ const amtrakNECMapPage = `<!DOCTYPE html>
         // Add new markers
         for (const train of trains) {
           const color = {
-            acela: "#22e6d2",
+            acela: "#21b8a4",
             regional: "#1f66c2",
-            keystone: "#e8da17",
+            keystone: "#b5af38",
             empire: "#358f54",
             longdist: "#ba3a3a",
           }[train.serviceType] || "#ba3a3a";
