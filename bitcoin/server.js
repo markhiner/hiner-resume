@@ -4138,7 +4138,7 @@ body {
     if (row.state === "departed") return { text: "Departed", cls: "gone" };
     if (row.state === "arrived") return { text: "Arrived", cls: "gone" };
     if (row.state === "delayed") return { text: "Now " + fmtBoardTime(row.atMs), cls: "delayed" };
-    if (row.state === "scheduled") return { text: "Scheduled", cls: "scheduled" };
+    if (row.state === "scheduled") return { text: "On Time", cls: "scheduled" };
     return { text: "On Time", cls: "" };
   }
 
