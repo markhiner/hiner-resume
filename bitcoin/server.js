@@ -4149,11 +4149,12 @@ body {
   // server already classifies each train into (Amtrak's own per-route
   // color isn't used here — this is deliberately the same small,
   // consistent set across both pages rather than dozens of near-identical
-  // route-specific shades). White text over every row, per instruction.
+  // route-specific shades). White text over every row except Keystone,
+  // whose bright yellow background gets black instead.
   var SERVICE_COLORS = {
     acela:    { bg: "#21b8a4", fg: "#ffffff" },
     regional: { bg: "#1f66c2", fg: "#ffffff" },
-    keystone: { bg: "#eddf15", fg: "#ffffff" },
+    keystone: { bg: "#eddf15", fg: "#000000" },
     empire:   { bg: "#358f54", fg: "#ffffff" },
     longdist: { bg: "#ba3a3a", fg: "#ffffff" },
   };
