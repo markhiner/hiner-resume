@@ -3123,13 +3123,27 @@ function amtrakMergedEntries(now, stationCode) {
       (e.schedMs != null && Math.abs(e.schedMs - nowMs) < Math.abs(existing.schedMs - nowMs));
     if (better) merged.set(key, e);
   }
-  // amtraker.com's live feed has no route-shape data of its own, so a live
-  // entry overwriting a schedule entry would otherwise silently drop the
-  // real rail-alignment shape the schedule side already looked up — carry it
-  // forward whenever the live entry doesn't have one of its own.
+  // amtraker.com's live feed has the same daily-train wrinkle as the static
+  // schedule above: a long-distance train that runs once a day (Crescent,
+  // Silver Meteor, ...) shows up under its train number twice — today's
+  // run and tomorrow's — so without a same proximity check as above, the
+  // later one in the array order always won and silently bumped the train
+  // that's actually due soon off the board in favor of one due a full day
+  // out. A live entry still always beats a schedule-only one for the same
+  // key, same as before, since it's strictly more informative.
+  //
+  // amtraker.com's live feed also has no route-shape data of its own, so a
+  // live entry overwriting a schedule entry would otherwise silently drop
+  // the real rail-alignment shape the schedule side already looked up —
+  // carry it forward whenever the live entry doesn't have one of its own.
   for (const e of amtrakLiveEntries(stationCode)) {
     const key = e.trainNum + "|" + e.event;
-    const prevShape = merged.get(key) && merged.get(key).shape;
+    const existing = merged.get(key);
+    if (existing && existing.live && existing.schedMs != null && e.schedMs != null &&
+        Math.abs(existing.schedMs - nowMs) <= Math.abs(e.schedMs - nowMs)) {
+      continue;
+    }
+    const prevShape = existing && existing.shape;
     merged.set(key, prevShape && !e.shape ? { ...e, shape: prevShape } : e);
   }
   return [...merged.values()];
