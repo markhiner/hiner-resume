@@ -4335,6 +4335,7 @@ body {
 
     if (showMap && window.L) {
       setTimeout(function () {
+       try {
         if (ttMap) { ttMap.remove(); ttMap = null; }
         ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
@@ -4430,6 +4431,15 @@ body {
             }, 3400);
           }
         }
+       } catch (e) {
+        // Anything thrown anywhere above (bad shape data, a stale map
+        // instance, whatever) used to abort this whole callback silently —
+        // the sheet and stop list still looked fine, but the map (and with
+        // it the wide->medium->tight zoom-in) just never appeared, with
+        // nothing in the console to explain why. Logging it at least turns
+        // "the auto-zoom randomly stopped working" into a diagnosable error.
+        console.error("Train detail map failed to build:", e);
+       }
       }, 0);
     }
   }
