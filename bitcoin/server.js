@@ -3942,12 +3942,16 @@ body {
 .board-body { display: flex; flex-direction: column; }
 .board-row {
   display: flex; align-items: center; gap: 8px;
-  background: #1e4fce; color: #fff; padding: 9px 14px;
+  background: #3974e3; color: #fff; padding: 9px 14px;
   border-bottom: 3px solid #050914; font-weight: 700; font-size: 12.5px;
   text-align: left;
 }
 .board-row:last-child { border-bottom: none; }
 .board-row:active { filter: brightness(1.18); }
+.c-badge {
+  width: 34px; flex-shrink: 0; text-align: center; font-size: 8px;
+  font-weight: 900; letter-spacing: 0.3px; padding: 2px 0; border-radius: 4px;
+}
 .c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 /* no width cap and no ellipsis — full train/route names always fit, wrapping
    onto a second line rather than being cut off */
@@ -3955,13 +3959,6 @@ body {
 .c-train .nm { white-space: normal; word-break: break-word; }
 .c-to { flex: 1; min-width: 0; white-space: normal; word-break: break-word; font-weight: 600; }
 .c-status { width: 70px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
-/* Rows are now colored per service type rather than one fixed dark blue,
-   so a status color that only worked against that one background (this
-   yellow, for instance, was unreadable once a row could itself be yellow)
-   won't hold up. A translucent dark badge darkens whatever's under it by a
-   consistent amount regardless of the row's own color, so white text stays
-   legible either way; the other two states just dim the row's own
-   (already contrast-checked) text color instead of hardcoding a new one. */
 .c-status.delayed { background: rgba(0,0,0,0.38); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 800; }
 .c-status.gone { opacity: 0.75; font-style: italic; }
 .c-status.scheduled { opacity: 0.75; font-style: italic; }
@@ -4060,14 +4057,14 @@ body {
 
   <div class="board-card">
     <div class="board-hdr"><span class="board-title">Departures</span><span class="board-clock" id="depClock">&mdash;</span></div>
-    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">To</span><span class="c-status">Status</span></div>
+    <div class="board-cols"><span class="c-badge"></span><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">To</span><span class="c-status">Status</span></div>
     <div class="board-body" id="depBody"><div class="board-empty">Loading&hellip;</div></div>
     <div class="board-ftr" id="depDate">&mdash;</div>
   </div>
 
   <div class="board-card">
     <div class="board-hdr"><span class="board-title">Arrivals</span><span class="board-clock" id="arrClock">&mdash;</span></div>
-    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">From</span><span class="c-status">Status</span></div>
+    <div class="board-cols"><span class="c-badge"></span><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">From</span><span class="c-status">Status</span></div>
     <div class="board-body" id="arrBody"><div class="board-empty">Loading&hellip;</div></div>
     <div class="board-ftr" id="arrDate">&mdash;</div>
   </div>
@@ -4149,21 +4146,22 @@ body {
   // server already classifies each train into (Amtrak's own per-route
   // color isn't used here — this is deliberately the same small,
   // consistent set across both pages rather than dozens of near-identical
-  // route-specific shades). White text over every row except Keystone,
-  // whose bright yellow background gets black instead.
+  // route-specific shades). Rows are all one fixed blue now, so this only
+  // colors the small type badge on the left — Keystone's bright yellow
+  // still needs black text on the badge itself, everything else is white.
   var SERVICE_COLORS = {
-    acela:    { bg: "#21b8a4", fg: "#ffffff" },
-    regional: { bg: "#1f66c2", fg: "#ffffff" },
-    keystone: { bg: "#eddf15", fg: "#000000" },
-    empire:   { bg: "#358f54", fg: "#ffffff" },
-    longdist: { bg: "#ba3a3a", fg: "#ffffff" },
+    acela:    { bg: "#21b8a4", fg: "#ffffff", label: "ACE" },
+    regional: { bg: "#1f66c2", fg: "#ffffff", label: "NER" },
+    keystone: { bg: "#eddf15", fg: "#000000", label: "KEY" },
+    empire:   { bg: "#358f54", fg: "#ffffff", label: "EMP" },
+    longdist: { bg: "#ba3a3a", fg: "#ffffff", label: "LD" },
   };
 
   function boardRowHTML(row, idx, kind) {
     var status = amtrakStatus(row);
     var sc = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
-    return '<div class="board-row" data-kind="amtrak" data-event="' + kind + '" data-idx="' + idx + '" ' +
-      'style="background:' + sc.bg + ';color:' + sc.fg + ';">' +
+    return '<div class="board-row" data-kind="amtrak" data-event="' + kind + '" data-idx="' + idx + '">' +
+      '<span class="c-badge" style="background:' + sc.bg + ';color:' + sc.fg + ';">' + sc.label + '</span>' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
       '<span class="c-to">' + esc(row.other) + '</span>' +
