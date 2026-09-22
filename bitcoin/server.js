@@ -6489,8 +6489,7 @@ body {
 .rd-field { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 9px 11px; margin-bottom: 8px; transition: opacity 0.2s ease, border-color 0.2s ease; }
 .rd-field.gray { opacity: 0.5; border-style: dashed; }
 .rd-field.gray.active { opacity: 1; border-style: solid; }
-.rd-label { font-size: 9.5px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text3); margin-bottom: 5px; display: flex; justify-content: space-between; }
-.rd-label .opt { font-weight: 600; font-style: italic; letter-spacing: 0; text-transform: none; color: var(--text3); }
+.rd-label { font-size: 9.5px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text3); margin-bottom: 5px; }
 .rd-input {
   width: 100%; background: transparent; border: none; color: var(--text1);
   font-family: Arial, Helvetica, sans-serif; font-weight: 700; font-size: 15px;
@@ -6560,10 +6559,9 @@ body {
   var host = document.getElementById("rdFields");
   host.innerHTML = FIELDS.map(function (f) {
     var section = SECTION_BEFORE[f.id] ? '<div class="rd-section-hdr">' + SECTION_BEFORE[f.id] + "</div>" : "";
-    var optTag = f.gray ? '<span class="opt">grayed out until filled</span>' : "";
     return section +
       '<div class="rd-field' + (f.gray ? " gray" : "") + '" id="wrap-' + f.id + '">' +
-        '<div class="rd-label"><span>' + f.label + "</span>" + optTag + "</div>" +
+        '<div class="rd-label"><span>' + f.label + "</span></div>" +
         '<textarea class="rd-input' + (f.italic ? " italic" : "") + '" id="f-' + f.id + '" rows="1" ' +
           'placeholder="' + (f.gray ? "Type to activate\\u2026" : "Type here\\u2026") + '"></textarea>' +
       "</div>";
