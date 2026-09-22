@@ -3259,7 +3259,7 @@ function amtrakServiceType(routeName) {
 const NEC_SERVICE_COLORS = {
   acela: "#21b8a4",
   regional: "#1f66c2",
-  keystone: "#b5af38",
+  keystone: "#eddf15",
   empire: "#358f54",
   longdist: "#ba3a3a",
 };
@@ -4155,7 +4155,7 @@ body {
   var SERVICE_COLORS = {
     acela:    { bg: "#21b8a4", fg: "#08302c" },
     regional: { bg: "#1f66c2", fg: "#07203f" },
-    keystone: { bg: "#b5af38", fg: "#332f00" },
+    keystone: { bg: "#eddf15", fg: "#332f00" },
     empire:   { bg: "#358f54", fg: "#0c2e1c" },
     longdist: { bg: "#ba3a3a", fg: "#3a0d0d" },
   };
@@ -4630,7 +4630,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
     <div style="font-weight: bold; margin-bottom: 8px;">Service Types</div>
     <div class="legend-item"><div class="legend-dot" style="background: #21b8a4;"></div> Acela</div>
     <div class="legend-item"><div class="legend-dot" style="background: #1f66c2;"></div> Regional</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #b5af38;"></div> Keystone</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #eddf15;"></div> Keystone</div>
     <div class="legend-item"><div class="legend-dot" style="background: #358f54;"></div> Empire/Adirondack</div>
     <div class="legend-item"><div class="legend-dot" style="background: #ba3a3a;"></div> Long Distance</div>
   </div>
@@ -4702,7 +4702,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
           const color = {
             acela: "#21b8a4",
             regional: "#1f66c2",
-            keystone: "#b5af38",
+            keystone: "#eddf15",
             empire: "#358f54",
             longdist: "#ba3a3a",
           }[train.serviceType] || "#ba3a3a";
