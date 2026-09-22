@@ -6533,22 +6533,22 @@ body {
   // only between the topic callout and its name, which sit tight against
   // each other in the reference with no gap, unlike every other pair.
   var FIELDS = [
-    { id: "a",         label: "A",                       prefix: "A: ",            italic: false, gray: false },
-    { id: "aName",     label: "Name / Source",           prefix: "> ",             italic: true,  gray: false },
-    { id: "topic",     label: "Topic callout (optional)", prefix: "",              italic: true,  gray: true, wrap: "asterisk", noGapAfter: true },
-    { id: "topicName", label: "Topic callout name",      prefix: "> ",             italic: true,  gray: false },
-    { id: "a2",        label: "A2 (optional)",           prefix: "A2: ",           italic: false, gray: true },
-    { id: "a2Name",    label: "Name / Source",           prefix: "> ",             italic: true,  gray: false },
+    { id: "a",         label: "Lead Story",              prefix: "A: ",            italic: false, gray: false },
+    { id: "aName",     label: "Reporter or Guest",       prefix: "> ",             italic: true,  gray: false },
+    { id: "topic",     label: "More on this?",           prefix: "",               italic: true,  gray: true, wrap: "asterisk", noGapAfter: true },
+    { id: "topicName", label: "Reporter or Guest",       prefix: "> ",             italic: true,  gray: false },
+    { id: "a2",        label: "Secondary Story",         prefix: "A2: ",           italic: false, gray: true },
+    { id: "a2Name",    label: "Reporter or Guest",       prefix: "> ",             italic: true,  gray: false },
     { id: "a2Tell",    label: "Tell (optional)",         prefix: "TELL: ",         italic: false, gray: true },
     { id: "otherTopic",label: "Other topic (optional)",  prefix: "OTHER TOPIC: ",  italic: false, gray: true },
     { id: "b",         label: "B",                       prefix: "B: ",            italic: false, gray: false },
-    { id: "bName",     label: "Name / Source",           prefix: "> ",             italic: true,  gray: false },
+    { id: "bName",     label: "Reporter or Guest",       prefix: "> ",             italic: true,  gray: false },
     { id: "bTell",     label: "Tell (optional)",         prefix: "TELL: ",         italic: false, gray: true },
     { id: "c",         label: "C",                       prefix: "C: ",            italic: false, gray: false },
-    { id: "cName",     label: "Name / Source",           prefix: "> ",             italic: true,  gray: false },
+    { id: "cName",     label: "Reporter or Guest",       prefix: "> ",             italic: true,  gray: false },
     { id: "cTell",     label: "Tell (optional)",         prefix: "TELL: ",         italic: false, gray: true },
     { id: "d",         label: "D",                       prefix: "D: ",            italic: false, gray: false },
-    { id: "dName",     label: "Name / Source",           prefix: "> ",             italic: true,  gray: false },
+    { id: "dName",     label: "Reporter or Guest",       prefix: "> ",             italic: true,  gray: false },
     { id: "dTell",     label: "Tell (optional)",         prefix: "TELL: ",         italic: false, gray: true },
   ];
   // Purely cosmetic section headers dropped in above certain fields.
