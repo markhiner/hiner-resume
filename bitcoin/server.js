@@ -3154,6 +3154,7 @@ function amtrakBoardRow(entry, nowMs) {
     velocity: entry.velocity, heading: entry.heading,
     other: entry.other, schedMs: entry.schedMs, atMs: entry.atMs, track: entry.track,
     state, stations: entry.stations, shape: entry.shape || null,
+    serviceType: amtrakServiceType(entry.routeName),
   };
 }
 
@@ -3222,25 +3223,31 @@ async function startAmtrakBoard() {
 
 // ---------- Amtrak Northeast Corridor map ----------
 
+// Named long-distance trains (Crescent, Silver Meteor, Cardinal, Lake Shore
+// Limited, ...) never actually say "long distance" in their route name, so
+// that used to be a dead check that fell through to the gray "other"
+// bucket for every one of them. There is no real "other" category in
+// Amtrak's board — anything that isn't one of the four short/named
+// corridor services (Acela, Regional, Keystone, Empire/Adirondack) *is*
+// a long-distance train, so that's the fallback now instead of a check
+// that could never match.
 function amtrakServiceType(routeName) {
-  if (!routeName) return "other";
+  if (!routeName) return "longdist";
   const name = routeName.toLowerCase();
   if (name.includes("acela")) return "acela";
   if (name.includes("keystone")) return "keystone";
   if (name.includes("empire") || name.includes("adirondack")) return "empire";
   if (name.includes("northeast regional")) return "regional";
   if (name.includes("northeast direct")) return "regional";
-  if (name.includes("long distance")) return "longdist";
-  return "other";
+  return "longdist";
 }
 
 const NEC_SERVICE_COLORS = {
-  acela: "#1e90ff",    // teal/bright blue
-  regional: "#0066cc",  // blue
-  keystone: "#ffeb3b", // yellow
-  empire: "#228b22",   // hunter green
-  longdist: "#dc143c", // red
-  other: "#808080",
+  acela: "#22e6d2",
+  regional: "#1f66c2",
+  keystone: "#e8da17",
+  empire: "#358f54",
+  longdist: "#ba3a3a",
 };
 
 // NEC stations between DC and NYC (Northeast Corridor)
@@ -3926,7 +3933,7 @@ body {
   text-align: left;
 }
 .board-row:last-child { border-bottom: none; }
-.board-row:active { background: #2a5cdc; }
+.board-row:active { filter: brightness(1.18); }
 .c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 /* no width cap and no ellipsis — full train/route names always fit, wrapping
    onto a second line rather than being cut off */
@@ -3934,9 +3941,16 @@ body {
 .c-train .nm { white-space: normal; word-break: break-word; }
 .c-to { flex: 1; min-width: 0; white-space: normal; word-break: break-word; font-weight: 600; }
 .c-status { width: 70px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
-.c-status.delayed { color: #ffd54a; }
-.c-status.gone { color: #c9d6ff; font-style: italic; }
-.c-status.scheduled { color: #a9b6d6; font-style: italic; }
+/* Rows are now colored per service type rather than one fixed dark blue,
+   so a status color that only worked against that one background (this
+   yellow, for instance, was unreadable once a row could itself be yellow)
+   won't hold up. A translucent dark badge darkens whatever's under it by a
+   consistent amount regardless of the row's own color, so white text stays
+   legible either way; the other two states just dim the row's own
+   (already contrast-checked) text color instead of hardcoding a new one. */
+.c-status.delayed { background: rgba(0,0,0,0.38); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 800; }
+.c-status.gone { opacity: 0.75; font-style: italic; }
+.c-status.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
 .board-ftr { background: #dde2ee; color: #5a6685; text-align: right; padding: 6px 14px; font-size: 10px; letter-spacing: 0.4px; }
 .board-more {
@@ -4117,9 +4131,25 @@ body {
     return { text: "On Time", cls: "" };
   }
 
+  // Same palette as the NEC map's legend, keyed by the service type the
+  // server already classifies each train into (Amtrak's own per-route
+  // color isn't used here — this is deliberately the same small,
+  // consistent set across both pages rather than dozens of near-identical
+  // route-specific shades). Acela and Keystone are light enough that white
+  // text loses contrast, so those two get a dark foreground instead.
+  var SERVICE_COLORS = {
+    acela:    { bg: "#22e6d2", fg: "#08302c" },
+    regional: { bg: "#1f66c2", fg: "#ffffff" },
+    keystone: { bg: "#e8da17", fg: "#332f00" },
+    empire:   { bg: "#358f54", fg: "#ffffff" },
+    longdist: { bg: "#ba3a3a", fg: "#ffffff" },
+  };
+
   function boardRowHTML(row, idx, kind) {
     var status = amtrakStatus(row);
-    return '<div class="board-row" data-kind="amtrak" data-event="' + kind + '" data-idx="' + idx + '">' +
+    var sc = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
+    return '<div class="board-row" data-kind="amtrak" data-event="' + kind + '" data-idx="' + idx + '" ' +
+      'style="background:' + sc.bg + ';color:' + sc.fg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
       '<span class="c-to">' + esc(row.other) + '</span>' +
@@ -4583,11 +4613,11 @@ const amtrakNECMapPage = `<!DOCTYPE html>
   <div id="map"></div>
   <div class="legend">
     <div style="font-weight: bold; margin-bottom: 8px;">Service Types</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #1e90ff;"></div> Acela</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #0066cc;"></div> Regional</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #ffeb3b;"></div> Keystone</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #228b22;"></div> Empire/Adirondack</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #dc143c;"></div> Long Distance</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #22e6d2;"></div> Acela</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #1f66c2;"></div> Regional</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #e8da17;"></div> Keystone</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #358f54;"></div> Empire/Adirondack</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #ba3a3a;"></div> Long Distance</div>
   </div>
   <div class="train-detail" id="trainDetail">
     <div class="train-detail-header">
@@ -4655,13 +4685,12 @@ const amtrakNECMapPage = `<!DOCTYPE html>
         // Add new markers
         for (const train of trains) {
           const color = {
-            acela: "#1e90ff",
-            regional: "#0066cc",
-            keystone: "#ffeb3b",
-            empire: "#228b22",
-            longdist: "#dc143c",
-            other: "#808080",
-          }[train.serviceType] || "#808080";
+            acela: "#22e6d2",
+            regional: "#1f66c2",
+            keystone: "#e8da17",
+            empire: "#358f54",
+            longdist: "#ba3a3a",
+          }[train.serviceType] || "#ba3a3a";
 
           const icon = createArrowMarker(train.lat, train.lon, train.heading, color);
           const marker = L.marker([train.lat, train.lon], { icon })
