@@ -10,7 +10,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { execFileSync } = require("child_process");
+const { execFileSync, spawn } = require("child_process");
 const WebSocket = require("ws");
 
 const PORT = process.env.PORT || 3001;
@@ -3424,6 +3424,112 @@ function getActivENECTrains() {
   return trains;
 }
 
+// ---------- Video transcription (local Whisper) ----------
+// Given a video URL, downloads just its audio with yt-dlp, converts it to
+// the 16kHz mono WAV whisper.cpp wants with ffmpeg, then transcribes it
+// with a local whisper.cpp build — no API key and no per-video cost, at
+// the price of needing all three tools installed wherever this server
+// actually runs. None of them exist in the sandbox this was written in;
+// only the iMac running the real server needs them. A missing binary
+// surfaces as a normal failed-job error rather than crashing the server.
+// Jobs run one at a time — whisper.cpp is CPU-bound and a second one
+// competing for the same cores would just slow both down — so a second
+// request queues behind whatever's already transcribing.
+const YTDLP_BIN = process.env.YTDLP_BIN || "yt-dlp";
+const FFMPEG_BIN = process.env.FFMPEG_BIN || "ffmpeg";
+const WHISPER_BIN = process.env.WHISPER_BIN || "whisper-cli";
+const WHISPER_MODEL = process.env.WHISPER_MODEL || path.join(__dirname, ".whisper-models", "ggml-base.en.bin");
+const TRANSCRIBE_DIR = path.join(__dirname, ".transcribe-tmp");
+const TRANSCRIBE_JOB_TTL_MS = 60 * 60 * 1000; // finished jobs are forgotten an hour after they land
+
+const transcribeJobs = new Map(); // id -> { status, phase, title, text, error, createdAt }
+const transcribeQueue = [];
+let transcribeRunning = false;
+
+function runCmd(bin, args) {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn(bin, args);
+    } catch (e) {
+      return reject(new Error(`${bin} failed to start: ${e.message}`));
+    }
+    let stdout = "", stderr = "";
+    child.stdout.on("data", (d) => { stdout += d; });
+    child.stderr.on("data", (d) => { stderr += d; });
+    child.on("error", (e) => {
+      reject(new Error(e.code === "ENOENT" ? `${bin} is not installed (or not on PATH)` : `${bin} failed to start: ${e.message}`));
+    });
+    child.on("close", (code) => {
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(`${bin} exited with code ${code}${stderr ? ": " + stderr.trim().slice(-500) : ""}`));
+    });
+  });
+}
+
+function queueTranscription(videoUrl) {
+  const id = crypto.randomUUID();
+  transcribeJobs.set(id, { status: "queued", phase: "Queued", title: null, text: null, error: null, createdAt: Date.now() });
+  transcribeQueue.push({ id, videoUrl });
+  processTranscribeQueue();
+  return id;
+}
+
+async function processTranscribeQueue() {
+  if (transcribeRunning) return;
+  const next = transcribeQueue.shift();
+  if (!next) return;
+  transcribeRunning = true;
+  try {
+    await runTranscriptionJob(next.id, next.videoUrl);
+  } finally {
+    transcribeRunning = false;
+    processTranscribeQueue();
+  }
+}
+
+async function runTranscriptionJob(id, videoUrl) {
+  const job = transcribeJobs.get(id);
+  const dir = path.join(TRANSCRIBE_DIR, id);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+
+    job.status = "running";
+    job.phase = "Downloading audio…";
+    const audioBase = path.join(dir, "audio");
+    const dl = await runCmd(YTDLP_BIN, [
+      "-f", "bestaudio/best", "--no-playlist",
+      "--print", "%(title)s",
+      "-o", audioBase + ".%(ext)s",
+      videoUrl,
+    ]);
+    job.title = dl.stdout.trim().split("\n").filter(Boolean).pop() || null;
+
+    const downloaded = fs.readdirSync(dir).find((f) => f.startsWith("audio."));
+    if (!downloaded) throw new Error("yt-dlp did not produce an audio file");
+
+    job.phase = "Converting audio…";
+    const wavPath = path.join(dir, "audio16k.wav");
+    await runCmd(FFMPEG_BIN, ["-y", "-i", path.join(dir, downloaded), "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wavPath]);
+
+    job.phase = "Transcribing… (this can take a while)";
+    const outBase = path.join(dir, "out");
+    await runCmd(WHISPER_BIN, ["-m", WHISPER_MODEL, "-f", wavPath, "-otxt", "-of", outBase, "-nt"]);
+    job.text = fs.readFileSync(outBase + ".txt", "utf8").trim();
+
+    job.status = "done";
+    job.phase = "Done";
+  } catch (e) {
+    job.status = "error";
+    job.phase = "Failed";
+    job.error = e.message;
+    console.error(`Transcription ${id} failed:`, e.message);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    setTimeout(() => transcribeJobs.delete(id), TRANSCRIBE_JOB_TTL_MS);
+  }
+}
+
 // ---------- HTTP + WebSocket server ----------
 
 const clients = new Set();
@@ -3738,6 +3844,42 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/amtrak-nec-map") {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(amtrakNECMapPage);
+    return;
+  }
+  if (url.pathname === "/transcribe") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(transcribePage);
+    return;
+  }
+  if (url.pathname === "/api/transcribe" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => {
+      body += c;
+      if (body.length > 4096) { req.destroy(); }
+    });
+    req.on("end", () => {
+      const send = (code, obj) => {
+        res.writeHead(code, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(obj));
+      };
+      let payload;
+      try { payload = JSON.parse(body || "{}"); } catch { return send(400, { error: "bad request" }); }
+      const videoUrl = String(payload.url || "").trim();
+      if (!videoUrl) return send(400, { error: "url required" });
+      let parsed;
+      try { parsed = new URL(videoUrl); } catch { return send(400, { error: "not a valid URL" }); }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return send(400, { error: "url must be http(s)" });
+      send(200, { id: queueTranscription(videoUrl) });
+    });
+    return;
+  }
+  if (url.pathname === "/api/transcribe-status") {
+    const id = url.searchParams.get("id");
+    const job = id && transcribeJobs.get(id);
+    res.writeHead(job ? 200 : 404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(job
+      ? { status: job.status, phase: job.phase, title: job.title, text: job.text, error: job.error }
+      : { error: "not found" }));
     return;
   }
   if (url.pathname === "/api/portfolio") {
@@ -6813,6 +6955,241 @@ body {
 </body>
 </html>`;
 
+const transcribePage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<title>Video Transcription</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
+  --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --yellow: #f5c518; --green: #22c55e; --red: #ef4444;
+}
+html, body { background: var(--bg); color: var(--text1); height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  min-height: 100%;
+}
+#app { max-width: 480px; margin: 0 auto; padding: 14px 14px 40px; }
+
+.tr-topbar { display: flex; align-items: center; gap: 10px; padding: 4px 2px 4px; }
+.tr-back {
+  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text1);
+  display: flex; align-items: center; justify-content: center; font-size: 16px; text-decoration: none;
+}
+.tr-back:active { background: var(--panel); }
+.tr-brand { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--text2); text-transform: uppercase; }
+
+.tr-form { display: flex; gap: 8px; padding: 16px 2px 4px; }
+.tr-input {
+  flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 11px 12px; color: var(--text1); font-size: 14px;
+}
+.tr-input::placeholder { color: var(--text3); }
+.tr-input:focus { outline: none; border-color: var(--text2); }
+.tr-go {
+  flex: 0 0 auto; padding: 0 16px; border-radius: 10px; border: 1px solid rgba(34,197,94,0.5);
+  background: rgba(34,197,94,0.16); color: var(--green); font-size: 13px; font-weight: 800;
+}
+.tr-go:active { background: rgba(34,197,94,0.28); }
+.tr-go:disabled { opacity: 0.5; }
+
+.tr-status {
+  display: none; align-items: center; gap: 9px; margin: 14px 2px 0; padding: 11px 13px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  font-size: 12.5px; color: var(--text2);
+}
+.tr-status.show { display: flex; }
+.tr-status.error { border-color: rgba(239,68,68,0.4); color: var(--red); }
+.tr-spin {
+  width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0;
+  border: 2px solid var(--border); border-top-color: var(--yellow); animation: tr-spin 0.8s linear infinite;
+}
+.tr-status.error .tr-spin { display: none; }
+@keyframes tr-spin { to { transform: rotate(360deg); } }
+
+.tr-result { display: none; margin-top: 16px; }
+.tr-result.show { display: block; }
+.tr-title { font-size: 15px; font-weight: 800; padding: 0 2px 10px; line-height: 1.35; }
+.tr-text {
+  width: 100%; min-height: 240px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px 13px; color: var(--text1); font-size: 14px; line-height: 1.5;
+  resize: vertical;
+}
+.tr-actions { display: flex; gap: 8px; padding-top: 10px; }
+.tr-btn {
+  flex: 1; padding: 10px; border-radius: 9px; border: 1px solid var(--border);
+  background: var(--panel2); color: var(--text1); font-size: 12.5px; font-weight: 800;
+}
+.tr-btn:active { background: var(--panel); }
+.tr-btn.copied { border-color: rgba(34,197,94,0.5); color: var(--green); }
+
+.tr-foot { text-align: center; color: var(--text3); font-size: 10.5px; padding: 22px 4px 0; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="tr-topbar">
+    <a class="tr-back" href="/" aria-label="Back to BTC ticker">&larr;</a>
+    <span class="tr-brand">Video Transcription</span>
+  </div>
+
+  <div class="tr-form">
+    <input class="tr-input" id="trUrl" type="url" inputmode="url" placeholder="Paste a video link&hellip;" autocapitalize="off" autocorrect="off">
+    <button class="tr-go" id="trGo">Transcribe</button>
+  </div>
+
+  <div class="tr-status" id="trStatus"><span class="tr-spin"></span><span id="trStatusText">&mdash;</span></div>
+
+  <div class="tr-result" id="trResult">
+    <div class="tr-title" id="trTitle"></div>
+    <textarea class="tr-text" id="trText" readonly></textarea>
+    <div class="tr-actions">
+      <button class="tr-btn" id="trCopy">Copy Text</button>
+      <button class="tr-btn" id="trDownload">Download .txt</button>
+    </div>
+  </div>
+
+  <div class="tr-foot">Runs entirely on this server with a local Whisper model &middot; no video data leaves it</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var STORE_KEY = "transcribeJobId";
+  var urlEl = document.getElementById("trUrl");
+  var goEl = document.getElementById("trGo");
+  var statusEl = document.getElementById("trStatus");
+  var statusTextEl = document.getElementById("trStatusText");
+  var resultEl = document.getElementById("trResult");
+  var titleEl = document.getElementById("trTitle");
+  var textEl = document.getElementById("trText");
+  var pollTimer = null;
+
+  function setBusy(busy) {
+    goEl.disabled = busy;
+    urlEl.disabled = busy;
+  }
+
+  function showStatus(text, isError) {
+    statusEl.classList.add("show");
+    statusEl.classList.toggle("error", !!isError);
+    statusTextEl.textContent = text;
+  }
+
+  function hideStatus() {
+    statusEl.classList.remove("show");
+  }
+
+  function poll(id) {
+    clearTimeout(pollTimer);
+    fetch("/api/transcribe-status?id=" + encodeURIComponent(id))
+      .then(function (r) { return r.json(); })
+      .then(function (job) {
+        if (job.error && !job.status) {
+          localStorage.removeItem(STORE_KEY);
+          setBusy(false);
+          hideStatus();
+          return;
+        }
+        if (job.status === "error") {
+          showStatus(job.error || "Transcription failed", true);
+          setBusy(false);
+          localStorage.removeItem(STORE_KEY);
+          return;
+        }
+        if (job.status === "done") {
+          hideStatus();
+          setBusy(false);
+          titleEl.textContent = job.title || "";
+          textEl.value = job.text || "";
+          resultEl.classList.add("show");
+          localStorage.removeItem(STORE_KEY);
+          return;
+        }
+        showStatus(job.phase || "Working\\u2026", false);
+        pollTimer = setTimeout(function () { poll(id); }, 1500);
+      })
+      .catch(function () {
+        pollTimer = setTimeout(function () { poll(id); }, 3000);
+      });
+  }
+
+  function start(videoUrl) {
+    resultEl.classList.remove("show");
+    setBusy(true);
+    showStatus("Starting\\u2026", false);
+    fetch("/api/transcribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: videoUrl }),
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          showStatus(res.body.error || "Could not start transcription", true);
+          setBusy(false);
+          return;
+        }
+        localStorage.setItem(STORE_KEY, res.body.id);
+        poll(res.body.id);
+      })
+      .catch(function () {
+        showStatus("Could not reach the server", true);
+        setBusy(false);
+      });
+  }
+
+  goEl.addEventListener("click", function () {
+    var v = urlEl.value.trim();
+    if (!v) return;
+    start(v);
+  });
+  urlEl.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") goEl.click();
+  });
+
+  document.getElementById("trCopy").addEventListener("click", function () {
+    var btn = this;
+    navigator.clipboard.writeText(textEl.value).then(function () {
+      btn.classList.add("copied");
+      btn.textContent = "Copied!";
+      setTimeout(function () { btn.classList.remove("copied"); btn.textContent = "Copy Text"; }, 1500);
+    });
+  });
+
+  document.getElementById("trDownload").addEventListener("click", function () {
+    var blob = new Blob([textEl.value], { type: "text/plain" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    var name = (titleEl.textContent || "transcript").replace(/[^a-z0-9]+/gi, "-").toLowerCase().slice(0, 60) || "transcript";
+    a.href = url;
+    a.download = name + ".txt";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  });
+
+  var resumeId = localStorage.getItem(STORE_KEY);
+  if (resumeId) {
+    setBusy(true);
+    showStatus("Resuming\\u2026", false);
+    poll(resumeId);
+  }
+})();
+</script>
+</body>
+</html>`;
+
 const htmlPage = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7200,7 +7577,8 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
 .jump-flights:active { background: var(--panel); color: var(--text1); }
 .jump-trains { right: 32px; }
 .rundown-btn { right: 64px; }
-.stealth-btn { right: 96px; font-size: 14px; }
+.transcribe-btn { right: 96px; }
+.stealth-btn { right: 128px; font-size: 14px; }
 
 
 /* ── passcode ──
@@ -7346,6 +7724,7 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
     <a class="jump-flights jump-trains" href="/trains" aria-label="Open trains page" title="Trains">&#128646;</a>
     <a class="jump-flights" href="/travel" aria-label="Open travel page" title="Flights &amp; hotels">&#9992;</a>
     <a class="jump-flights rundown-btn" href="/rundown" aria-label="Open rundown builder" title="Rundown">&#128203;</a>
+    <a class="jump-flights transcribe-btn" href="/transcribe" aria-label="Open video transcription" title="Transcribe">&#127908;</a>
     <button class="jump-flights stealth-btn" id="stealthBtn" aria-label="Stealth mode">&#9680;</button>
   </div>
 
