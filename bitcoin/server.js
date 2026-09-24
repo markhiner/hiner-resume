@@ -3516,7 +3516,14 @@ async function runTranscriptionJob(id, videoUrl) {
     job.title = dl.stdout.trim().split("\n").filter(Boolean).pop() || null;
 
     const downloaded = fs.readdirSync(dir).find((f) => f.startsWith("audio."));
-    if (!downloaded) throw new Error("yt-dlp did not produce an audio file");
+    if (!downloaded) {
+      // yt-dlp exited 0 but wrote nothing matching our template — surface
+      // whatever it actually printed instead of a bare "no file" message,
+      // since the real cause (unsupported site, geo-block, format filter
+      // matched nothing, etc.) only shows up in its own output.
+      const detail = (dl.stderr || dl.stdout || "").trim().slice(-800);
+      throw new Error("yt-dlp did not produce an audio file" + (detail ? ` — yt-dlp said: ${detail}` : ""));
+    }
 
     job.phase = "Converting audio…";
     const wavPath = path.join(dir, "audio16k.wav");
