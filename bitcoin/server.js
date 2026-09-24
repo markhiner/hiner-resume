@@ -4084,7 +4084,7 @@ body {
 .board-body { display: flex; flex-direction: column; }
 .board-row {
   display: flex; align-items: center; gap: 8px; position: relative;
-  background: #3974e3; color: #fff; padding: 9px 14px 9px 22px;
+  background: #182270; color: #fff; padding: 9px 14px 9px 22px;
   border-bottom: 3px solid #050914; font-weight: 700; font-size: 12.5px;
   text-align: left;
 }
@@ -4294,11 +4294,11 @@ body {
   // route-specific shades). Rows are all one fixed blue now; this just
   // feeds the full-height accent bar down the row's left edge.
   var SERVICE_COLORS = {
-    acela:    "#21b8a4",
-    regional: "#1f66c2",
-    keystone: "#eddf15",
-    empire:   "#358f54",
-    longdist: "#ba3a3a",
+    acela:    "#19ebfa",
+    regional: "#1959fa",
+    keystone: "#d5ed5a",
+    empire:   "#0f942c",
+    longdist: "#d93636",
   };
 
   function boardRowHTML(row, idx, kind) {
