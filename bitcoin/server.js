@@ -4104,7 +4104,7 @@ body {
 .c-train .nm { white-space: normal; word-break: break-word; }
 .c-to { flex: 1; min-width: 0; white-space: normal; word-break: break-word; font-weight: 600; }
 .c-status { width: 70px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
-.c-status.delayed { background: rgba(0,0,0,0.38); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 800; }
+.c-status.delayed { color: var(--yellow); font-weight: 800; }
 .c-status.gone { opacity: 0.75; font-style: italic; }
 .c-status.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
@@ -4282,7 +4282,7 @@ body {
   function amtrakStatus(row) {
     if (row.state === "departed") return { text: "Departed", cls: "gone" };
     if (row.state === "arrived") return { text: "Arrived", cls: "gone" };
-    if (row.state === "delayed") return { text: "Now " + fmtBoardTime(row.atMs), cls: "delayed" };
+    if (row.state === "delayed") return { text: fmtBoardTime(row.atMs), cls: "delayed" };
     if (row.state === "scheduled") return { text: "On Time", cls: "scheduled" };
     return { text: "On Time", cls: "" };
   }
