@@ -2790,6 +2790,11 @@ const AMTRAK_STATIC_REFRESH_MS = 20 * 60 * 60 * 1000; // schedules don't change 
 // each one adds trips to the static model below that have to be parsed and
 // held in memory for the life of the process.
 const AMTRAK_BOARD_STATIONS = { NYP: "New York", PHL: "Philadelphia", WAS: "Washington" };
+// The plain city names above are fine for the station-picker dropdown, but
+// the "Departures" header reads as ambiguous with just a city name (New
+// York has more than one train station) — this is the fuller name used
+// only there.
+const AMTRAK_BOARD_STATION_TITLES = { NYP: "New York Penn", PHL: "Philadelphia 30th Street", WAS: "Washington Union" };
 const AMTRAK_DEFAULT_STATION = "NYP";
 const AMTRAK_DEP_GRACE_MS = 3 * 60 * 1000; // stays listed as "Departed" this long, then drops off
 const AMTRAK_ARR_GRACE_MS = 5 * 60 * 1000; // stays listed as "Arrived" this long, then drops off
@@ -4148,7 +4153,7 @@ body {
 .board-body { display: flex; flex-direction: column; }
 .board-row {
   display: flex; align-items: center; gap: 8px; position: relative;
-  background: #182270; color: #fff; padding: 9px 14px 9px 22px;
+  background: #273670; color: #fff; padding: 9px 14px 9px 22px;
   border-bottom: 3px solid #050914; font-weight: 700; font-size: 12.5px;
   text-align: left;
 }
@@ -4265,7 +4270,7 @@ body {
   </div>
 
   <div class="board-card">
-    <div class="board-hdr"><span class="board-title">Departures</span><span class="board-clock" id="depClock">&mdash;</span></div>
+    <div class="board-hdr"><span class="board-title" id="depTitle">Departures</span><span class="board-clock" id="depClock">&mdash;</span></div>
     <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">To</span><span class="c-status">Status</span></div>
     <div class="board-body" id="depBody"><div class="board-empty">Loading&hellip;</div></div>
     <div class="board-ftr" id="depDate">&mdash;</div>
@@ -4336,6 +4341,7 @@ body {
   // ---------- NY Penn Departures / Arrivals (Amtrak) ----------
 
   var STATION_NAMES = ${JSON.stringify(AMTRAK_BOARD_STATIONS)};
+  var STATION_TITLES = ${JSON.stringify(AMTRAK_BOARD_STATION_TITLES)};
   var STATION_CODES = ${JSON.stringify(Object.keys(AMTRAK_BOARD_STATIONS))};
   var urlStation = new URL(location.href).searchParams.get("station");
   var state = {
@@ -4422,6 +4428,10 @@ body {
     });
   }
 
+  function updateDepTitle() {
+    document.getElementById("depTitle").textContent = (STATION_TITLES[state.station] || STATION_NAMES[state.station]) + " Departures";
+  }
+
   var stationSelectEl = document.getElementById("stationSelect");
   stationSelectEl.value = state.station;
   stationSelectEl.addEventListener("change", function () {
@@ -4434,8 +4444,10 @@ body {
     history.replaceState(null, "", url);
     document.getElementById("depBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
     document.getElementById("arrBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
+    updateDepTitle();
     loadPennBoard();
   });
+  updateDepTitle();
 
   function tickClocks() {
     var now = new Date();
