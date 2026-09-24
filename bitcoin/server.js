@@ -3446,11 +3446,21 @@ const transcribeJobs = new Map(); // id -> { status, phase, title, text, error, 
 const transcribeQueue = [];
 let transcribeRunning = false;
 
+// A launchd-run process (which is how this server actually runs on the
+// iMac) doesn't inherit the interactive shell's PATH, so it never sees
+// Homebrew's /opt/homebrew/bin (Apple Silicon) or /usr/local/bin (Intel) —
+// yt-dlp, ffmpeg, and whisper-cli all live there. Appending both paths
+// here means this works launchd or not, without needing the plist edited.
+const SPAWN_ENV = {
+  ...process.env,
+  PATH: `${process.env.PATH || ""}:/opt/homebrew/bin:/usr/local/bin`,
+};
+
 function runCmd(bin, args) {
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawn(bin, args);
+      child = spawn(bin, args, { env: SPAWN_ENV });
     } catch (e) {
       return reject(new Error(`${bin} failed to start: ${e.message}`));
     }
