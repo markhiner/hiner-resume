@@ -3498,6 +3498,50 @@ async function processTranscribeQueue() {
   }
 }
 
+// Parses whisper.cpp's SRT output into { startMs, text } cues, keeping just
+// enough (each cue's start time and its text) to lay timecodes back over
+// the transcript — the cue end times and index numbers aren't needed here.
+function parseSrt(srtContent) {
+  const blocks = srtContent.replace(/\r/g, "").split(/\n\n+/).map((b) => b.trim()).filter(Boolean);
+  const cues = [];
+  for (const block of blocks) {
+    const lines = block.split("\n");
+    const m = (lines[1] || "").match(/(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->/);
+    if (!m) continue;
+    const startMs = ((+m[1] * 3600 + +m[2] * 60 + +m[3]) * 1000) + +m[4];
+    const text = lines.slice(2).join(" ").trim();
+    if (text) cues.push({ startMs, text });
+  }
+  return cues;
+}
+
+// "(:00)", "(:10)", ... "(:50)", then "(1:00)", "(1:10)", ... — the plain
+// ":SS" form once past a minute would be ambiguous (which minute?), so only
+// the first minute gets the bare seconds shorthand editors write by hand.
+function formatTimeMark(totalSec) {
+  const m = Math.floor(totalSec / 60);
+  const s = String(totalSec % 60).padStart(2, "0");
+  return m === 0 ? `(:${s})` : `(${m}:${s})`;
+}
+
+// Walks the cues in order, dropping in every 10-second mark up through
+// (and including) whatever boundary each cue's start time has reached —
+// a long silent gap gets several marks in a row before the next spoken
+// line, rather than being skipped, so the timeline stays accurate.
+function buildTimestampedTranscript(cues) {
+  let nextBoundarySec = 0;
+  const parts = [];
+  for (const cue of cues) {
+    const startSec = Math.floor(cue.startMs / 1000);
+    while (nextBoundarySec <= startSec) {
+      parts.push(formatTimeMark(nextBoundarySec));
+      nextBoundarySec += 10;
+    }
+    parts.push(cue.text);
+  }
+  return parts.join(" ").replace(/[ \t]+/g, " ").trim();
+}
+
 async function runTranscriptionJob(id, videoUrl) {
   const job = transcribeJobs.get(id);
   const dir = path.join(TRANSCRIBE_DIR, id);
@@ -3534,8 +3578,8 @@ async function runTranscriptionJob(id, videoUrl) {
 
     job.phase = "Transcribing… (this can take a while)";
     const outBase = path.join(dir, "out");
-    await runCmd(WHISPER_BIN, ["-m", WHISPER_MODEL, "-f", wavPath, "-otxt", "-of", outBase, "-nt"]);
-    job.text = fs.readFileSync(outBase + ".txt", "utf8").trim();
+    await runCmd(WHISPER_BIN, ["-m", WHISPER_MODEL, "-f", wavPath, "-osrt", "-of", outBase]);
+    job.text = buildTimestampedTranscript(parseSrt(fs.readFileSync(outBase + ".srt", "utf8")));
 
     job.status = "done";
     job.phase = "Done";
