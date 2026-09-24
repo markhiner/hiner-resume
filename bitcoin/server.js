@@ -3505,22 +3505,25 @@ async function runTranscriptionJob(id, videoUrl) {
     fs.mkdirSync(dir, { recursive: true });
 
     job.status = "running";
+
+    // Best-effort title lookup, kept strictly separate from the download
+    // call below — combining --print with an actual download turned out
+    // to make yt-dlp print the title and stop there, downloading nothing,
+    // with no error to explain why. --skip-download here makes this call's
+    // job unambiguous, and a failure here is not fatal to the transcription.
+    try {
+      const meta = await runCmd(YTDLP_BIN, ["--skip-download", "--no-playlist", "--print", "%(title)s", videoUrl]);
+      job.title = meta.stdout.trim().split("\n").filter(Boolean).pop() || null;
+    } catch (e) {
+      console.warn(`Transcription ${id}: title lookup failed (continuing without one):`, e.message);
+    }
+
     job.phase = "Downloading audio…";
     const audioBase = path.join(dir, "audio");
-    const dl = await runCmd(YTDLP_BIN, [
-      "-f", "bestaudio/best", "--no-playlist",
-      "--print", "%(title)s",
-      "-o", audioBase + ".%(ext)s",
-      videoUrl,
-    ]);
-    job.title = dl.stdout.trim().split("\n").filter(Boolean).pop() || null;
+    const dl = await runCmd(YTDLP_BIN, ["-f", "bestaudio/best", "--no-playlist", "-o", audioBase + ".%(ext)s", videoUrl]);
 
     const downloaded = fs.readdirSync(dir).find((f) => f.startsWith("audio."));
     if (!downloaded) {
-      // yt-dlp exited 0 but wrote nothing matching our template — surface
-      // whatever it actually printed instead of a bare "no file" message,
-      // since the real cause (unsupported site, geo-block, format filter
-      // matched nothing, etc.) only shows up in its own output.
       const detail = (dl.stderr || dl.stdout || "").trim().slice(-800);
       throw new Error("yt-dlp did not produce an audio file" + (detail ? ` — yt-dlp said: ${detail}` : ""));
     }
