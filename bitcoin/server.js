@@ -3255,7 +3255,11 @@ function amtrakServiceType(routeName) {
   const name = routeName.toLowerCase();
   if (name.includes("acela")) return "acela";
   if (name.includes("keystone")) return "keystone";
-  if (name.includes("empire") || name.includes("adirondack")) return "empire";
+  // Adirondack, Maple Leaf, and Ethan Allen Express all share the Empire
+  // Corridor's Hudson Line trackage out of NYP before splitting off toward
+  // Montreal, Toronto, or Vermont respectively — same family as Empire
+  // Service itself, just with a different final destination.
+  if (name.includes("empire") || name.includes("adirondack") || name.includes("maple leaf") || name.includes("ethan allen")) return "empire";
   if (name.includes("northeast regional")) return "regional";
   if (name.includes("northeast direct")) return "regional";
   return "longdist";
