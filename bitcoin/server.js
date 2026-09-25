@@ -2794,7 +2794,7 @@ const AMTRAK_BOARD_STATIONS = { NYP: "New York", PHL: "Philadelphia", WAS: "Wash
 // the "Departures" header reads as ambiguous with just a city name (New
 // York has more than one train station) — this is the fuller name used
 // only there.
-const AMTRAK_BOARD_STATION_TITLES = { NYP: "New York Penn", PHL: "Philadelphia 30th Street", WAS: "Washington Union" };
+const AMTRAK_BOARD_STATION_TITLES = { NYP: "New York Penn", PHL: "Philadelphia", WAS: "Washington Union" };
 const AMTRAK_DEFAULT_STATION = "NYP";
 const AMTRAK_DEP_GRACE_MS = 3 * 60 * 1000; // stays listed as "Departed" this long, then drops off
 const AMTRAK_ARR_GRACE_MS = 5 * 60 * 1000; // stays listed as "Arrived" this long, then drops off
@@ -3168,7 +3168,7 @@ function amtrakBoardRow(entry, nowMs) {
   else if (entry.live === false) state = "scheduled"; // on the printed timetable, not live-tracked yet
   else state = entry.atMs - entry.schedMs > AMTRAK_DELAY_THRESHOLD_MS ? "delayed" : "on-time";
   return {
-    trainNum: entry.trainNum, trainID: entry.trainID, routeName: entry.routeName,
+    trainNum: entry.trainNum, trainID: entry.trainID, routeName: amtrakDisplayRouteName(entry.routeName),
     color: entry.color, textColor: entry.textColor, lat: entry.lat, lon: entry.lon,
     velocity: entry.velocity, heading: entry.heading,
     other: entry.other, schedMs: entry.schedMs, atMs: entry.atMs, track: entry.track,
@@ -3263,6 +3263,17 @@ function amtrakServiceType(routeName) {
   if (name.includes("northeast regional")) return "regional";
   if (name.includes("northeast direct")) return "regional";
   return "longdist";
+}
+
+// Shortens a couple of Amtrak's own route names for display everywhere a
+// train's route name shows up (board rows, the detail sheet, the NEC map).
+// Classification above always runs on the untouched name first — shortening
+// here never feeds back into amtrakServiceType.
+function amtrakDisplayRouteName(routeName) {
+  if (!routeName) return routeName;
+  if (routeName === "Keystone Service") return "Keystone";
+  if (routeName === "Northeast Regional") return "NE Regional";
+  return routeName;
 }
 
 const NEC_SERVICE_COLORS = {
@@ -3411,7 +3422,7 @@ function getActivENECTrains() {
 
       trains.push({
         trainNum: train.trainNum,
-        routeName: train.routeName,
+        routeName: amtrakDisplayRouteName(train.routeName),
         serviceType: amtrakServiceType(train.routeName),
         lat,
         lon,
