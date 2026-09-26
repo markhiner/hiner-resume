@@ -6251,14 +6251,33 @@ body {
       doc.text(absoluteDateLabel(elDate.value), MARGIN, 63);
     }
 
+    // Same notes shown as flags on screen (legroom, Wi-Fi, in-seat power,
+    // Live TV, carry-on, delay risk) collapsed to one line of plain text —
+    // emissions deliberately left out, same as on screen.
+    function goodToKnowLine(r) {
+      var g = r.goodToKnow || {};
+      var parts = [];
+      if (g.legroom) parts.push("Legroom " + g.legroom);
+      if (g.wifi === "free") parts.push("Free Wi-Fi");
+      else if (g.wifi === "paid") parts.push("Wi-Fi (fee)");
+      if (g.power) parts.push("Power/USB");
+      if (g.liveTv) parts.push("Live TV");
+      if (g.carryOn === "included") parts.push("Carry-on included");
+      else if (g.carryOn === "fee") parts.push("Carry-on fee");
+      if (g.oftenDelayed) parts.push("Often delayed");
+      return parts.length ? parts.join("   ·   ") : null;
+    }
+
     drawHeader();
     var y = 96;
 
     picked.forEach(function (r, idx) {
+      var gtkLine = goodToKnowLine(r);
       var blockHeight = 42 +
         (r.flightNumbers.length ? 14 : 0) +
         (!r.nonstop && r.layovers.length ? 14 : 0) +
-        (r.aircraft.length ? 14 : 0);
+        (r.aircraft.length ? 14 : 0) +
+        (gtkLine ? 14 : 0);
       if (y + blockHeight > 740) { doc.addPage(); drawHeader(); y = 96; }
 
       if (idx % 2 === 0) {
@@ -6313,6 +6332,7 @@ body {
         y += 14;
       }
       if (r.aircraft.length) { doc.text("Aircraft: " + r.aircraft.join(", "), MARGIN, y); y += 14; }
+      if (gtkLine) { doc.text(gtkLine, MARGIN, y); y += 14; }
       y += 16;
     });
 
