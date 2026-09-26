@@ -5719,6 +5719,16 @@ body {
 
   // Today / Tomorrow / a weekday name while that is still unambiguous, and a
   // real date once it is not.
+  // Always the real calendar date, unlike dayLabel()'s "Today"/"Tomorrow" —
+  // a PDF is a saved record, so it should say what date it's actually for
+  // regardless of when it's opened again later.
+  function absoluteDateLabel(ymd) {
+    var p = String(ymd).split("-");
+    if (p.length !== 3) return ymd;
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    return d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  }
+
   function dayLabel(ymd) {
     var p = String(ymd).split("-");
     if (p.length !== 3) return ymd;
@@ -6073,12 +6083,14 @@ body {
       doc.setFillColor(ACCENT[0], ACCENT[1], ACCENT[2]);
       doc.rect(0, 72, PAGE_W, 3, "F");
       doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
-      doc.text("FLIGHT SEARCH RESULTS", MARGIN, 26);
+      doc.text("AVAILABLE FLIGHTS", MARGIN, 26);
       doc.setFont("helvetica", "bold"); doc.setFontSize(20); doc.setTextColor(255, 255, 255);
-      doc.text(fromCity + "  →  " + toCity, MARGIN, 50);
+      // A real arrow (U+2192) falls outside the standard PDF fonts' WinAnsi
+      // encoding — jsPDF doesn't just drop the one glyph, it garbles the
+      // whole text() call's spacing along with it. "->" stays plain ASCII.
+      doc.text(fromCity + "  ->  " + toCity, MARGIN, 50);
       doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(200, 208, 225);
-      doc.text(dayLabel(elDate.value) + "  ·  " + picked.length + " flight" + (picked.length === 1 ? "" : "s") +
-        "  ·  generated " + new Date().toLocaleString(), MARGIN, 63);
+      doc.text(absoluteDateLabel(elDate.value), MARGIN, 63);
     }
 
     drawHeader();
@@ -6116,7 +6128,7 @@ body {
 
       y += 16;
       doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(70, 70, 70);
-      doc.text(r.depTime + " " + r.depAirport + "  →  " + r.arrTime + (r.dayOffset ? " (+1 day)" : "") +
+      doc.text(r.depTime + " " + r.depAirport + "  ->  " + r.arrTime + (r.dayOffset ? " (+1 day)" : "") +
         " " + r.arrAirport + "   ·   " + (r.totalDurationLabel || "") + "   ·   " +
         (r.nonstop ? "Nonstop" : r.stops + " stop" + (r.stops > 1 ? "s" : "")), MARGIN, y);
       y += 14;
