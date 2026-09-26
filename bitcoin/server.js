@@ -1698,10 +1698,8 @@ function splitStamp(stamp) {
   const [date, time] = String(stamp || "").split(" ");
   if (!time) return { date: date || null, label: null };
   const [hStr, m] = time.split(":");
-  let h = parseInt(hStr, 10);
-  const ampm = h >= 12 ? "PM" : "AM";
-  h = h % 12 || 12;
-  return { date, label: h + ":" + m + " " + ampm };
+  const h = parseInt(hStr, 10);
+  return { date, label: String(h).padStart(2, "0") + ":" + m };
 }
 
 function fmtDuration(mins) {
@@ -6104,16 +6102,12 @@ body {
     elResults.innerHTML = html;
   }
 
-  // arrTime is a 12-hour label like "2:30 PM" — the leading number alone
-  // isn't a sortable hour (2 PM and 2 AM both start with "2"), so AM/PM
-  // has to be folded in to get real minutes-since-midnight.
+  // arrTime is a 24-hour label like "14:30" — already real minutes-since-
+  // midnight once split, no AM/PM to fold in.
   function minutesOfDay(label) {
     if (!label) return Infinity;
-    var parts = label.split(" ");
-    var hm = parts[0].split(":");
-    var h = parseInt(hm[0], 10) % 12;
-    if (parts[1] === "PM") h += 12;
-    return h * 60 + parseInt(hm[1], 10);
+    var hm = label.split(":");
+    return parseInt(hm[0], 10) * 60 + parseInt(hm[1], 10);
   }
 
   function compareResults(a, b) {
