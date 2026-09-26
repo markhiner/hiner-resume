@@ -6160,12 +6160,43 @@ body {
     row.classList.add("flash");
   });
 
-  // Client-side, off the same data already on screen — no round trip, and
-  // no server involvement in what is otherwise a purely personal export.
-  function exportSelectedFlights() {
+  // Draws to a hidden canvas rather than fetching to a data URL directly —
+  // jsPDF's addImage wants either a data URL or an already-decoded image,
+  // and a plain fetch of a cross-origin logo can't be handed to it as-is.
+  // Resolves to null (not a rejection) on any failure — a CORS-blocked host,
+  // a 404, whatever — so one bad logo never sinks the whole export; that
+  // itinerary's row just prints without one, same as it always did.
+  function loadLogoData(url) {
+    return new Promise(function (resolve) {
+      if (!url) { resolve(null); return; }
+      var img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = function () {
+        try {
+          var c = document.createElement("canvas");
+          c.width = img.naturalWidth || 1;
+          c.height = img.naturalHeight || 1;
+          c.getContext("2d").drawImage(img, 0, 0);
+          resolve({ dataUrl: c.toDataURL("image/png"), w: img.naturalWidth, h: img.naturalHeight });
+        } catch (e) { resolve(null); } // canvas tainted by a CORS-blocked host
+      };
+      img.onerror = function () { resolve(null); };
+      img.src = url;
+    });
+  }
+
+  // Client-side, off the same data already on screen — no round trip for
+  // the flight data itself, though the logos still need one fetch each.
+  async function exportSelectedFlights() {
     var picked = results.filter(function (r) { return selected[r.key]; });
     if (!picked.length || !window.jspdf) return;
     picked.sort(compareResults);
+
+    var uniqueLogoUrls = [];
+    picked.forEach(function (r) { if (r.logo && uniqueLogoUrls.indexOf(r.logo) === -1) uniqueLogoUrls.push(r.logo); });
+    var loadedLogos = await Promise.all(uniqueLogoUrls.map(loadLogoData));
+    var logoByUrl = {};
+    uniqueLogoUrls.forEach(function (u, i) { logoByUrl[u] = loadedLogos[i]; });
 
     var from = codesFor(elFrom) || "?", to = codesFor(elTo) || "?";
     // The field's visible text is already the city name once a shortcut chip
@@ -6188,6 +6219,19 @@ body {
       author: "hiner.nyc",
     });
 
+    // A real ">" glyph reads fine on screen, but a solid vector triangle
+    // looks like a deliberate arrow rather than typed-out punctuation, and
+    // sidesteps the standard PDF fonts' character-set limits entirely since
+    // nothing about it is text. Scales with the surrounding font size; returns
+    // the width it took up so the caller knows where to resume the line.
+    function drawArrowGlyph(x, baselineY, fontSize, color) {
+      var w = fontSize * 0.5, h = fontSize * 0.6;
+      var cy = baselineY - fontSize * 0.32;
+      doc.setFillColor(color[0], color[1], color[2]);
+      doc.triangle(x, cy - h / 2, x, cy + h / 2, x + w, cy, "F");
+      return w;
+    }
+
     // Redrawn on every page so a run that spans pages still reads as one
     // document rather than a title page followed by bare continuation sheets.
     function drawHeader() {
@@ -6198,10 +6242,11 @@ body {
       doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(ACCENT[0], ACCENT[1], ACCENT[2]);
       doc.text("AVAILABLE FLIGHTS", MARGIN, 26);
       doc.setFont("helvetica", "bold"); doc.setFontSize(20); doc.setTextColor(255, 255, 255);
-      // A real arrow (U+2192) falls outside the standard PDF fonts' WinAnsi
-      // encoding — jsPDF doesn't just drop the one glyph, it garbles the
-      // whole text() call's spacing along with it. "->" stays plain ASCII.
-      doc.text(fromCity + "  ->  " + toCity, MARGIN, 50);
+      var fromW = doc.getTextWidth(fromCity);
+      doc.text(fromCity, MARGIN, 50);
+      var arrowX = MARGIN + fromW + 12;
+      var arrowW = drawArrowGlyph(arrowX, 50, 20, [255, 255, 255]);
+      doc.text(toCity, arrowX + arrowW + 12, 50);
       doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(200, 208, 225);
       doc.text(absoluteDateLabel(elDate.value), MARGIN, 63);
     }
@@ -6221,8 +6266,16 @@ body {
         doc.rect(MARGIN - 10, y - 14, PAGE_W - 2 * (MARGIN - 10), blockHeight, "F");
       }
 
+      var logo = r.logo && logoByUrl[r.logo];
+      var nameX = MARGIN;
+      if (logo) {
+        var logoH = 15, logoW = logo.w && logo.h ? logoH * (logo.w / logo.h) : logoH;
+        logoW = Math.min(logoW, 28);
+        try { doc.addImage(logo.dataUrl, "PNG", MARGIN, y - 11, logoW, logoH); } catch (e) {}
+        nameX = MARGIN + logoW + 7;
+      }
       doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(20, 20, 20);
-      doc.text((idx + 1) + ".  " + r.airlines.join(" / "), MARGIN, y);
+      doc.text((idx + 1) + ".  " + r.airlines.join(" / "), nameX, y);
 
       // cabin badge, right-aligned
       var cabinLabel = r.cabin === "first" ? "FIRST" : "ECONOMY";
@@ -6241,9 +6294,13 @@ body {
 
       y += 16;
       doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(70, 70, 70);
-      doc.text(r.depTime + " " + r.depAirport + "  ->  " + r.arrTime + (r.dayOffset ? " (+1 day)" : "") +
-        " " + r.arrAirport + "   ·   " + (r.totalDurationLabel || "") + "   ·   " +
-        (r.nonstop ? "Nonstop" : r.stops + " stop" + (r.stops > 1 ? "s" : "")), MARGIN, y);
+      var depText = r.depTime + " " + r.depAirport;
+      doc.text(depText, MARGIN, y);
+      var arrowX2 = MARGIN + doc.getTextWidth(depText) + 8;
+      var arrowW2 = drawArrowGlyph(arrowX2, y, 10, [70, 70, 70]);
+      doc.text(r.arrTime + (r.dayOffset ? " (+1 day)" : "") + " " + r.arrAirport + "   ·   " +
+        (r.totalDurationLabel || "") + "   ·   " +
+        (r.nonstop ? "Nonstop" : r.stops + " stop" + (r.stops > 1 ? "s" : "")), arrowX2 + arrowW2 + 8, y);
       y += 14;
 
       if (r.flightNumbers.length) { doc.text("Flight " + r.flightNumbers.join(", "), MARGIN, y); y += 14; }
