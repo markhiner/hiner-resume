@@ -1711,6 +1711,36 @@ function fmtDuration(mins) {
   return (h ? h + "h" : "") + (h && m ? " " : "") + (m || !h ? m + "m" : "");
 }
 
+// SerpApi's Google Flights response carries a per-leg "extensions" array of
+// free-text notes (Wi-Fi, power, seatback TV, legroom, delay history, an
+// emissions estimate we deliberately ignore here) and, separately, a
+// "legroom" field. This reads the notes actually worth surfacing out of
+// that text rather than the raw strings, across every leg of the
+// itinerary — a connection with a bad leg should still flag it. None of
+// this has been checked against a live response (no SerpApi key is
+// reachable from where this was written), so it's deliberately
+// conservative: anything not clearly matched stays null rather than
+// guessing, and it degrades to showing nothing rather than something wrong.
+function extractGoodToKnow(it, legs) {
+  const notes = [].concat(it.extensions || [], ...legs.map((l) => l.extensions || [])).join(" | ");
+  const has = (re) => re.test(notes);
+  const legroom = legs.map((l) => l.legroom).find(Boolean) || null;
+  let wifi = null;
+  if (has(/free wi-?fi/i)) wifi = "free";
+  else if (has(/wi-?fi/i)) wifi = "paid";
+  let carryOn = null;
+  if (has(/carry-?on bag included/i)) carryOn = "included";
+  else if (has(/carry-?on bag[^|]*(fee|\$|not included)/i)) carryOn = "fee";
+  return {
+    legroom,
+    wifi,
+    power: has(/in-seat power|usb/i) || null,
+    liveTv: has(/live tv/i) || null,
+    carryOn,
+    oftenDelayed: has(/often delayed/i) || null,
+  };
+}
+
 function normalizeItinerary(it, cabin) {
   const legs = Array.isArray(it.flights) ? it.flights : [];
   if (!legs.length) return null;
@@ -1745,6 +1775,7 @@ function normalizeItinerary(it, cabin) {
     nonstop: legs.length === 1,
     widebody: aircraft.some(isWidebody),
     longLayover: layovers.some((l) => l.minutes != null && l.minutes > LONG_LAYOVER_MIN),
+    goodToKnow: extractGoodToKnow(it, legs),
   };
 }
 
@@ -1784,7 +1815,7 @@ async function serpFlights(from, to, date, cabin, apiKey) {
   const itineraries = raw.map((it) => normalizeItinerary(it, cabin)).filter(Boolean);
   // the untouched upstream payload, kept only so ?debug=1 can hand it back
   // for troubleshooting — normal searches never send it to the client
-  const entry = { at: Date.now(), itineraries, rawResponse: json };
+  const entry = { at: Date.now(), itineraries, rawResponse: json, priceInsights: json.price_insights || null };
   flightCache.set(key, entry);
   return entry;
 }
@@ -1819,6 +1850,47 @@ async function searchFlights(from, to, date, apiKey) {
   flagItineraries(list);
   list.sort((a, b) => (a.price || 1e9) - (b.price || 1e9) || (a.totalDuration || 0) - (b.totalDuration || 0));
   return { itineraries: list, partialError: errors.length ? errors.join("; ") : null, raw };
+}
+
+// ---------- flight price graph (price-by-date) ----------
+//
+// SerpApi has no single call that returns "price by departure date" the way
+// Google Flights' own app draws it — that graph is Google querying many
+// dates internally. The only way to build the same picture through the
+// public API is one ordinary search per candidate date, so this is real,
+// separate API cost every time it runs: 2*days+1 dates, minus one (the
+// search's own date is already cached from the main search). Deliberately
+// economy-only — the graph is about the cheapest way on a given day, not
+// every cabin, and every date shares serpFlights' normal cache, so pulling
+// a wider window later only costs the new dates, not the ones already in
+// hand from a narrower one.
+
+function addDaysYMD(ymd, delta) {
+  const [y, m, d] = String(ymd).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
+}
+
+async function cheapestPriceForDate(from, to, date, apiKey) {
+  const entry = await serpFlights(from, to, date, "economy", apiKey);
+  const prices = entry.itineraries.map((it) => it.price).filter((p) => p != null);
+  if (prices.length) return Math.min(...prices);
+  // Falls back to Google's own headline number when no itinerary parsed
+  // cleanly but the search itself still returned one — better than a hole
+  // in the graph.
+  return (entry.priceInsights && entry.priceInsights.lowest_price) || null;
+}
+
+// A date before "today" or one Google Flights simply won't quote (too far
+// out, no service that day, etc.) surfaces as a rejected search rather than
+// a thrown error — the graph shows a gap there instead of failing outright.
+async function flightPriceGraph(from, to, centerDate, days, apiKey) {
+  const dates = [];
+  for (let i = -days; i <= days; i++) dates.push(addDaysYMD(centerDate, i));
+  const settled = await Promise.allSettled(dates.map((d) => cheapestPriceForDate(from, to, d, apiKey)));
+  return dates.map((date, i) => ({
+    date,
+    price: settled[i].status === "fulfilled" ? settled[i].value : null,
+  }));
 }
 
 // ---------- hotels (SerpApi Google Hotels) ----------
@@ -3809,6 +3881,25 @@ const server = http.createServer((req, res) => {
       .catch((e) => send(200, { enabled: true, from, to, date, itineraries: [], error: e.message }));
     return;
   }
+  if (url.pathname === "/api/flight-price-graph") {
+    const send = (code, obj) => {
+      res.writeHead(code, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(obj));
+    };
+    const apiKey = serpKeyFrom(req);
+    if (!apiKey) return send(200, { enabled: false, points: [] });
+    const clean = (v) => String(v || "").toUpperCase().replace(/\s+/g, "").replace(/,+/g, ",").replace(/^,|,$/g, "");
+    const from = clean(url.searchParams.get("from"));
+    const to = clean(url.searchParams.get("to"));
+    const date = String(url.searchParams.get("date") || "");
+    const days = url.searchParams.get("days") === "7" ? 7 : 3;
+    if (!from || !to) return send(400, { enabled: true, points: [], error: "need both a departure and an arrival" });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return send(400, { enabled: true, points: [], error: "need a date as YYYY-MM-DD" });
+    flightPriceGraph(from, to, date, days, apiKey)
+      .then((points) => send(200, { enabled: true, points, days }))
+      .catch((e) => send(200, { enabled: true, points: [], days, error: e.message }));
+    return;
+  }
   if (url.pathname === "/api/hotels") {
     const send = (code, obj) => {
       res.writeHead(code, { "Content-Type": "application/json" });
@@ -5413,6 +5504,18 @@ body {
 .fl-flag.cheap { background: var(--green); color: #042a12; }
 .fl-flag.wide { background: rgba(90,200,250,0.15); color: #5ac8fa; }
 .fl-flag.longlay { background: rgba(245,197,24,0.15); color: var(--yellow); }
+/* "good to know" flags, from Google's own per-flight notes */
+.fl-flag.gtk { background: rgba(148,163,184,0.16); color: #94a3b8; }
+.fl-flag.gtk.delay { background: rgba(239,68,68,0.15); color: #ef4444; }
+
+.fl-pricegraph { margin-bottom: 10px; }
+.fl-pg-hdr { display: flex; align-items: baseline; justify-content: space-between; padding: 2px 2px 6px; }
+.fl-pg-title { font-size: 10px; letter-spacing: 1px; font-weight: 800; text-transform: uppercase; color: var(--text3); }
+.fl-pg-expand { font-size: 10px; font-weight: 800; color: #5ac8fa; background: none; border: none; padding: 4px; }
+.fl-pg-expand:disabled { color: var(--text3); }
+.fl-pg-wrap { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 8px 6px 4px; }
+.fl-pg-wrap canvas { display: block; width: 100%; height: 108px; }
+.fl-pg-msg { font-size: 10.5px; color: var(--text3); padding: 10px; text-align: center; }
 
 /* tap to pick an itinerary for the compare/export bar below */
 .fl-pick { width: 21px; height: 21px; border-radius: 50%; flex-shrink: 0; padding: 0;
@@ -5624,6 +5727,7 @@ body {
 
     </div>
 
+    <div class="fl-pricegraph" id="flPriceGraph"></div>
     <div class="fl-results" id="flResults"></div>
   </div>
 
@@ -5843,6 +5947,15 @@ body {
     if (r.cheapest) out.push('<span class="fl-flag cheap">Lowest</span>');
     if (r.widebody) out.push('<span class="fl-flag wide">Widebody</span>');
     if (r.longLayover) out.push('<span class="fl-flag longlay">Long layover</span>');
+    var g = r.goodToKnow || {};
+    if (g.liveTv) out.push('<span class="fl-flag gtk">Live TV</span>');
+    if (g.wifi === "free") out.push('<span class="fl-flag gtk">Free Wi-Fi</span>');
+    else if (g.wifi === "paid") out.push('<span class="fl-flag gtk">Wi-Fi (fee)</span>');
+    if (g.power) out.push('<span class="fl-flag gtk">Power/USB</span>');
+    if (g.carryOn === "included") out.push('<span class="fl-flag gtk">Carry-on included</span>');
+    else if (g.carryOn === "fee") out.push('<span class="fl-flag gtk">Carry-on fee</span>');
+    if (g.legroom) out.push('<span class="fl-flag gtk">Legroom ' + esc(g.legroom) + '</span>');
+    if (g.oftenDelayed) out.push('<span class="fl-flag gtk delay">Often delayed</span>');
     return out.length ? '<div class="fl-flags">' + out.join("") + "</div>" : "";
   }
 
@@ -6165,6 +6278,113 @@ body {
     elMsg.className = "fl-msg" + (isErr ? " err" : "");
   }
 
+  // ---- price-by-date graph ----
+  // Fires automatically after every search (\u00b13 days, the "always shown, no
+  // tap needed" range) with an "expand" button that widens it to \u00b17 \u2014 each
+  // date is its own SerpApi search under the hood (see flightPriceGraph()
+  // server-side), so this is real extra API cost on every search, spent by
+  // request rather than hidden behind a click.
+  var elPriceGraph = document.getElementById("flPriceGraph");
+  var priceGraph = { points: [], days: 3, from: null, to: null, date: null, loading: false };
+
+  function loadPriceGraph(from, to, date, days) {
+    priceGraph.from = from; priceGraph.to = to; priceGraph.date = date; priceGraph.days = days;
+    priceGraph.loading = true;
+    renderPriceGraph();
+    fetch("/api/flight-price-graph?from=" + encodeURIComponent(from) + "&to=" + encodeURIComponent(to) +
+          "&date=" + encodeURIComponent(date) + "&days=" + days, { headers: flightHeaders() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        priceGraph.loading = false;
+        priceGraph.points = (d.enabled !== false && d.points) ? d.points : [];
+        renderPriceGraph();
+      })
+      .catch(function () { priceGraph.loading = false; priceGraph.points = []; renderPriceGraph(); });
+  }
+
+  function renderPriceGraph() {
+    if (priceGraph.loading && !priceGraph.points.length) {
+      elPriceGraph.innerHTML = '<div class="fl-pg-wrap"><div class="fl-pg-msg">Loading price graph\u2026</div></div>';
+      return;
+    }
+    if (!priceGraph.points.length) { elPriceGraph.innerHTML = ""; return; }
+    var canExpand = priceGraph.days < 7;
+    elPriceGraph.innerHTML =
+      '<div class="fl-pg-hdr"><span class="fl-pg-title">Price by date</span>' +
+      '<button class="fl-pg-expand" id="flPgExpand"' + (canExpand ? "" : " disabled") + '>' +
+      (canExpand ? "Show \u00b17 days" : "\u00b17 days shown") + "</button></div>" +
+      '<div class="fl-pg-wrap"><canvas id="flPgCanvas"></canvas></div>';
+    if (canExpand) {
+      document.getElementById("flPgExpand").addEventListener("click", function () {
+        loadPriceGraph(priceGraph.from, priceGraph.to, priceGraph.date, 7);
+      });
+    }
+    drawPriceGraph();
+  }
+
+  function drawPriceGraph() {
+    var canvas = document.getElementById("flPgCanvas");
+    if (!canvas) return;
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    var w = rect.width, h = rect.height;
+    if (!w || !h) return;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    var points = priceGraph.points;
+    var prices = points.map(function (p) { return p.price; }).filter(function (p) { return p != null; });
+    if (!prices.length) return;
+    var maxP = Math.max.apply(null, prices), minP = Math.min.apply(null, prices);
+    var barAreaH = h - 16; // room for date labels below
+    var n = points.length, gap = 3;
+    var barW = (w - gap * (n - 1)) / n;
+
+    points.forEach(function (p, i) {
+      var x = i * (barW + gap);
+      var isCenter = p.date === priceGraph.date;
+
+      if (p.price == null) {
+        // a date Google Flights wouldn't quote (in the past, out of range,
+        // no service that day) \u2014 a gap in the timeline, not a zero price
+        ctx.strokeStyle = "rgba(255,255,255,0.15)";
+        ctx.setLineDash([2, 2]);
+        ctx.strokeRect(x, barAreaH - 4, barW, 4);
+        ctx.setLineDash([]);
+      } else {
+        var frac = maxP > minP ? (p.price - minP) / (maxP - minP) : 0.5;
+        var barH = Math.max(14, 14 + frac * (barAreaH - 30));
+        var y = barAreaH - barH, r = 3;
+        ctx.fillStyle = isCenter ? "#5ac8fa" : "rgba(148,163,184,0.45)";
+        ctx.beginPath();
+        ctx.moveTo(x, barAreaH);
+        ctx.lineTo(x, y + r);
+        ctx.arcTo(x, y, x + barW, y, r);
+        ctx.arcTo(x + barW, y, x + barW, y + r, r);
+        ctx.lineTo(x + barW, barAreaH);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = isCenter ? "#fff" : "rgba(255,255,255,0.55)";
+        ctx.font = (isCenter ? "700 " : "600 ") + "9px -apple-system, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("$" + p.price, x + barW / 2, Math.max(y - 4, 9));
+      }
+
+      var d = new Date(p.date + "T00:00:00");
+      ctx.fillStyle = isCenter ? "#5ac8fa" : "rgba(255,255,255,0.4)";
+      ctx.font = (isCenter ? "700 " : "500 ") + "8.5px -apple-system, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText((d.getMonth() + 1) + "/" + d.getDate(), x + barW / 2, h - 3);
+    });
+  }
+  window.addEventListener("resize", function () {
+    if (document.getElementById("flPgCanvas")) drawPriceGraph();
+  });
+
   function searchFlights() {
     if (!flightsEnabled) return;
     var from = codesFor(elFrom), to = codesFor(elTo);
@@ -6172,6 +6392,8 @@ body {
     elGo.disabled = true;
     setFlightMsg("Searching economy and first\u2026");
     elResults.innerHTML = "";
+    priceGraph.points = [];
+    elPriceGraph.innerHTML = "";
     fetch("/api/flights?from=" + encodeURIComponent(from) + "&to=" + encodeURIComponent(to) +
           "&date=" + encodeURIComponent(elDate.value), { headers: flightHeaders() })
       .then(function (r) { return r.json(); })
@@ -6181,6 +6403,7 @@ body {
         var list = d.itineraries || [];
         if (!list.length) { setFlightMsg("No flights found for that route and date", true); return; }
         renderResults(list);
+        loadPriceGraph(from, to, elDate.value, 3);
         setFlightMsg(list.length + " itineraries \u00b7 " + from + " \u2192 " + to + " \u00b7 " + dayLabel(d.date) +
           (d.partialError ? " \u00b7 one cabin unavailable" : ""));
       })
