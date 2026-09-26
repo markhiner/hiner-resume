@@ -6322,6 +6322,8 @@ body {
     drawPriceGraph();
   }
 
+  var NEON_YELLOW = "#eaff00";
+
   function drawPriceGraph() {
     var canvas = document.getElementById("flPgCanvas");
     if (!canvas) return;
@@ -6339,46 +6341,65 @@ body {
     var prices = points.map(function (p) { return p.price; }).filter(function (p) { return p != null; });
     if (!prices.length) return;
     var maxP = Math.max.apply(null, prices), minP = Math.min.apply(null, prices);
-    var barAreaH = h - 16; // room for date labels below
-    var n = points.length, gap = 3;
-    var barW = (w - gap * (n - 1)) / n;
+    var plotTop = 14, plotBottom = h - 16; // room for price labels above, date labels below
+    var n = points.length;
+    var stepX = n > 1 ? w / (n - 1) : 0;
+    var priceY = function (price) {
+      var frac = maxP > minP ? (price - minP) / (maxP - minP) : 0.5;
+      return plotBottom - frac * (plotBottom - plotTop);
+    };
+
+    // The line breaks across any gap (a date Google Flights wouldn't quote \u2014
+    // in the past, out of range, no service that day) rather than
+    // interpolating through a price that was never actually returned.
+    ctx.strokeStyle = NEON_YELLOW;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = "round";
+    ctx.shadowColor = NEON_YELLOW;
+    ctx.shadowBlur = 6;
+    var drawing = false;
+    points.forEach(function (p, i) {
+      var x = i * stepX;
+      if (p.price == null) { drawing = false; return; }
+      var y = priceY(p.price);
+      if (!drawing) { ctx.beginPath(); ctx.moveTo(x, y); drawing = true; }
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.shadowBlur = 0;
 
     points.forEach(function (p, i) {
-      var x = i * (barW + gap);
+      var x = i * stepX;
       var isCenter = p.date === priceGraph.date;
 
       if (p.price == null) {
-        // a date Google Flights wouldn't quote (in the past, out of range,
-        // no service that day) \u2014 a gap in the timeline, not a zero price
         ctx.strokeStyle = "rgba(255,255,255,0.15)";
         ctx.setLineDash([2, 2]);
-        ctx.strokeRect(x, barAreaH - 4, barW, 4);
+        ctx.strokeRect(x - 1, plotBottom - 3, 2, 3);
         ctx.setLineDash([]);
       } else {
-        var frac = maxP > minP ? (p.price - minP) / (maxP - minP) : 0.5;
-        var barH = Math.max(14, 14 + frac * (barAreaH - 30));
-        var y = barAreaH - barH, r = 3;
-        ctx.fillStyle = isCenter ? "#5ac8fa" : "rgba(148,163,184,0.45)";
+        var y = priceY(p.price);
+        ctx.fillStyle = NEON_YELLOW;
         ctx.beginPath();
-        ctx.moveTo(x, barAreaH);
-        ctx.lineTo(x, y + r);
-        ctx.arcTo(x, y, x + barW, y, r);
-        ctx.arcTo(x + barW, y, x + barW, y + r, r);
-        ctx.lineTo(x + barW, barAreaH);
-        ctx.closePath();
+        ctx.arc(x, y, isCenter ? 4 : 2.5, 0, Math.PI * 2);
         ctx.fill();
+        if (isCenter) {
+          ctx.strokeStyle = "rgba(0,0,0,0.5)";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
 
-        ctx.fillStyle = isCenter ? "#fff" : "rgba(255,255,255,0.55)";
+        ctx.fillStyle = isCenter ? NEON_YELLOW : "rgba(234,255,0,0.55)";
         ctx.font = (isCenter ? "700 " : "600 ") + "9px -apple-system, sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText("$" + p.price, x + barW / 2, Math.max(y - 4, 9));
+        ctx.fillText("$" + p.price, x, Math.max(y - 8, 9));
       }
 
       var d = new Date(p.date + "T00:00:00");
-      ctx.fillStyle = isCenter ? "#5ac8fa" : "rgba(255,255,255,0.4)";
+      ctx.fillStyle = isCenter ? NEON_YELLOW : "rgba(255,255,255,0.4)";
       ctx.font = (isCenter ? "700 " : "500 ") + "8.5px -apple-system, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText((d.getMonth() + 1) + "/" + d.getDate(), x + barW / 2, h - 3);
+      ctx.fillText((d.getMonth() + 1) + "/" + d.getDate(), x, h - 3);
     });
   }
   window.addEventListener("resize", function () {
