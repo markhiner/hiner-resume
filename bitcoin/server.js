@@ -6266,16 +6266,15 @@ body {
         doc.rect(MARGIN - 10, y - 14, PAGE_W - 2 * (MARGIN - 10), blockHeight, "F");
       }
 
-      var logo = r.logo && logoByUrl[r.logo];
-      var nameX = MARGIN;
-      if (logo) {
-        var logoH = 15, logoW = logo.w && logo.h ? logoH * (logo.w / logo.h) : logoH;
-        logoW = Math.min(logoW, 28);
-        try { doc.addImage(logo.dataUrl, "PNG", MARGIN, y - 11, logoW, logoH); } catch (e) {}
-        nameX = MARGIN + logoW + 7;
-      }
+      // Headline is the route itself — departure airport/time, arrival
+      // airport/time — not the airline, which is demoted to the line below
+      // it alongside its logo.
       doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(20, 20, 20);
-      doc.text((idx + 1) + ".  " + r.airlines.join(" / "), nameX, y);
+      var headLead = (idx + 1) + ".  " + r.depAirport + " " + r.depTime;
+      doc.text(headLead, MARGIN, y);
+      var headArrowX = MARGIN + doc.getTextWidth(headLead) + 8;
+      var headArrowW = drawArrowGlyph(headArrowX, y, 12, [20, 20, 20]);
+      doc.text(r.arrAirport + " " + r.arrTime + (r.dayOffset ? " (+1 day)" : ""), headArrowX + headArrowW + 8, y);
 
       // cabin badge, right-aligned
       var cabinLabel = r.cabin === "first" ? "FIRST" : "ECONOMY";
@@ -6293,14 +6292,17 @@ body {
       doc.text(priceText, PAGE_W - MARGIN - badgeW - 10 - doc.getTextWidth(priceText), y);
 
       y += 16;
+      var logo = r.logo && logoByUrl[r.logo];
+      var lineX = MARGIN;
+      if (logo) {
+        var logoH = 12, logoW = logo.w && logo.h ? logoH * (logo.w / logo.h) : logoH;
+        logoW = Math.min(logoW, 24);
+        try { doc.addImage(logo.dataUrl, "PNG", MARGIN, y - 9, logoW, logoH); } catch (e) {}
+        lineX = MARGIN + logoW + 6;
+      }
       doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(70, 70, 70);
-      var depText = r.depTime + " " + r.depAirport;
-      doc.text(depText, MARGIN, y);
-      var arrowX2 = MARGIN + doc.getTextWidth(depText) + 8;
-      var arrowW2 = drawArrowGlyph(arrowX2, y, 10, [70, 70, 70]);
-      doc.text(r.arrTime + (r.dayOffset ? " (+1 day)" : "") + " " + r.arrAirport + "   ·   " +
-        (r.totalDurationLabel || "") + "   ·   " +
-        (r.nonstop ? "Nonstop" : r.stops + " stop" + (r.stops > 1 ? "s" : "")), arrowX2 + arrowW2 + 8, y);
+      doc.text(r.airlines.join(" / ") + "   ·   " + (r.totalDurationLabel || "") + "   ·   " +
+        (r.nonstop ? "Nonstop" : r.stops + " stop" + (r.stops > 1 ? "s" : "")), lineX, y);
       y += 14;
 
       if (r.flightNumbers.length) { doc.text("Flight " + r.flightNumbers.join(", "), MARGIN, y); y += 14; }
