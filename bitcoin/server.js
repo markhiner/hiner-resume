@@ -6246,32 +6246,71 @@ body {
     }
 
     // Same notes shown as flags on screen (legroom, Wi-Fi, in-seat power,
-    // Live TV, carry-on, delay risk) collapsed to one line of plain text —
-    // emissions deliberately left out, same as on screen.
-    function goodToKnowLine(r) {
+    // Live TV, carry-on, delay risk) — emissions deliberately left out, same
+    // as on screen. Drawn as actual badge chips in a second column rather
+    // than crammed into one line of text on the left, which used to leave
+    // most of the row's width sitting empty next to a short flight-detail
+    // column.
+    function goodToKnowChips(r) {
       var g = r.goodToKnow || {};
-      var parts = [];
-      if (g.legroom) parts.push("Legroom " + g.legroom);
-      if (g.wifi === "free") parts.push("Free Wi-Fi");
-      else if (g.wifi === "paid") parts.push("Wi-Fi (fee)");
-      if (g.power) parts.push("Power/USB");
-      if (g.liveTv) parts.push("Live TV");
-      if (g.carryOn === "included") parts.push("Carry-on included");
-      else if (g.carryOn === "fee") parts.push("Carry-on fee");
-      if (g.oftenDelayed) parts.push("Often delayed");
-      return parts.length ? parts.join("   ·   ") : null;
+      var out = [];
+      if (g.legroom) out.push("Legroom " + g.legroom);
+      if (g.wifi === "free") out.push("Free Wi-Fi");
+      else if (g.wifi === "paid") out.push("Wi-Fi (fee)");
+      if (g.power) out.push("Power/USB");
+      if (g.liveTv) out.push("Live TV");
+      if (g.carryOn === "included") out.push("Carry-on included");
+      else if (g.carryOn === "fee") out.push("Carry-on fee");
+      if (g.oftenDelayed) out.push("Often delayed");
+      return out;
+    }
+    function chipColor(label) {
+      return label === "Often delayed" ? { bg: [252, 226, 226], fg: [180, 40, 40] } : { bg: [232, 236, 242], fg: [90, 105, 125] };
+    }
+    // Measures each label at the chip font before any drawing happens, so
+    // the wrapped row count is known up front — needed to size the block
+    // (and decide on a page break) before a single chip is actually placed.
+    function layoutChips(labels, maxWidth) {
+      doc.setFont("helvetica", "bold"); doc.setFontSize(7.5);
+      var gap = 5, rows = [], cur = [], curW = 0;
+      labels.forEach(function (label) {
+        var w = doc.getTextWidth(label) + 12;
+        if (cur.length && curW + gap + w > maxWidth) { rows.push(cur); cur = []; curW = 0; }
+        cur.push({ label: label, w: w });
+        curW += (cur.length > 1 ? gap : 0) + w;
+      });
+      if (cur.length) rows.push(cur);
+      return rows;
+    }
+    function drawChipRows(rows, x, y) {
+      var gap = 5, rowH = 15;
+      rows.forEach(function (row) {
+        var cx = x;
+        row.forEach(function (item) {
+          var c = chipColor(item.label);
+          doc.setFillColor(c.bg[0], c.bg[1], c.bg[2]);
+          doc.roundedRect(cx, y - 9, item.w, 13, 3, 3, "F");
+          doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(c.fg[0], c.fg[1], c.fg[2]);
+          doc.text(item.label, cx + 6, y - 0.5);
+          cx += item.w + gap;
+        });
+        y += rowH;
+      });
     }
 
     drawHeader();
     var y = 96;
+    var COL_SPLIT = MARGIN + 205; // left: flight details; right: good-to-know chips
 
     picked.forEach(function (r, idx) {
-      var gtkLine = goodToKnowLine(r);
-      var blockHeight = 42 +
-        (r.flightNumbers.length ? 14 : 0) +
-        (!r.nonstop && r.layovers.length ? 14 : 0) +
-        (r.aircraft.length ? 14 : 0) +
-        (gtkLine ? 14 : 0);
+      var chips = goodToKnowChips(r);
+      var chipRows = layoutChips(chips, PAGE_W - MARGIN - COL_SPLIT);
+      var leftLines = 1 + // airline/duration/stops, always present
+        (r.flightNumbers.length ? 1 : 0) +
+        (!r.nonstop && r.layovers.length ? 1 : 0) +
+        (r.aircraft.length ? 1 : 0);
+      var contentH = Math.max(leftLines * 14, chipRows.length * 15);
+      var blockHeight = 16 + contentH + 16;
       if (y + blockHeight > 740) { doc.addPage(); drawHeader(); y = 96; }
 
       if (idx % 2 === 0) {
@@ -6304,7 +6343,10 @@ body {
       doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(20, 20, 20);
       doc.text(priceText, PAGE_W - MARGIN - badgeW - 10 - doc.getTextWidth(priceText), y);
 
-      y += 16;
+      var colTop = y + 16;
+      drawChipRows(chipRows, COL_SPLIT, colTop);
+
+      y = colTop;
       var logo = r.logo && logoByUrl[r.logo];
       var lineX = MARGIN;
       if (logo) {
@@ -6326,8 +6368,8 @@ body {
         y += 14;
       }
       if (r.aircraft.length) { doc.text("Aircraft: " + r.aircraft.join(", "), MARGIN, y); y += 14; }
-      if (gtkLine) { doc.text(gtkLine, MARGIN, y); y += 14; }
-      y += 16;
+
+      y = colTop + contentH + 16;
     });
 
     // Footer (with page numbers, which need the final page count) is stamped
