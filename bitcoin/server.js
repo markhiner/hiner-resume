@@ -9073,7 +9073,19 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
 
     var vals = pts.map(function (p) { return p.y; });
     var vMin = Math.min.apply(null, vals), vMax = Math.max.apply(null, vals);
-    var pad = Math.max((vMax - vMin) * 0.2, 0.25);
+    // Auto-fitting the axis to whatever range occurred used to mean a $3
+    // wobble and a genuine $50 plunge both stretched to fill the exact same
+    // chart height — the shape read as identical drama either way. A floor
+    // on the total range means ordinary chop (below it) renders visually
+    // flat, the way it should, while anything past the floor still gets to
+    // fill more of the chart the larger it actually is.
+    var MIN_RANGE = 25; // dollars
+    if (vMax - vMin < MIN_RANGE) {
+      var mid = (vMax + vMin) / 2;
+      vMin = mid - MIN_RANGE / 2;
+      vMax = mid + MIN_RANGE / 2;
+    }
+    var pad = Math.max((vMax - vMin) * 0.15, 0.25);
     vMin -= pad; vMax += pad;
 
     function X(t) { return ((t - tLeft) / (tRight - tLeft)) * w; }
