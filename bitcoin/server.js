@@ -7868,7 +7868,7 @@ canvas#chart { width: 100%; height: 158px; display: block; }
 .momentum.tier3 .m-icons { animation: momentumPulse 1s ease-in-out infinite; }
 @keyframes momentumPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.65; transform: scale(1.15); } }
 
-/* ── fixed 2-minute live pulse chart ── */
+/* ── fixed 60-second live pulse chart ── */
 .pulse-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 8px 10px 6px; }
 .pulse-hdr { display: flex; align-items: center; gap: 6px; font-size: 9.5px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--text3); padding: 0 2px 4px; }
 .pulse-hdr .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulseDot 1.6s ease-in-out infinite; }
@@ -8211,7 +8211,7 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
   </div>
 
   <div class="pulse-card">
-    <div class="pulse-hdr"><span class="dot"></span>Last 2 minutes</div>
+    <div class="pulse-hdr"><span class="dot"></span>Live</div>
     <canvas id="chart2m"></canvas>
   </div>
 
@@ -8995,7 +8995,7 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
   });
 
   function appendLivePoint(avg, vol) {
-    push2m(avg); // always-on 2-minute pulse chart, independent of the selected range
+    push2m(avg); // always-on 60-second pulse chart, independent of the selected range
     if (!LIVE_RANGES[state.range]) return;
     if (avg == null || !isFinite(avg)) return; // benchmark has no price right now
     var now = Date.now();
@@ -9019,9 +9019,9 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
     drawChart();
   }
 
-  // ---------- 2-minute pulse chart ----------
-  // A fixed, non-interactive window (always "now minus 2 minutes") that
-  // exists purely to show the shape of the last couple minutes at a glance.
+  // ---------- 60-second pulse chart ----------
+  // A fixed, non-interactive window (always "now minus 60 seconds") that
+  // exists purely to show the shape of the last minute at a glance.
   // Two things make it read as fluid rather than a stepped price ticker:
   // the window is redrawn every animation frame using the actual clock
   // (not just when a new tick lands), so the line keeps creeping left in
@@ -9032,7 +9032,7 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
   var ctx2m = chart2mEl.getContext("2d");
   var live2m = [];
   var live2mDisplay = null;
-  var LIVE2M_SPAN_MS = 120000;
+  var LIVE2M_SPAN_MS = 60000;
 
   function resize2mCanvas() {
     var dpr = window.devicePixelRatio || 1;
