@@ -3410,6 +3410,17 @@ function compassToBearing(compass) {
   return map[compass.toUpperCase()] || 0;
 }
 
+// The reverse — a numeric bearing back to a compass label, for the detail
+// panel's "68 mph NE" line. Works whether the bearing came from amtraker's
+// own compass reading or was calculated from two stops' coordinates, since
+// by this point it's just a number either way.
+const COMPASS_LABELS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+function bearingToCompass(bearing) {
+  if (bearing == null || !Number.isFinite(bearing)) return null;
+  const idx = Math.round((((bearing % 360) + 360) % 360) / 22.5) % 16;
+  return COMPASS_LABELS[idx];
+}
+
 // Calculate bearing (0-360 degrees) from two points
 function calculateBearing(from, to) {
   const lat1 = from[0] * Math.PI / 180;
@@ -3497,6 +3508,8 @@ function getActivENECTrains() {
         lat,
         lon,
         heading: numericBearing,
+        directionLabel: bearingToCompass(numericBearing),
+        velocity: Number.isFinite(train.velocity) ? Math.round(train.velocity) : null,
         color: train.iconColor || "0039a6",
         textColor: train.textColor || "ffffff",
         stations: stations.map(s => ({
@@ -4930,14 +4943,21 @@ const amtrakNECMapPage = `<!DOCTYPE html>
   .back-btn:active { background: #f0f0f0; }
   .train-detail { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-radius: 16px 16px 0 0; box-shadow: 0 -2px 16px rgba(0,0,0,0.1); max-height: 70vh; overflow-y: auto; transform: translateY(100%); transition: transform 0.3s ease; z-index: 900; }
   .train-detail.open { transform: translateY(0); }
-  .train-detail-header { padding: 16px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }
+  .train-detail-header { padding: 16px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: flex-start; }
+  .train-detail-title-wrap { min-width: 0; }
   .train-detail-title { font-size: 18px; font-weight: bold; }
-  .train-detail-close { background: none; border: none; cursor: pointer; font-size: 24px; }
+  .train-detail-sub { font-size: 13px; color: #666; margin-top: 3px; }
+  .train-detail-position { font-size: 12.5px; color: #0039a6; font-weight: 600; margin-top: 4px; }
+  .train-detail-close { background: none; border: none; cursor: pointer; font-size: 24px; flex-shrink: 0; }
   .stops-list { padding: 12px; }
   .stop-item { padding: 12px; border-bottom: 1px solid #f0f0f0; }
   .stop-item:last-child { border-bottom: none; }
+  .stop-item.past { opacity: 0.5; }
+  .stop-item.next { background: #eef2ff; border-radius: 8px; }
   .stop-time { font-weight: bold; font-size: 14px; }
+  .stop-time .est { font-weight: normal; color: #999; }
   .stop-name { color: #666; font-size: 13px; margin-top: 4px; }
+  .stop-status { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: #0039a6; margin-left: 6px; }
   .legend { position: absolute; top: 72px; left: 16px; background: white; border-radius: 8px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 800; font-size: 12px; }
   .legend-item { display: flex; align-items: center; margin: 6px 0; }
   .legend-dot { width: 20px; height: 20px; border-radius: 50%; margin-right: 8px; }
@@ -4956,7 +4976,11 @@ const amtrakNECMapPage = `<!DOCTYPE html>
   </div>
   <div class="train-detail" id="trainDetail">
     <div class="train-detail-header">
-      <div class="train-detail-title" id="trainTitle">Train</div>
+      <div class="train-detail-title-wrap">
+        <div class="train-detail-title" id="trainTitle">Train</div>
+        <div class="train-detail-sub" id="trainSubtitle"></div>
+        <div class="train-detail-position" id="trainPosition"></div>
+      </div>
       <button class="train-detail-close" onclick="document.getElementById('trainDetail').classList.remove('open')">×</button>
     </div>
     <div class="stops-list" id="stopsList"></div>
@@ -4989,21 +5013,68 @@ const amtrakNECMapPage = `<!DOCTYPE html>
       return new L.Icon({ iconUrl: img.src, iconSize: [30, 30], iconAnchor: [15, 15] });
     }
 
+    // One stop's arrival/departure as "the time to show" + "is it actual or
+    // still just an estimate" — actual (live-reported) wins over scheduled
+    // whenever both exist, since it's strictly more informative.
+    function stopTimeHTML(label, schedMs, actualMs) {
+      const ms = actualMs != null ? actualMs : schedMs;
+      if (ms == null) return "";
+      return label + ": " + formatTime(ms) + (actualMs != null ? "" : ' <span class="est">(est)</span>');
+    }
+
     function showTrain(train) {
       selectedTrain = train;
       document.getElementById("trainTitle").textContent = train.trainNum + " " + train.routeName;
 
+      const subParts = [];
+      if (train.velocity != null) subParts.push(train.velocity + " mph");
+      if (train.directionLabel) subParts.push(train.directionLabel + "-bound");
+      document.getElementById("trainSubtitle").textContent = subParts.length ? subParts.join(" · ") : "Speed and direction unavailable right now";
+
+      const stations = train.stations || [];
+      const now = Date.now();
+      // The first stop whose arrival (or, lacking one, departure) hasn't
+      // happened yet is "next" — everything before it is behind the train,
+      // everything after is still ahead.
+      let nextIdx = -1;
+      for (let i = 0; i < stations.length; i++) {
+        const s = stations[i];
+        const ref = s.arrMs != null ? s.arrMs : (s.schedArrMs != null ? s.schedArrMs : (s.depMs != null ? s.depMs : s.schedDepMs));
+        if (ref == null || now < ref) { nextIdx = i; break; }
+      }
+
+      const posEl = document.getElementById("trainPosition");
+      if (!stations.length) {
+        posEl.textContent = "";
+      } else if (nextIdx === -1) {
+        posEl.textContent = "Arrived at " + stations[stations.length - 1].name;
+      } else if (nextIdx === 0) {
+        posEl.textContent = "Not yet departed " + stations[0].name;
+      } else {
+        const prev = stations[nextIdx - 1], next = stations[nextIdx];
+        const eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
+        posEl.textContent = "Between " + prev.name + " and " + next.name + (eta != null ? " · due " + formatTime(eta) : "");
+      }
+
       const stopsList = document.getElementById("stopsList");
       stopsList.innerHTML = "";
 
-      for (const stop of train.stations) {
+      stations.forEach(function (stop, i) {
+        const isPast = nextIdx === -1 ? true : i < nextIdx;
+        const isNext = i === nextIdx;
         const item = document.createElement("div");
-        item.className = "stop-item";
-        const html = '<div class="stop-name">' + stop.name + '</div>' +
-          '<div class="stop-time">Arr: ' + formatTime(stop.arrMs) + ' | Dep: ' + formatTime(stop.depMs) + '</div>';
-        item.innerHTML = html;
+        item.className = "stop-item" + (isPast ? " past" : "") + (isNext ? " next" : "");
+        const timeLines = [
+          stopTimeHTML("Arr", stop.schedArrMs, stop.arrMs),
+          stopTimeHTML("Dep", stop.schedDepMs, stop.depMs),
+        ].filter(Boolean).join(" &middot; ");
+        item.innerHTML =
+          '<div class="stop-name">' + stop.name +
+            (isPast ? ' <span class="stop-status">Departed</span>' : isNext ? ' <span class="stop-status">Next stop</span>' : '') +
+          '</div>' +
+          '<div class="stop-time">' + (timeLines || "—") + '</div>';
         stopsList.appendChild(item);
-      }
+      });
 
       document.getElementById("trainDetail").classList.add("open");
     }
