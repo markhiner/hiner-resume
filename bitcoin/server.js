@@ -4956,7 +4956,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
     <div style="font-weight: bold; margin-bottom: 8px;">Service Types</div>
     <div class="legend-item"><div class="legend-dot" style="background: #58b8b6;"></div> Acela</div>
     <div class="legend-item"><div class="legend-dot" style="background: #292196;"></div> Regional</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #bd981e;"></div> Keystone</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #ffd51f;"></div> Keystone</div>
     <div class="legend-item"><div class="legend-dot" style="background: #358f54;"></div> Empire/Adirondack</div>
     <div class="legend-item"><div class="legend-dot" style="background: #7510e0;"></div> Auto Train</div>
     <div class="legend-item"><div class="legend-dot" style="background: #9c1c25;"></div> Other Long Distance</div>
@@ -5080,7 +5080,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
           const color = {
             acela: "#58b8b6",
             regional: "#292196",
-            keystone: "#bd981e",
+            keystone: "#ffd51f",
             empire: "#358f54",
             autotrain: "#7510e0",
             longdist: "#9c1c25",
