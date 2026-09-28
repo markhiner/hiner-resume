@@ -3332,6 +3332,7 @@ function amtrakServiceType(routeName) {
   if (name.includes("empire") || name.includes("adirondack") || name.includes("maple leaf") || name.includes("ethan allen")) return "empire";
   if (name.includes("northeast regional")) return "regional";
   if (name.includes("northeast direct")) return "regional";
+  if (name.includes("auto train")) return "autotrain";
   return "longdist";
 }
 
@@ -3344,23 +3345,6 @@ function amtrakDisplayRouteName(routeName) {
   if (routeName === "Keystone Service") return "Keystone";
   if (routeName === "Northeast Regional") return "NE Regional";
   return routeName;
-}
-
-const NEC_SERVICE_COLORS = {
-  acela: "#21b8a4",
-  regional: "#1f66c2",
-  keystone: "#eddf15",
-  empire: "#358f54",
-  longdist: "#ba3a3a",
-};
-
-// NEC stations between DC and NYC (Northeast Corridor)
-const NEC_STATIONS = ["WAS", "BAL", "BWI", "TRE", "PHL", "NRK", "NB", "NYP", "BOS", "BBY", "PRV", "RTE"];
-
-function isNECTrain(stations) {
-  if (!stations || stations.length === 0) return false;
-  const stationCodes = new Set(stations.map(s => s.code));
-  return NEC_STATIONS.some(code => stationCodes.has(code));
 }
 
 // Position a train along its shape at the given time, interpolating between stops
@@ -3434,7 +3418,10 @@ function calculateBearing(from, to) {
   return bearing;
 }
 
-function getActivENECTrains() {
+// Every currently-tracked train nationwide, not just the Northeast Corridor
+// (the map this feeds started as NEC-only; the name stuck around after the
+// scope grew, but nothing about the function itself is NEC-specific anymore).
+function getActiveNationalTrains() {
   if (!amtrakTrainsJson) return [];
 
   const now = new Date();
@@ -3444,7 +3431,6 @@ function getActivENECTrains() {
   for (const num of Object.keys(amtrakTrainsJson)) {
     for (const train of amtrakTrainsJson[num]) {
       const stations = amtrakNormalizeStations(train.stations);
-      if (!isNECTrain(stations)) continue;
 
       // Find the segment the train is currently in, or will be in next
       let fromIdx = -1;
@@ -3999,7 +3985,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === "/api/amtrak-nec-trains") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(getActivENECTrains()));
+    res.end(JSON.stringify(getActiveNationalTrains()));
     return;
   }
   if (url.pathname === "/lirr-board") {
@@ -4968,11 +4954,12 @@ const amtrakNECMapPage = `<!DOCTYPE html>
   <div id="map"></div>
   <div class="legend">
     <div style="font-weight: bold; margin-bottom: 8px;">Service Types</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #21b8a4;"></div> Acela</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #1f66c2;"></div> Regional</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #eddf15;"></div> Keystone</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #58b8b6;"></div> Acela</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #292196;"></div> Regional</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #bd981e;"></div> Keystone</div>
     <div class="legend-item"><div class="legend-dot" style="background: #358f54;"></div> Empire/Adirondack</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #ba3a3a;"></div> Long Distance</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #7510e0;"></div> Auto Train</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #9c1c25;"></div> Other Long Distance</div>
   </div>
   <div class="train-detail" id="trainDetail">
     <div class="train-detail-header">
@@ -5091,12 +5078,13 @@ const amtrakNECMapPage = `<!DOCTYPE html>
         // Add new markers
         for (const train of trains) {
           const color = {
-            acela: "#21b8a4",
-            regional: "#1f66c2",
-            keystone: "#eddf15",
+            acela: "#58b8b6",
+            regional: "#292196",
+            keystone: "#bd981e",
             empire: "#358f54",
-            longdist: "#ba3a3a",
-          }[train.serviceType] || "#ba3a3a";
+            autotrain: "#7510e0",
+            longdist: "#9c1c25",
+          }[train.serviceType] || "#9c1c25";
 
           const icon = createArrowMarker(train.lat, train.lon, train.heading, color);
           const marker = L.marker([train.lat, train.lon], { icon })
