@@ -3334,11 +3334,18 @@ function amtrakServiceType(routeName) {
   // Adirondack, Maple Leaf, and Ethan Allen Express all share the Empire
   // Corridor's Hudson Line trackage out of NYP before splitting off toward
   // Montreal, Toronto, or Vermont respectively — same family as Empire
-  // Service itself, just with a different final destination.
-  if (name.includes("empire") || name.includes("adirondack") || name.includes("maple leaf") || name.includes("ethan allen")) return "empire";
+  // Service itself, just with a different final destination. Matching on
+  // just "empire" also caught Empire Builder (Chicago–Seattle/Portland), a
+  // long-distance train that has nothing to do with the Empire Corridor —
+  // "empire service" is specific enough to exclude it.
+  if (name.includes("empire service") || name.includes("adirondack") || name.includes("maple leaf") || name.includes("ethan allen")) return "empire";
   if (name.includes("northeast regional")) return "regional";
   if (name.includes("northeast direct")) return "regional";
   if (name.includes("auto train")) return "autotrain";
+  if (name.includes("pacific surfliner")) return "surfliner";
+  if (name.includes("capitol corridor")) return "capitolcorridor";
+  if (name.includes("san joaquin")) return "sanjoaquin";
+  if (name.includes("heartland flyer")) return "heartlandflyer";
   return "longdist";
 }
 
@@ -5689,6 +5696,10 @@ const amtrakNECMapPage = `<!DOCTYPE html>
     <div class="legend-item"><div class="legend-dot" style="background: #292196;"></div> Regional</div>
     <div class="legend-item"><div class="legend-dot" style="background: #ffd51f;"></div> Keystone</div>
     <div class="legend-item"><div class="legend-dot" style="background: #358f54;"></div> Empire/Adirondack</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #64c0e8;"></div> Pacific Surfliner</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #ffd51f;"></div> Capitol Corridor</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #9ef0bb;"></div> San Joaquins</div>
+    <div class="legend-item"><div class="legend-dot" style="background: #8c74e3;"></div> Heartland Flyer</div>
     <div class="legend-item"><div class="legend-dot" style="background: #7510e0;"></div> Auto Train</div>
     <div class="legend-item"><div class="legend-dot" style="background: #9c1c25;"></div> Other Long Distance</div>
   </div>
@@ -5813,6 +5824,10 @@ const amtrakNECMapPage = `<!DOCTYPE html>
             regional: "#292196",
             keystone: "#ffd51f",
             empire: "#358f54",
+            surfliner: "#64c0e8",
+            capitolcorridor: "#ffd51f",
+            sanjoaquin: "#9ef0bb",
+            heartlandflyer: "#8c74e3",
             autotrain: "#7510e0",
             longdist: "#9c1c25",
           }[train.serviceType] || "#9c1c25";
