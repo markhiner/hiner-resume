@@ -5306,8 +5306,15 @@ body {
 .c-train { flex: 1.3; min-width: 0; }
 .c-train .nm { white-space: normal; word-break: break-word; }
 .c-to { flex: 1; min-width: 0; white-space: normal; word-break: break-word; font-weight: 600; }
-.c-status { width: 70px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
-.c-status.delayed { color: var(--yellow); font-weight: 800; text-shadow: 0 1px 2px rgba(0,0,0,0.55); }
+.c-status { width: 96px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
+/* The adjusted time on a delayed row is yellow text sitting directly on
+   whatever color that line happens to be — unreadable on a similarly warm
+   row (salmon Montclair-Boonton, orange-ish rows, etc). A dark pill behind
+   just this text keeps it legible against any line color. */
+.c-status.delayed {
+  color: var(--yellow); font-weight: 800; display: inline-block;
+  background: rgba(0,0,0,0.5); border-radius: 6px; padding: 3px 6px; line-height: 1.25;
+}
 .c-status.gone { opacity: 0.75; font-style: italic; }
 .c-status.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
@@ -5434,10 +5441,20 @@ body {
     station: STATION_CODES.indexOf(urlStation) !== -1 ? urlStation : "${NJT_DEFAULT_STATION}",
   };
 
+  function minutesUntilLabel(ms) {
+    if (ms == null) return null;
+    var diffMin = Math.round((ms - Date.now()) / 60000);
+    if (diffMin <= 0) return "now";
+    return "in " + diffMin + "m";
+  }
+
   function njtStatus(row) {
     if (row.state === "departed") return { text: "Departed", cls: "gone" };
     if (row.state === "arrived") return { text: "Arrived", cls: "gone" };
-    if (row.state === "delayed") return { text: fmtBoardTime(row.atMs), cls: "delayed" };
+    if (row.state === "delayed") {
+      var mins = minutesUntilLabel(row.atMs);
+      return { text: fmtBoardTime(row.atMs) + (mins ? " \\u00b7 " + mins : ""), cls: "delayed" };
+    }
     if (row.state === "scheduled") return { text: "On Time", cls: "scheduled" };
     return { text: "On Time", cls: "" };
   }
