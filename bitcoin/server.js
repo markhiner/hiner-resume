@@ -5290,24 +5290,24 @@ body {
   text-transform: uppercase; color: #5a6685;
 }
 .board-body { display: flex; flex-direction: column; }
+/* Unlike the Amtrak board's fixed navy rows with a small left accent bar,
+   each row here is colored full-width by its own real GTFS route color —
+   matching NJ Transit's own app, where the whole departure row is tinted
+   by line (Montclair-Boonton red, Morris & Essex green, etc). */
 .board-row {
   display: flex; align-items: center; gap: 8px; position: relative;
-  background: #273670; color: #fff; padding: 9px 14px 9px 22px;
+  background: var(--rowbg, #273670); color: var(--rowfg, #fff); padding: 9px 14px;
   border-bottom: 3px solid #050914; font-weight: 700; font-size: 12.5px;
   text-align: left;
 }
 .board-row:last-child { border-bottom: none; }
 .board-row:active { filter: brightness(1.18); }
-.board-row::before {
-  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 8px;
-  background: var(--accent, transparent);
-}
 .c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .c-train { flex: 1.3; min-width: 0; }
 .c-train .nm { white-space: normal; word-break: break-word; }
 .c-to { flex: 1; min-width: 0; white-space: normal; word-break: break-word; font-weight: 600; }
 .c-status { width: 70px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
-.c-status.delayed { color: var(--yellow); font-weight: 800; }
+.c-status.delayed { color: var(--yellow); font-weight: 800; text-shadow: 0 1px 2px rgba(0,0,0,0.55); }
 .c-status.gone { opacity: 0.75; font-style: italic; }
 .c-status.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
@@ -5446,9 +5446,11 @@ body {
     var status = njtStatus(row);
     // Unlike the Amtrak board's small fixed service-type palette, NJT's own
     // GTFS already supplies a distinct official color per rail line
-    // (route_color/route_text_color) — used directly rather than bucketed.
-    var accent = "#" + (row.color || "0039a6");
-    return '<div class="board-row" data-kind="njt" data-event="' + kind + '" data-idx="' + idx + '" style="--accent:' + accent + ';">' +
+    // (route_color/route_text_color) — used directly, full-width per row,
+    // rather than bucketed into a small palette or reduced to an accent bar.
+    var rowbg = "#" + (row.color || "0039a6");
+    var rowfg = "#" + (row.textColor || "ffffff");
+    return '<div class="board-row" data-kind="njt" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
       '<span class="c-to">' + esc(row.other) + '</span>' +
