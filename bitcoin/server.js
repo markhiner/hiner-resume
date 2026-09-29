@@ -2371,9 +2371,15 @@ function gtfsTimeToMs(dateParts, hms) {
   return nyWallTimeToMs(dateParts, 0, 0, 0) + (h * 3600 + m * 60 + s) * 1000;
 }
 
-// CSV (quoted-field aware — GTFS quotes every field)
+// CSV (quoted-field aware — GTFS quotes every field). Split on \r?\n rather
+// than plain \n: a feed built with CRLF line endings (NJ Transit's is; LIRR's
+// and Amtrak's aren't) otherwise leaves a trailing \r stuck onto every
+// line's last column, renaming it (e.g. "exception_type\r") and corrupting
+// every value in that column — which silently emptied calendar_dates.txt's
+// exception_type entirely and made the NJT board's active-service lookup
+// always miss.
 function parseCSV(text) {
-  const lines = text.split("\n").filter((l) => l.trim());
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
   if (!lines.length) return [];
   const header = splitCSVLine(lines[0]);
   return lines.slice(1).map((line) => {
@@ -3683,6 +3689,350 @@ async function runTranscriptionJob(id, videoUrl) {
   }
 }
 
+// ---------- NJ Transit rail (official GTFS/GTFSRT API) ----------
+// Same static-schedule + realtime-delay-overlay shape as the LIRR board
+// above, fed by NJT's own developer API instead of the MTA's public feed.
+// The one real wrinkle: minting or checking a token (getToken/isValidToken)
+// is capped at 10 combined calls per account per day, resetting at
+// midnight — so unlike every other feed in this file, the token is never
+// refreshed on a timer. It's minted once, persisted to disk so a server
+// restart doesn't cost another mint, and only re-minted reactively, when a
+// real data call comes back reporting the token invalid. getGTFS,
+// getAlerts, getTripUpdates, and getVehiclePositions have no stated limit.
+const NJT_USERNAME = process.env.NJT_USERNAME || null;
+const NJT_PASSWORD = process.env.NJT_PASSWORD || null;
+const NJT_API_BASE = "https://raildata.njtransit.com/api/GTFSRT";
+const NJT_CACHE_DIR = path.join(__dirname, ".njt-cache");
+const NJT_TOKEN_FILE = path.join(NJT_CACHE_DIR, "token.json");
+const NJT_STATIC_REFRESH_MS = 20 * 60 * 60 * 1000; // schedules don't change intraday
+const NJT_RT_REFRESH_MS = 30 * 1000;
+const NJT_BOARD_STATIONS = { "109": "New York Penn", "112": "Newark Penn", "63": "Hoboken" };
+const NJT_DEFAULT_STATION = "109";
+const NJT_DEP_GRACE_MS = 3 * 60 * 1000; // stays listed as "Departed" this long, then drops off
+const NJT_ARR_GRACE_MS = 5 * 60 * 1000; // stays listed as "Arrived" this long, then drops off
+const NJT_DELAY_THRESHOLD_MS = 60 * 1000; // how far off schedule counts as "delayed" rather than noise
+const NJT_BOARD_MAX_ROWS = 20;
+
+function njtLoadCachedToken() {
+  try {
+    const data = JSON.parse(fs.readFileSync(NJT_TOKEN_FILE, "utf8"));
+    return (data && typeof data.token === "string" && data.token) || null;
+  } catch {
+    return null;
+  }
+}
+function njtSaveToken(token) {
+  fs.mkdirSync(NJT_CACHE_DIR, { recursive: true });
+  fs.writeFileSync(NJT_TOKEN_FILE, JSON.stringify({ token, mintedAt: Date.now() }));
+}
+
+let njtToken = njtLoadCachedToken();
+let njtTokenMintInFlight = null;
+
+async function njtMintToken() {
+  if (!NJT_USERNAME || !NJT_PASSWORD) throw new Error("NJT credentials not configured");
+  if (njtTokenMintInFlight) return njtTokenMintInFlight;
+  njtTokenMintInFlight = (async () => {
+    const body = new FormData();
+    body.append("username", NJT_USERNAME);
+    body.append("password", NJT_PASSWORD);
+    const res = await fetch(`${NJT_API_BASE}/getToken`, { method: "POST", body });
+    const json = await res.json().catch(() => null);
+    if (!json || json.Authenticated !== "True" || !json.UserToken) {
+      throw new Error("NJT token mint failed" + (json && json.errorMessage ? `: ${json.errorMessage}` : ""));
+    }
+    njtToken = json.UserToken;
+    njtSaveToken(njtToken);
+    console.log("NJT: minted a fresh token (this counts against the 10/day cap)");
+    return njtToken;
+  })();
+  try {
+    return await njtTokenMintInFlight;
+  } finally {
+    njtTokenMintInFlight = null;
+  }
+}
+
+async function njtEnsureToken() {
+  return njtToken || njtMintToken();
+}
+
+// Every data endpoint (getGTFS, getAlerts, getTripUpdates,
+// getVehiclePositions) returns either the real binary payload or a small
+// JSON error body like {"errorMessage":"Invalid token."} — both come back
+// under the same generic content type, so the only way to tell them apart
+// is to notice the payload starts with "{" and actually parse it. On a
+// token error this mints exactly one fresh token and retries exactly
+// once — it never loops, since a failed mint still counts against the
+// 10/day cap same as a successful one.
+async function njtApiCall(endpoint) {
+  const attempt = async () => {
+    const token = await njtEnsureToken();
+    const body = new FormData();
+    body.append("token", token);
+    const res = await fetch(`${NJT_API_BASE}/${endpoint}`, { method: "POST", body });
+    if (!res.ok) throw new Error(`NJT ${endpoint} ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf[0] === 0x7b) { // '{' — likely a JSON error body, not a real payload
+      try {
+        const asJson = JSON.parse(buf.toString("utf8"));
+        if (asJson && asJson.errorMessage) throw { njtInvalidToken: true, message: asJson.errorMessage };
+      } catch (e) {
+        if (e && e.njtInvalidToken) throw e;
+      }
+    }
+    return buf;
+  };
+  try {
+    return await attempt();
+  } catch (e) {
+    if (e && e.njtInvalidToken) {
+      njtToken = null;
+      await njtMintToken();
+      return attempt();
+    }
+    throw e;
+  }
+}
+
+async function ensureNjtStaticGTFS() {
+  fs.mkdirSync(NJT_CACHE_DIR, { recursive: true });
+  const zipPath = path.join(NJT_CACHE_DIR, "gtfs.zip");
+  const stampPath = path.join(NJT_CACHE_DIR, ".fetched-at");
+  let fresh = false;
+  try {
+    const stamp = +fs.readFileSync(stampPath, "utf8");
+    fresh = Date.now() - stamp < NJT_STATIC_REFRESH_MS && fs.existsSync(path.join(NJT_CACHE_DIR, "stops.txt"));
+  } catch {}
+  if (fresh) return;
+
+  console.log("NJT: fetching static GTFS schedule...");
+  const buf = await njtApiCall("getGTFS");
+  fs.writeFileSync(zipPath, buf);
+  execFileSync("unzip", ["-o", zipPath, "-d", NJT_CACHE_DIR], { stdio: "ignore" });
+  fs.writeFileSync(stampPath, String(Date.now()));
+  console.log("NJT: static GTFS refreshed");
+}
+
+let njtModel = null; // { stopNameById, routeById, tripById, stByTrip, activeByDate }
+
+function loadNjtModel() {
+  const read = (f) => fs.readFileSync(path.join(NJT_CACHE_DIR, f), "utf8");
+  const stops = parseCSV(read("stops.txt"));
+  const routes = parseCSV(read("routes.txt"));
+  const trips = parseCSV(read("trips.txt"));
+  const stopTimes = parseCSV(read("stop_times.txt"));
+  const calDates = parseCSV(read("calendar_dates.txt"));
+
+  const stopNameById = new Map();
+  for (const s of stops) stopNameById.set(s.stop_id, s.stop_name);
+
+  const routeById = new Map();
+  for (const r of routes) routeById.set(r.route_id, { name: r.route_long_name, color: r.route_color, textColor: r.route_text_color });
+
+  const tripById = new Map();
+  for (const t of trips) tripById.set(t.trip_id, t);
+
+  const stByTrip = new Map();
+  for (const st of stopTimes) {
+    if (!stByTrip.has(st.trip_id)) stByTrip.set(st.trip_id, []);
+    stByTrip.get(st.trip_id).push(st);
+  }
+  // Only trips that touch one of the board's reference stations are kept —
+  // same reasoning as Amtrak's model: the full national (well, statewide)
+  // stop_times.txt is far bigger than what a board pointed at 3 stations
+  // ever needs to hold in memory.
+  const boardCodes = Object.keys(NJT_BOARD_STATIONS);
+  for (const [tripId, sts] of stByTrip) {
+    if (!sts.some((s) => boardCodes.includes(s.stop_id))) stByTrip.delete(tripId);
+    else sts.sort((a, b) => +a.stop_sequence - +b.stop_sequence);
+  }
+
+  const activeByDate = new Map(); // "YYYYMMDD" -> Set(service_id)
+  for (const cd of calDates) {
+    if (cd.exception_type !== "1") continue;
+    if (!activeByDate.has(cd.date)) activeByDate.set(cd.date, new Set());
+    activeByDate.get(cd.date).add(cd.service_id);
+  }
+
+  njtModel = { stopNameById, routeById, tripById, stByTrip, activeByDate };
+  console.log(`NJT: loaded ${stByTrip.size} trips touching a board station, ${routes.length} routes`);
+}
+
+// Standard GTFS-realtime TripUpdate parsing (field numbers are the public
+// gtfs-realtime.proto schema, not an NJT-specific extension) — one entry per
+// trip, with a per-stop arrival/departure delay (seconds) where NJT
+// publishes one, and a CANCELED flag off TripDescriptor.schedule_relationship
+// (enum value 3).
+function njtDecodeTripUpdates(buf) {
+  const top = pbParseFields(buf, 0, buf.length);
+  const byTrip = new Map(); // tripId -> { canceled, stopDelays: Map(stopId -> {arrDelaySec, depDelaySec}) }
+  for (const ent of top[2] || []) {
+    const entFields = pbParseFields(ent.raw, 0, ent.raw.length);
+    const tuEntry = entFields[3] && entFields[3][0];
+    if (!tuEntry) continue;
+    const tu = pbParseFields(tuEntry.raw, 0, tuEntry.raw.length);
+    const tripDescEntry = tu[1] && tu[1][0];
+    if (!tripDescEntry) continue;
+    const td = pbParseFields(tripDescEntry.raw, 0, tripDescEntry.raw.length);
+    const tripId = pbString(td[1] && td[1][0]);
+    if (!tripId) continue;
+    const schedRel = td[4] ? pbInt(td[4][0]) : 0;
+
+    const stopDelays = new Map();
+    for (const stuEntry of tu[2] || []) {
+      const stu = pbParseFields(stuEntry.raw, 0, stuEntry.raw.length);
+      const stopId = pbString(stu[4] && stu[4][0]);
+      if (!stopId) continue;
+      let arrDelaySec = null, depDelaySec = null;
+      if (stu[2]) {
+        const arr = pbParseFields(stu[2][0].raw, 0, stu[2][0].raw.length);
+        if (arr[1]) arrDelaySec = pbInt(arr[1][0]);
+      }
+      if (stu[3]) {
+        const dep = pbParseFields(stu[3][0].raw, 0, stu[3][0].raw.length);
+        if (dep[1]) depDelaySec = pbInt(dep[1][0]);
+      }
+      stopDelays.set(stopId, { arrDelaySec, depDelaySec });
+    }
+    byTrip.set(tripId, { canceled: schedRel === 3, stopDelays });
+  }
+  return byTrip;
+}
+
+let njtRealtimeByTrip = new Map();
+async function refreshNjtRealtime() {
+  try {
+    njtRealtimeByTrip = njtDecodeTripUpdates(await njtApiCall("getTripUpdates"));
+  } catch (e) {
+    console.error("NJT realtime fetch failed (keeping last good data):", e.message);
+  }
+}
+
+// The static schedule checks yesterday/today/tomorrow's service calendar for
+// each trip (a weekday trip's service_id is typically active on all three),
+// so a merge step below keeps whichever candidate is closest to right now —
+// same reasoning, and same fix, as Amtrak's multi-day dedup.
+function njtScheduleEntries(now, stationId) {
+  if (!njtModel) return [];
+  const dateContexts = [
+    nyDateParts(new Date(now.getTime() - 86400000)),
+    nyDateParts(now),
+    nyDateParts(new Date(now.getTime() + 86400000)),
+  ];
+
+  const entries = [];
+  for (const [tripId, sts] of njtModel.stByTrip) {
+    const trip = njtModel.tripById.get(tripId);
+    if (!trip) continue;
+    const route = njtModel.routeById.get(trip.route_id);
+    const rt = njtRealtimeByTrip.get(tripId);
+    if (rt && rt.canceled) continue;
+
+    for (const parts of dateContexts) {
+      const activeSet = njtModel.activeByDate.get(ymdKey(parts));
+      if (!activeSet || !activeSet.has(trip.service_id)) continue;
+
+      const stations = sts.map((s) => {
+        const schedArrMs = gtfsTimeToMs(parts, s.arrival_time);
+        const schedDepMs = gtfsTimeToMs(parts, s.departure_time);
+        const delays = rt && rt.stopDelays.get(s.stop_id);
+        return {
+          code: s.stop_id, name: njtModel.stopNameById.get(s.stop_id) || s.stop_id,
+          schedArrMs, schedDepMs,
+          arrMs: delays && delays.arrDelaySec != null && schedArrMs != null ? schedArrMs + delays.arrDelaySec * 1000 : null,
+          depMs: delays && delays.depDelaySec != null && schedDepMs != null ? schedDepMs + delays.depDelaySec * 1000 : null,
+        };
+      });
+      const idx = stations.findIndex((s) => s.code === stationId);
+      if (idx === -1) continue;
+      const at = stations[idx];
+      const common = {
+        tripId, trainNum: trip.trip_short_name || tripId,
+        routeName: route ? route.name : "", color: (route && route.color) || "0039a6",
+        textColor: (route && route.textColor) || "ffffff", stations, live: !!rt,
+      };
+      if (idx > 0) {
+        const from = stations[0];
+        entries.push({ ...common, event: "arr", other: from.name, schedMs: at.schedArrMs, atMs: at.arrMs != null ? at.arrMs : at.schedArrMs });
+      }
+      if (idx < stations.length - 1) {
+        const to = stations[stations.length - 1];
+        entries.push({ ...common, event: "dep", other: to.name, schedMs: at.schedDepMs, atMs: at.depMs != null ? at.depMs : at.schedDepMs });
+      }
+    }
+  }
+  return entries;
+}
+
+function njtMergedEntries(now, stationId) {
+  const nowMs = now.getTime();
+  const merged = new Map();
+  for (const e of njtScheduleEntries(now, stationId)) {
+    const key = e.tripId + "|" + e.event;
+    const existing = merged.get(key);
+    const better = !existing || existing.schedMs == null ||
+      (e.schedMs != null && Math.abs(e.schedMs - nowMs) < Math.abs(existing.schedMs - nowMs));
+    if (better) merged.set(key, e);
+  }
+  return [...merged.values()];
+}
+
+function njtBoardRow(entry, nowMs) {
+  if (entry.schedMs == null || entry.atMs == null) return null;
+  const graceMs = entry.event === "dep" ? NJT_DEP_GRACE_MS : NJT_ARR_GRACE_MS;
+  const passed = nowMs >= entry.atMs;
+  if (passed && nowMs - entry.atMs > graceMs) return null;
+  let state;
+  if (passed) state = entry.event === "dep" ? "departed" : "arrived";
+  else if (!entry.live) state = "scheduled";
+  else state = entry.atMs - entry.schedMs > NJT_DELAY_THRESHOLD_MS ? "delayed" : "on-time";
+  return {
+    trainNum: entry.trainNum, routeName: entry.routeName, color: entry.color, textColor: entry.textColor,
+    other: entry.other, schedMs: entry.schedMs, atMs: entry.atMs, state, stations: entry.stations,
+  };
+}
+
+let njtWarmedUp = false;
+function njtBoard(stationId) {
+  const now = new Date();
+  const nowMs = now.getTime();
+  const departures = [], arrivals = [];
+  for (const entry of njtMergedEntries(now, stationId)) {
+    const row = njtBoardRow(entry, nowMs);
+    if (!row) continue;
+    (entry.event === "dep" ? departures : arrivals).push(row);
+  }
+  departures.sort((a, b) => a.schedMs - b.schedMs);
+  arrivals.sort((a, b) => a.schedMs - b.schedMs);
+  return {
+    station: stationId,
+    departures: departures.slice(0, NJT_BOARD_MAX_ROWS),
+    arrivals: arrivals.slice(0, NJT_BOARD_MAX_ROWS),
+    updatedAt: nowMs,
+    warming: !njtWarmedUp,
+  };
+}
+
+async function startNjtBoard() {
+  if (!NJT_USERNAME || !NJT_PASSWORD) {
+    console.log("NJT: no credentials configured (NJT_USERNAME / NJT_PASSWORD) — board stays disabled");
+    return;
+  }
+  try {
+    await ensureNjtStaticGTFS();
+    loadNjtModel();
+  } catch (e) {
+    console.error("NJT: static GTFS load failed:", e.message);
+  }
+  await refreshNjtRealtime();
+  njtWarmedUp = true;
+  setInterval(() => refreshNjtRealtime(), NJT_RT_REFRESH_MS);
+  setInterval(() => {
+    ensureNjtStaticGTFS().then(loadNjtModel).catch((e) => console.error("NJT: static refresh failed:", e.message));
+  }, NJT_STATIC_REFRESH_MS);
+}
+
 // ---------- HTTP + WebSocket server ----------
 
 const clients = new Set();
@@ -3986,6 +4336,18 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/api/amtrak-nec-trains") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(getActiveNationalTrains()));
+    return;
+  }
+  if (url.pathname === "/api/njt-board") {
+    if (!NJT_USERNAME || !NJT_PASSWORD) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ enabled: false }));
+      return;
+    }
+    const requested = url.searchParams.get("station");
+    const station = NJT_BOARD_STATIONS[requested] ? requested : NJT_DEFAULT_STATION;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ enabled: true, ...njtBoard(station) }));
     return;
   }
   if (url.pathname === "/lirr-board") {
@@ -4849,8 +5211,11 @@ body {
 </body>
 </html>`;
 
-// Stub until an NJ Transit API key is set up — same shell/nav as the other
-// train pages so it reads as "not built yet" rather than "broken".
+// Same board/detail-sheet shell as the Amtrak page above, wired to
+// /api/njt-board instead. No map here — NJT's static GTFS stop list this
+// board keeps doesn't carry lat/lon (the board only needs the 3 reference
+// stations' schedule + trip stop times, not a geographic shape), so the
+// detail sheet is stop list only, no Leaflet.
 const njtBoardPage = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4859,12 +5224,12 @@ const njtBoardPage = `<!DOCTYPE html>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="theme-color" content="#000000">
-<title>NJ Transit</title>
+<title>NJ Transit Departures</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
-  --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --yellow: #f5c518;
+  --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --green: #22c55e; --yellow: #f5c518;
 }
 html, body { background: var(--bg); color: var(--text1); height: 100%; }
 body {
@@ -4874,6 +5239,7 @@ body {
   min-height: 100%;
 }
 #app { max-width: 480px; margin: 0 auto; padding: 14px 14px 32px; }
+
 .tp-topbar { display: flex; align-items: center; gap: 10px; padding: 4px 2px 16px; }
 .tp-back {
   width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
@@ -4882,35 +5248,400 @@ body {
 }
 .tp-back:active { background: var(--panel); }
 .tp-brand { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--text2); text-transform: uppercase; }
+.tp-station-select {
+  margin-left: auto; background: var(--panel2); color: var(--text1); border: 1px solid var(--border);
+  border-radius: 8px; padding: 5px 8px; font-size: 12px; font-weight: 700;
+}
 .tp-navrow { display: flex; gap: 8px; padding: 0 2px 14px; }
 .tp-nav-link {
   background: var(--panel2); color: var(--yellow); border: 1px solid var(--border);
   border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 800; text-decoration: none;
 }
 .tp-nav-link:active { background: var(--panel); }
-.njt-empty {
-  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
-  padding: 40px 20px; text-align: center; color: var(--text2); font-size: 14px; line-height: 1.6;
+
+.board-card {
+  background: #050914; border: 1px solid var(--border); border-radius: 14px;
+  overflow: hidden; margin-bottom: 14px;
 }
-.njt-empty b { color: var(--text1); }
+.board-hdr { background: #eef1f8; display: flex; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px; }
+.board-title { font-size: 19px; font-weight: 900; color: #14265c; letter-spacing: -0.3px; }
+.board-clock { font-size: 13px; font-weight: 700; color: #14265c; font-variant-numeric: tabular-nums; }
+.board-cols {
+  background: #dde2ee; display: flex; align-items: center; gap: 8px;
+  padding: 4px 14px 4px 22px; font-size: 8.5px; font-weight: 800; letter-spacing: 0.6px;
+  text-transform: uppercase; color: #5a6685;
+}
+.board-body { display: flex; flex-direction: column; }
+.board-row {
+  display: flex; align-items: center; gap: 8px; position: relative;
+  background: #273670; color: #fff; padding: 9px 14px 9px 22px;
+  border-bottom: 3px solid #050914; font-weight: 700; font-size: 12.5px;
+  text-align: left;
+}
+.board-row:last-child { border-bottom: none; }
+.board-row:active { filter: brightness(1.18); }
+.board-row::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 8px;
+  background: var(--accent, transparent);
+}
+.c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.c-train { flex: 1.3; min-width: 0; }
+.c-train .nm { white-space: normal; word-break: break-word; }
+.c-to { flex: 1; min-width: 0; white-space: normal; word-break: break-word; font-weight: 600; }
+.c-status { width: 70px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
+.c-status.delayed { color: var(--yellow); font-weight: 800; }
+.c-status.gone { opacity: 0.75; font-style: italic; }
+.c-status.scheduled { opacity: 0.75; font-style: italic; }
+.board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
+.board-ftr { background: #dde2ee; color: #5a6685; text-align: right; padding: 6px 14px; font-size: 10px; letter-spacing: 0.4px; }
+.board-more {
+  display: block; width: 100%; text-align: center;
+  background: #142a5c; color: #fff; border: none; border-top: 3px solid #050914;
+  padding: 9px 14px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+}
+.board-more:active { background: #1e3a7a; }
+
+.tt-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
+.tt-sheet.on { display: block; }
+.tt-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
+.tt-panel {
+  position: absolute; left: 0; right: 0; bottom: 0; top: 60px;
+  background: var(--bg); border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0; overflow: hidden; overflow-y: auto;
+  animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+@keyframes ttUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
+.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 8px auto 0; }
+.tt-close {
+  position: absolute; top: 8px; right: 10px; z-index: 2;
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
+  font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.tt-close:active { background: var(--panel); color: var(--text1); }
+.tt-body { padding: 14px 16px 28px; }
+.tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; }
+.tt-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.tt-stops { margin-top: 14px; border-top: 1px solid var(--border); }
+.tt-stop {
+  display: flex; align-items: center; gap: 8px; padding: 5px 0;
+  border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.tt-stop.here { background: rgba(245,197,24,0.08); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+.tt-stop.past { opacity: 0.6; }
+.tt-stop.past .nm { color: var(--text2); }
+.tt-stop.next-stop {
+  background: rgba(34,197,94,0.14); margin: 0 -16px; padding-left: 16px; padding-right: 16px;
+  border-left: 3px solid var(--green); opacity: 1;
+}
+.tt-stop.next-stop .nm { color: var(--text1); font-weight: 700; }
+.tt-stop .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text1); }
+.tt-stop .tm { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text2); }
+.tt-stop .st { width: 74px; flex-shrink: 0; text-align: right; font-size: 10px; color: var(--text3); }
+.tt-stop .st.delayed { color: var(--yellow); }
+.tt-stop .st.done { color: var(--text3); font-style: italic; }
+.tt-stops-more {
+  display: block; width: 100%; text-align: center;
+  background: var(--panel2); color: var(--text2); border: none; border-bottom: 1px solid var(--border);
+  padding: 7px 14px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px;
+}
+.tt-stops-more:active { background: var(--panel); color: var(--text1); }
+.tt-empty { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 16px 0; }
 </style>
 </head>
 <body>
 <div id="app">
+
   <div class="tp-topbar">
     <a class="tp-back" href="/" aria-label="Back to BTC ticker">&larr;</a>
-    <span class="tp-brand">NJ Transit</span>
+    <span class="tp-brand">NJ Transit &middot; Departures &amp; Arrivals</span>
+    <select class="tp-station-select" id="stationSelect" aria-label="Reference station">
+      ${Object.entries(NJT_BOARD_STATIONS).map(([code, name]) =>
+        `<option value="${code}"${code === NJT_DEFAULT_STATION ? " selected" : ""}>${name}</option>`
+      ).join("")}
+    </select>
   </div>
   <div class="tp-navrow">
     <a class="tp-nav-link" href="/trains">Amtrak</a>
+    <a class="tp-nav-link" href="/amtrak-nec-map">NEC Map</a>
     <a class="tp-nav-link" href="/lirr-board">LIRR</a>
   </div>
-  <div class="njt-empty">
-    <b>NJ Transit board not set up yet.</b><br>
-    Waiting on an NJ Transit developer API key before this can show real
-    departures.
+
+  <div class="board-card">
+    <div class="board-hdr"><span class="board-title" id="depTitle">Departures</span><span class="board-clock" id="depClock">&mdash;</span></div>
+    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">To</span><span class="c-status">Status</span></div>
+    <div class="board-body" id="depBody"><div class="board-empty">Loading&hellip;</div></div>
+    <div class="board-ftr" id="depDate">&mdash;</div>
+  </div>
+
+  <div class="board-card">
+    <div class="board-hdr"><span class="board-title">Arrivals</span><span class="board-clock" id="arrClock">&mdash;</span></div>
+    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">From</span><span class="c-status">Status</span></div>
+    <div class="board-body" id="arrBody"><div class="board-empty">Loading&hellip;</div></div>
+    <div class="board-ftr" id="arrDate">&mdash;</div>
+  </div>
+
+</div>
+
+<div class="tt-sheet" id="ttSheet" role="dialog" aria-modal="true" aria-label="Train details">
+  <div class="tt-scrim" id="ttScrim"></div>
+  <div class="tt-panel">
+    <div class="tt-grip"></div>
+    <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
+    <div class="tt-body" id="ttBody"></div>
   </div>
 </div>
+
+<script>
+(function () {
+  function esc(v) {
+    return String(v == null ? "" : v).replace(/[&<>"\\u0027]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "\\u0027": "&#39;" }[c];
+    });
+  }
+  function fmtBoardTime(ms) {
+    if (ms == null) return "\\u2014";
+    var s = new Date(ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false });
+    if (s.slice(0, 3) === "24:") s = "00:" + s.slice(3);
+    return s;
+  }
+
+  // ---------- NJ Transit Departures / Arrivals ----------
+
+  var STATION_NAMES = ${JSON.stringify(NJT_BOARD_STATIONS)};
+  var STATION_CODES = ${JSON.stringify(Object.keys(NJT_BOARD_STATIONS))};
+  var urlStation = new URL(location.href).searchParams.get("station");
+  var state = {
+    departures: [], arrivals: [], enabled: true,
+    station: STATION_CODES.indexOf(urlStation) !== -1 ? urlStation : "${NJT_DEFAULT_STATION}",
+  };
+
+  function njtStatus(row) {
+    if (row.state === "departed") return { text: "Departed", cls: "gone" };
+    if (row.state === "arrived") return { text: "Arrived", cls: "gone" };
+    if (row.state === "delayed") return { text: fmtBoardTime(row.atMs), cls: "delayed" };
+    if (row.state === "scheduled") return { text: "On Time", cls: "scheduled" };
+    return { text: "On Time", cls: "" };
+  }
+
+  function boardRowHTML(row, idx, kind) {
+    var status = njtStatus(row);
+    // Unlike the Amtrak board's small fixed service-type palette, NJT's own
+    // GTFS already supplies a distinct official color per rail line
+    // (route_color/route_text_color) — used directly rather than bucketed.
+    var accent = "#" + (row.color || "0039a6");
+    return '<div class="board-row" data-kind="njt" data-event="' + kind + '" data-idx="' + idx + '" style="--accent:' + accent + ';">' +
+      '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
+      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
+      '<span class="c-to">' + esc(row.other) + '</span>' +
+      '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
+      '</div>';
+  }
+
+  var BOARD_COLLAPSED_ROWS = 5;
+  var boardExpanded = { dep: false, arr: false };
+
+  function renderBoard(bodyId, rows, kind) {
+    var el = document.getElementById(bodyId);
+    if (!state.enabled) {
+      el.innerHTML = '<div class="board-empty">NJ Transit API not configured yet.</div>';
+      return;
+    }
+    if (!rows.length) {
+      el.innerHTML = state.warming
+        ? '<div class="board-empty">Loading NJ Transit schedule&hellip;</div>'
+        : '<div class="board-empty">No ' + (kind === "dep" ? "departures" : "arrivals") + ' from NJ Transit in this window.</div>';
+      return;
+    }
+    var expanded = boardExpanded[kind];
+    var visible = expanded ? rows : rows.slice(0, BOARD_COLLAPSED_ROWS);
+    var html = visible.map(function (r, i) { return boardRowHTML(r, i, kind); }).join("");
+    if (rows.length > BOARD_COLLAPSED_ROWS) {
+      html += '<button class="board-more" data-more="' + kind + '">' +
+        (expanded ? "Show fewer" : "More (" + (rows.length - BOARD_COLLAPSED_ROWS) + ")") + '</button>';
+    }
+    el.innerHTML = html;
+  }
+
+  function loadNjtBoard() {
+    var forStation = state.station;
+    fetch("/api/njt-board?station=" + forStation).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.enabled) {
+        state.enabled = false;
+        renderBoard("depBody", [], "dep");
+        renderBoard("arrBody", [], "arr");
+        return;
+      }
+      if (d.station !== state.station) return;
+      state.enabled = true;
+      state.departures = d.departures || [];
+      state.arrivals = d.arrivals || [];
+      state.warming = !!d.warming;
+      renderBoard("depBody", state.departures, "dep");
+      renderBoard("arrBody", state.arrivals, "arr");
+      if (openTrain) reopenIfStillOpen();
+    }).catch(function (e) {
+      document.getElementById("depBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
+      document.getElementById("arrBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
+    });
+  }
+
+  function updateDepTitle() {
+    document.getElementById("depTitle").textContent = (STATION_NAMES[state.station] || "") + " Departures";
+  }
+
+  var stationSelectEl = document.getElementById("stationSelect");
+  stationSelectEl.value = state.station;
+  stationSelectEl.addEventListener("change", function () {
+    state.station = stationSelectEl.value;
+    boardExpanded.dep = false;
+    boardExpanded.arr = false;
+    if (openTrain) closeTrain();
+    var url = new URL(location.href);
+    url.searchParams.set("station", state.station);
+    history.replaceState(null, "", url);
+    document.getElementById("depBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
+    document.getElementById("arrBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
+    updateDepTitle();
+    loadNjtBoard();
+  });
+  updateDepTitle();
+
+  function tickClocks() {
+    var now = new Date();
+    var t = now.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false });
+    if (t.slice(0, 3) === "24:") t = "00:" + t.slice(3);
+    var d = now.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    document.getElementById("depClock").textContent = t;
+    document.getElementById("arrClock").textContent = t;
+    document.getElementById("depDate").textContent = d;
+    document.getElementById("arrDate").textContent = d;
+  }
+  tickClocks();
+  setInterval(tickClocks, 1000);
+  loadNjtBoard();
+  setInterval(loadNjtBoard, 30000);
+
+  // ---------- the detail sheet ----------
+
+  var elSheet = document.getElementById("ttSheet");
+  var elBody = document.getElementById("ttBody");
+  var openTrain = null; // { event, idx } — kept so a live poll can re-render it
+  var ttStopsExpanded = false;
+  var TT_STOPS_COLLAPSE_KEEP = 1;
+  var lastStopsRowsHtml = null, lastStopsNextIdx = null;
+
+  function renderStopsList(rowsHtml, nextIdx) {
+    lastStopsRowsHtml = rowsHtml;
+    lastStopsNextIdx = nextIdx;
+    var stopsEl = document.getElementById("ttStops");
+    if (!stopsEl) return;
+    var visibleFrom = 0;
+    if (!ttStopsExpanded && nextIdx > TT_STOPS_COLLAPSE_KEEP) visibleFrom = nextIdx - TT_STOPS_COLLAPSE_KEEP;
+    var html = "";
+    if (visibleFrom > 0) {
+      html += '<button class="tt-stops-more" data-tt-stops-more>Show ' + visibleFrom + ' earlier stop' + (visibleFrom === 1 ? "" : "s") + '</button>';
+    }
+    html += rowsHtml.slice(visibleFrom).join("");
+    stopsEl.innerHTML = html;
+  }
+
+  function closeTrain() {
+    elSheet.classList.remove("on");
+    document.body.style.overflow = "";
+    openTrain = null;
+  }
+  document.getElementById("ttClose").addEventListener("click", closeTrain);
+  document.getElementById("ttScrim").addEventListener("click", closeTrain);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && elSheet.classList.contains("on")) closeTrain(); });
+
+  function stopStateHTML(schedMs, atMs, passedLabel) {
+    if (schedMs == null && atMs == null) return '<span class="st">\\u2014</span>';
+    var now = Date.now();
+    var use = atMs != null ? atMs : schedMs;
+    if (now >= use) {
+      return '<span class="st done">' + passedLabel + (atMs != null ? " " + fmtBoardTime(atMs) : "") + '</span>';
+    }
+    if (atMs != null && schedMs != null && atMs - schedMs > 60000) return '<span class="st delayed">Now ' + fmtBoardTime(atMs) + '</span>';
+    return '<span class="st">On Time</span>';
+  }
+
+  function njtStopBest(s) {
+    var arr = s.arrMs != null ? s.arrMs : s.schedArrMs;
+    var dep = s.depMs != null ? s.depMs : s.schedDepMs;
+    return { arr: arr, dep: dep };
+  }
+
+  function renderNjtDetail(row) {
+    var status = njtStatus(row);
+    elBody.innerHTML =
+      '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
+      '<div class="tt-sub">NJ Transit &middot; ' + status.text + '</div>' +
+      '<div class="tt-stops" id="ttStops"></div>';
+
+    var stopsEl = document.getElementById("ttStops");
+    if (!row.stations || !row.stations.length) {
+      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
+      return;
+    }
+    var now = Date.now();
+    var nextIdx = -1;
+    for (var ni = 0; ni < row.stations.length; ni++) {
+      var best = njtStopBest(row.stations[ni]);
+      var ref = best.arr != null ? best.arr : best.dep;
+      if (ref == null || now < ref) { nextIdx = ni; break; }
+    }
+    var rowsHtml = row.stations.map(function (s, i) {
+      var best = njtStopBest(s);
+      var timeMs = best.dep != null ? best.dep : best.arr;
+      var schedMs = s.schedDepMs != null ? s.schedDepMs : s.schedArrMs;
+      var atMs = timeMs;
+      var here = s.code === state.station;
+      var isPast = nextIdx === -1 ? true : i < nextIdx;
+      var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
+      return '<div class="tt-stop' + cls + '"><span class="nm">' + esc(s.name) + '</span>' +
+        '<span class="tm">' + fmtBoardTime(schedMs != null ? schedMs : timeMs) + '</span>' +
+        stopStateHTML(schedMs, atMs, "Departed") + '</div>';
+    });
+    renderStopsList(rowsHtml, nextIdx);
+  }
+
+  function openDetail(event, idx) {
+    openTrain = { event: event, idx: idx };
+    elSheet.classList.add("on");
+    document.body.style.overflow = "hidden";
+    ttStopsExpanded = false;
+    var row = (event === "dep" ? state.departures : state.arrivals)[idx];
+    if (row) renderNjtDetail(row);
+  }
+
+  function reopenIfStillOpen() {
+    if (!openTrain) return;
+    var list = openTrain.event === "dep" ? state.departures : state.arrivals;
+    if (openTrain.idx < list.length) renderNjtDetail(list[openTrain.idx]);
+    else closeTrain(); // the train aged off the board while the sheet was open
+  }
+
+  document.addEventListener("click", function (e) {
+    var more = e.target.closest("[data-more]");
+    if (more) {
+      var mkind = more.getAttribute("data-more");
+      boardExpanded[mkind] = !boardExpanded[mkind];
+      renderBoard(mkind === "dep" ? "depBody" : "arrBody", mkind === "dep" ? state.departures : state.arrivals, mkind);
+      return;
+    }
+    if (e.target.closest("[data-tt-stops-more]")) {
+      ttStopsExpanded = true;
+      if (lastStopsRowsHtml) renderStopsList(lastStopsRowsHtml, lastStopsNextIdx);
+      return;
+    }
+    var row = e.target.closest("[data-kind]");
+    if (!row) return;
+    var idx = +row.getAttribute("data-idx");
+    openDetail(row.getAttribute("data-event"), idx);
+  });
+})();
+</script>
 </body>
 </html>`;
 
@@ -10269,6 +11000,7 @@ connectCoinbase();
 connectBitstamp();
 startLirrBoard();
 startAmtrakBoard();
+startNjtBoard();
 server.listen(PORT, () => {
   console.log(`\nBitcoin ticker running at http://localhost:${PORT}\n`);
 });
