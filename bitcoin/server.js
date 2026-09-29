@@ -3713,7 +3713,18 @@ const NJT_CACHE_DIR = path.join(__dirname, ".njt-cache");
 const NJT_TOKEN_FILE = path.join(NJT_CACHE_DIR, "token.json");
 const NJT_STATIC_REFRESH_MS = 20 * 60 * 60 * 1000; // schedules don't change intraday
 const NJT_RT_REFRESH_MS = 30 * 1000;
-const NJT_BOARD_STATIONS = { "109": "New York Penn", "112": "Newark Penn", "63": "Hoboken" };
+const NJT_BOARD_STATIONS = {
+  "109": "New York Penn",
+  "145": "Secaucus",
+  "110": "Newark Airport",
+  "9": "Atlantic City",
+  "126": "Philadelphia",
+};
+// JS reorders plain-object keys that look like array indices into ascending
+// numeric order regardless of insertion order, which silently scrambles the
+// station picker's intended display order — this list is what the dropdown
+// actually iterates, kept separate from the lookup object above.
+const NJT_BOARD_STATION_ORDER = ["109", "145", "110", "9", "126"];
 const NJT_DEFAULT_STATION = "109";
 const NJT_DEP_GRACE_MS = 3 * 60 * 1000; // stays listed as "Departed" this long, then drops off
 const NJT_ARR_GRACE_MS = 5 * 60 * 1000; // stays listed as "Arrived" this long, then drops off
@@ -5363,8 +5374,8 @@ body {
     <a class="tp-back" href="/" aria-label="Back to BTC ticker">&larr;</a>
     <span class="tp-brand">NJ Transit &middot; Departures &amp; Arrivals</span>
     <select class="tp-station-select" id="stationSelect" aria-label="Reference station">
-      ${Object.entries(NJT_BOARD_STATIONS).map(([code, name]) =>
-        `<option value="${code}"${code === NJT_DEFAULT_STATION ? " selected" : ""}>${name}</option>`
+      ${NJT_BOARD_STATION_ORDER.map((code) =>
+        `<option value="${code}"${code === NJT_DEFAULT_STATION ? " selected" : ""}>${NJT_BOARD_STATIONS[code]}</option>`
       ).join("")}
     </select>
   </div>
