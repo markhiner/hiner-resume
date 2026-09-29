@@ -5670,53 +5670,92 @@ const amtrakNECMapPage = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
 <title>NEC Trains</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f5; }
-  #map { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
-  .back-btn { position: absolute; top: 16px; left: 16px; z-index: 1000; width: 44px; height: 44px; border-radius: 50%; background: white; border: none; cursor: pointer; font-size: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: flex; align-items: center; justify-content: center; }
-  .back-btn:active { background: #f0f0f0; }
-  .train-detail { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-radius: 16px 16px 0 0; box-shadow: 0 -2px 16px rgba(0,0,0,0.1); max-height: 70vh; overflow-y: auto; transform: translateY(100%); transition: transform 0.3s ease; z-index: 900; }
+  :root {
+    --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
+    --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66;
+    --green: #22c55e; --yellow: #f5c518; --red: #ef4444;
+  }
+  html, body { background: var(--bg); height: 100%; }
+  body {
+    margin: 0; padding: 0; -webkit-font-smoothing: antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  }
+  #map { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0a0a0c; }
+  .back-btn {
+    position: absolute; top: max(14px, env(safe-area-inset-top)); left: 14px; z-index: 1000;
+    width: 34px; height: 34px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--border);
+    color: var(--text1); cursor: pointer; font-size: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .back-btn:active { background: var(--panel); }
+
+  /* Slide-up detail sheet — same grip/scrim-free bottom-docked pattern used
+     by the other train pages in this app, just dark instead of the old
+     white card that clashed with everything else. */
+  .train-detail {
+    position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg);
+    border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.6); max-height: 72vh; overflow-y: auto;
+    transform: translateY(100%); transition: transform 0.25s cubic-bezier(0.2,0.8,0.3,1); z-index: 900;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
   .train-detail.open { transform: translateY(0); }
-  .train-detail-header { padding: 16px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: flex-start; }
-  .train-detail-title-wrap { min-width: 0; }
-  .train-detail-title { font-size: 18px; font-weight: bold; }
-  .train-detail-sub { font-size: 13px; color: #666; margin-top: 3px; }
-  .train-detail-position { font-size: 12.5px; color: #0039a6; font-weight: 600; margin-top: 4px; }
-  .train-detail-close { background: none; border: none; cursor: pointer; font-size: 24px; flex-shrink: 0; }
-  .stops-list { padding: 12px; }
-  .stop-item { padding: 12px; border-bottom: 1px solid #f0f0f0; }
+  .tt-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 7px auto 0; }
+  .train-detail-header { padding: 8px 14px 8px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .train-detail-title-wrap { min-width: 0; flex: 1; }
+  .train-detail-title { font-size: 15.5px; font-weight: 800; color: var(--text1); }
+  .train-detail-sub { font-size: 11.5px; color: var(--text2); margin-top: 3px; font-weight: 700; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .train-status-badge.ontime { background: rgba(34,197,94,0.16); color: var(--green); }
+  .train-status-badge.late { background: rgba(245,197,24,0.18); color: var(--yellow); }
+  .train-status-badge.verylate { background: rgba(239,68,68,0.18); color: var(--red); }
+  .train-detail-position {
+    font-size: 12px; color: var(--text1); font-weight: 600; margin-top: 6px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  }
+  .train-detail-position b { color: var(--yellow); }
+  .train-detail-close {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text2); cursor: pointer;
+    font-size: 17px; line-height: 1; flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .train-detail-close:active { background: var(--panel); color: var(--text1); }
+
+  /* Compact stop list — tight enough that a full route fits with minimal
+     scrolling instead of one big padded card per stop. */
+  .stops-list { padding: 4px 14px 14px; }
+  .stop-item { padding: 6px 0; border-bottom: 1px solid var(--border); }
   .stop-item:last-child { border-bottom: none; }
   .stop-item.past { opacity: 0.5; }
-  .stop-item.next { background: #eef2ff; border-radius: 8px; }
-  .stop-time { font-weight: bold; font-size: 14px; }
-  .stop-time .est { font-weight: normal; color: #999; }
-  .stop-name { color: #666; font-size: 13px; margin-top: 4px; }
-  .stop-status { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: #0039a6; margin-left: 6px; }
-  .legend { position: absolute; top: 72px; left: 16px; background: white; border-radius: 8px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 800; font-size: 12px; }
-  .legend-item { display: flex; align-items: center; margin: 6px 0; }
-  .legend-dot { width: 20px; height: 20px; border-radius: 50%; margin-right: 8px; }
+  .stop-item.next {
+    background: rgba(34,197,94,0.12); margin: 0 -14px; padding: 6px 14px;
+    border-left: 3px solid var(--green);
+  }
+  .stop-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .stop-name { font-size: 13px; font-weight: 700; color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .stop-item.past .stop-name { color: var(--text2); font-weight: 600; }
+  .stop-status { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); flex-shrink: 0; }
+  .stop-status.next { color: var(--green); }
+  .stop-times { font-size: 12px; color: var(--text2); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stt-label { color: var(--text3); font-weight: 600; }
+  .stt-time { color: var(--text1); font-weight: 800; }
+  .stt-est { font-size: 9.5px; color: var(--text3); font-weight: 600; margin-left: 1px; }
+  .stt-delta { font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 4px; margin-left: 3px; white-space: nowrap; }
+  .stt-delta.ontime { background: rgba(34,197,94,0.15); color: var(--green); }
+  .stt-delta.late { background: rgba(245,197,24,0.18); color: var(--yellow); }
+  .stt-delta.verylate { background: rgba(239,68,68,0.18); color: var(--red); }
 </style>
 </head>
 <body>
   <button class="back-btn" onclick="window.location.href='/trains'" title="Back">←</button>
   <div id="map"></div>
-  <div class="legend">
-    <div style="font-weight: bold; margin-bottom: 8px;">Service Types</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #58b8b6;"></div> Acela</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #292196;"></div> Regional</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #ffd51f;"></div> Keystone</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #358f54;"></div> Empire/Adirondack</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #64c0e8;"></div> Pacific Surfliner</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #ffd51f;"></div> Capitol Corridor</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #9ef0bb;"></div> San Joaquins</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #8c74e3;"></div> Heartland Flyer</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #7510e0;"></div> Auto Train</div>
-    <div class="legend-item"><div class="legend-dot" style="background: #9c1c25;"></div> Other Long Distance</div>
-  </div>
   <div class="train-detail" id="trainDetail">
+    <div class="tt-grip"></div>
     <div class="train-detail-header">
       <div class="train-detail-title-wrap">
         <div class="train-detail-title" id="trainTitle">Train</div>
@@ -5732,7 +5771,14 @@ const amtrakNECMapPage = `<!DOCTYPE html>
   <script>
     let map = null;
     let markers = new Map();
-    let selectedTrain = null;
+    let selectedTrainNum = null;
+    let latestTrains = [];
+
+    function esc(v) {
+      return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
 
     function formatTime(ms) {
       if (!ms) return "—";
@@ -5755,23 +5801,62 @@ const amtrakNECMapPage = `<!DOCTYPE html>
       return new L.Icon({ iconUrl: img.src, iconSize: [30, 30], iconAnchor: [15, 15] });
     }
 
-    // One stop's arrival/departure as "the time to show" + "is it actual or
-    // still just an estimate" — actual (live-reported) wins over scheduled
-    // whenever both exist, since it's strictly more informative.
+    // How late (minutes) a stop's actual time is against its own schedule —
+    // null when there's no actual (live) time yet to compare against.
+    function stopDelayMin(schedMs, actualMs) {
+      if (schedMs == null || actualMs == null) return null;
+      return Math.round((actualMs - schedMs) / 60000);
+    }
+
+    function deltaBadgeHTML(delayMin) {
+      if (delayMin == null) return "";
+      if (delayMin <= 1) return ' <span class="stt-delta ontime">On time</span>';
+      if (delayMin < 15) return ' <span class="stt-delta late">+' + delayMin + 'm</span>';
+      return ' <span class="stt-delta verylate">+' + delayMin + 'm</span>';
+    }
+
+    // One stop's arrival/departure line: the actual (live-reported) time
+    // wins over scheduled whenever both exist, tagged with how late it ran;
+    // a stop with only a schedule shows "(est)" instead of a delay badge.
     function stopTimeHTML(label, schedMs, actualMs) {
       const ms = actualMs != null ? actualMs : schedMs;
       if (ms == null) return "";
-      return label + ": " + formatTime(ms) + (actualMs != null ? "" : ' <span class="est">(est)</span>');
+      const delayMin = stopDelayMin(schedMs, actualMs);
+      return '<span class="stt-label">' + label + '</span> <span class="stt-time">' + formatTime(ms) + '</span>' +
+        (actualMs == null ? ' <span class="stt-est">est</span>' : deltaBadgeHTML(delayMin));
+    }
+
+    // Looks backward from the train's current position for the most recent
+    // stop with both a schedule and an actual time, and uses that gap as
+    // "how late is this train running right now" — falling back to the next
+    // stop's own predicted arrival if the train hasn't left its first stop.
+    function trainDelayMin(stations, nextIdx) {
+      for (let i = Math.min(nextIdx, stations.length) - 1; i >= 0; i--) {
+        const s = stations[i];
+        const actual = s.depMs != null ? s.depMs : s.arrMs;
+        const sched = s.depMs != null ? s.schedDepMs : s.schedArrMs;
+        const d = stopDelayMin(sched, actual);
+        if (d != null) return d;
+      }
+      if (nextIdx >= 0 && nextIdx < stations.length) {
+        const s = stations[nextIdx];
+        const actual = s.arrMs != null ? s.arrMs : s.depMs;
+        const sched = s.schedArrMs != null ? s.schedArrMs : s.schedDepMs;
+        return stopDelayMin(sched, actual);
+      }
+      return null;
+    }
+
+    function statusBadgeHTML(delayMin) {
+      if (delayMin == null) return "";
+      if (delayMin <= 1) return '<span class="train-status-badge ontime">On time</span>';
+      if (delayMin < 15) return '<span class="train-status-badge late">' + delayMin + 'm late</span>';
+      return '<span class="train-status-badge verylate">' + delayMin + 'm late</span>';
     }
 
     function showTrain(train) {
-      selectedTrain = train;
+      selectedTrainNum = train.trainNum;
       document.getElementById("trainTitle").textContent = train.trainNum + " " + train.routeName;
-
-      const subParts = [];
-      if (train.velocity != null) subParts.push(train.velocity + " mph");
-      if (train.directionLabel) subParts.push(train.directionLabel + "-bound");
-      document.getElementById("trainSubtitle").textContent = subParts.length ? subParts.join(" · ") : "Speed and direction unavailable right now";
 
       const stations = train.stations || [];
       const now = Date.now();
@@ -5785,17 +5870,24 @@ const amtrakNECMapPage = `<!DOCTYPE html>
         if (ref == null || now < ref) { nextIdx = i; break; }
       }
 
+      const subParts = [];
+      if (train.velocity != null) subParts.push(Math.round(train.velocity) + " mph");
+      if (train.directionLabel) subParts.push(train.directionLabel + "-bound");
+      const subText = subParts.length ? subParts.join(" · ") : "Speed/direction unavailable";
+      const delayMin = stations.length ? trainDelayMin(stations, nextIdx) : null;
+      document.getElementById("trainSubtitle").innerHTML = esc(subText) + " " + statusBadgeHTML(delayMin);
+
       const posEl = document.getElementById("trainPosition");
       if (!stations.length) {
         posEl.textContent = "";
       } else if (nextIdx === -1) {
-        posEl.textContent = "Arrived at " + stations[stations.length - 1].name;
+        posEl.innerHTML = "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
       } else if (nextIdx === 0) {
-        posEl.textContent = "Not yet departed " + stations[0].name;
+        posEl.innerHTML = "Not yet departed <b>" + esc(stations[0].name) + "</b>";
       } else {
         const prev = stations[nextIdx - 1], next = stations[nextIdx];
         const eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
-        posEl.textContent = "Between " + prev.name + " and " + next.name + (eta != null ? " · due " + formatTime(eta) : "");
+        posEl.innerHTML = "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " · due " + formatTime(eta) : "");
       }
 
       const stopsList = document.getElementById("stopsList");
@@ -5809,22 +5901,34 @@ const amtrakNECMapPage = `<!DOCTYPE html>
         const timeLines = [
           stopTimeHTML("Arr", stop.schedArrMs, stop.arrMs),
           stopTimeHTML("Dep", stop.schedDepMs, stop.depMs),
-        ].filter(Boolean).join(" &middot; ");
+        ].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
         item.innerHTML =
-          '<div class="stop-name">' + stop.name +
-            (isPast ? ' <span class="stop-status">Departed</span>' : isNext ? ' <span class="stop-status">Next stop</span>' : '') +
+          '<div class="stop-row-top">' +
+            '<span class="stop-name">' + esc(stop.name) + '</span>' +
+            (isPast ? '<span class="stop-status">Departed</span>' : isNext ? '<span class="stop-status next">Next</span>' : '') +
           '</div>' +
-          '<div class="stop-time">' + (timeLines || "—") + '</div>';
+          '<div class="stop-times">' + (timeLines || "&mdash;") + '</div>';
         stopsList.appendChild(item);
       });
 
       document.getElementById("trainDetail").classList.add("open");
     }
 
+    // A live poll shouldn't freeze an open sheet at whatever it showed when
+    // it was tapped — re-render it with the freshly fetched data each time,
+    // same as the board pages do for their own detail sheets.
+    function reopenIfStillOpen() {
+      if (selectedTrainNum == null) return;
+      if (!document.getElementById("trainDetail").classList.contains("open")) return;
+      const train = latestTrains.find(function (t) { return t.trainNum === selectedTrainNum; });
+      if (train) showTrain(train);
+    }
+
     async function updateTrains() {
       try {
         const res = await fetch("/api/amtrak-nec-trains");
         const trains = await res.json();
+        latestTrains = trains;
 
         // Clear old markers
         markers.forEach(m => map.removeLayer(m));
@@ -5852,6 +5956,8 @@ const amtrakNECMapPage = `<!DOCTYPE html>
 
           markers.set(train.trainNum, marker);
         }
+
+        reopenIfStillOpen();
       } catch (e) {
         console.error("Failed to fetch trains:", e);
       }
@@ -5859,9 +5965,10 @@ const amtrakNECMapPage = `<!DOCTYPE html>
 
     function initMap() {
       map = L.map("map").setView([39.5, -76], 7);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "© OpenStreetMap contributors",
-        maxZoom: 13,
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        attribution: "© OpenStreetMap contributors © CARTO",
+        subdomains: "abcd",
+        maxZoom: 19,
       }).addTo(map);
 
       updateTrains();
