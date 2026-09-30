@@ -5306,6 +5306,12 @@ body {
 .c-train { flex: 1.3; min-width: 0; }
 .c-train .nm { white-space: normal; word-break: break-word; }
 .c-to { flex: 1; min-width: 0; white-space: normal; word-break: break-word; font-weight: 600; }
+.board-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.35); border-radius: 4px; padding: 1px 5px; margin-left: 5px;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.3px; vertical-align: middle;
+}
+.board-badge.ewr { padding: 2px 4px; }
 .c-status { width: 96px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
 /* The adjusted time on a delayed row is yellow text sitting directly on
    whatever color that line happens to be — unreadable on a similarly warm
@@ -5459,6 +5465,28 @@ body {
     return { text: "On Time", cls: "" };
   }
 
+  // Real NJT station codes (from stops.txt, same ones NJT_BOARD_STATIONS
+  // uses) — not every train that leaves a given station touches these, so a
+  // small badge next to the destination flags "this one does" the same way
+  // the LIRR board flags a train that runs via Jamaica for JFK.
+  var SEC_STOP_CODE = "145";
+  var EWR_STOP_CODE = "110";
+  var EWR_PLANE_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2.5 1.5V22l4-1 4 1v-1.5L13 19v-5.5z"/></svg>';
+
+  function stationBadgesHTML(row) {
+    if (!row.stations || !row.stations.length) return "";
+    var html = "";
+    var hasSec = row.stations.some(function (s) { return s.code === SEC_STOP_CODE; });
+    var hasEwr = row.stations.some(function (s) { return s.code === EWR_STOP_CODE; });
+    // Redundant (and a little silly) to flag "stops at Secaucus" on a board
+    // you're already viewing from Secaucus, so skip a badge for whichever
+    // station is the board's current reference point.
+    if (hasSec && state.station !== SEC_STOP_CODE) html += ' <span class="board-badge sec">SEC</span>';
+    if (hasEwr && state.station !== EWR_STOP_CODE) html += ' <span class="board-badge ewr" title="Stops at Newark Airport">' + EWR_PLANE_SVG + '</span>';
+    return html;
+  }
+
   function boardRowHTML(row, idx, kind) {
     var status = njtStatus(row);
     // Unlike the Amtrak board's small fixed service-type palette, NJT's own
@@ -5470,7 +5498,7 @@ body {
     return '<div class="board-row" data-kind="njt" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
-      '<span class="c-to">' + esc(row.other) + '</span>' +
+      '<span class="c-to">' + esc(row.other) + stationBadgesHTML(row) + '</span>' +
       '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
       '</div>';
   }
