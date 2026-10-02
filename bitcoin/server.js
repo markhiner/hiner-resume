@@ -6249,7 +6249,7 @@ const lirrBoardPage = `<!DOCTYPE html>
             let note = "";
             if (row.skipsJamaica) note = '<div class="dep-note">Will <b>not</b> stop at Jamaica</div>';
             else if (row.viaJamaica) note = '<span class="dep-badge">JFK &#9992;</span>';
-            return '<div class="dep" onclick="openDetail(' + JSON.stringify(row.tripId) + ')">' +
+            return '<div class="dep" data-trip-id="' + esc(row.tripId) + '">' +
               '<div class="dep-bar" style="background:#' + bg + '; color:#' + fg + ';">' +
               '<div class="dep-time">' + formatTime(row.depMs) + '</div>' +
               '<div class="dep-dest">' + esc(row.destName) + '</div>' +
@@ -6278,6 +6278,22 @@ const lirrBoardPage = `<!DOCTYPE html>
       document.getElementById("detailOverlay").classList.add("show");
       renderDetail(row);
     }
+
+    // #board's innerHTML gets replaced wholesale every 30s by loadBoard(),
+    // so a per-row onclick attribute can vanish mid-tap if that refresh
+    // lands between touchstart and touchend — the row the finger is still
+    // on isn't the same DOM node anymore, and the tap silently does
+    // nothing. Delegating from document instead means the listener itself
+    // never gets torn down; it just looks up whatever .dep is at the
+    // current click target each time, same fix as the station autocomplete
+    // list needed for the same underlying "list gets rebuilt under you"
+    // reason.
+    document.addEventListener("click", function(e) {
+      const row = e.target.closest(".dep");
+      if (!row) return;
+      const tripId = row.getAttribute("data-trip-id");
+      if (tripId) openDetail(tripId);
+    });
 
     function closeDetail() {
       openTripId = null;
