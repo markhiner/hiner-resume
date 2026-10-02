@@ -6168,6 +6168,14 @@ const lirrBoardPage = `<!DOCTYPE html>
     const input = document.getElementById("stationInput");
     const autocompleteList = document.getElementById("autocompleteList");
 
+    // Tapping back into the field with a station name already sitting in it
+    // should read as "start a fresh search," not force a select-all/delete
+    // first — clear it the instant it's focused.
+    input.addEventListener("focus", function() {
+      input.value = "";
+      autocompleteList.classList.remove("show");
+    });
+
     input.addEventListener("input", function() {
       const val = this.value.toLowerCase().trim();
       if (!val) {
@@ -6180,9 +6188,22 @@ const lirrBoardPage = `<!DOCTYPE html>
         return;
       }
       autocompleteList.innerHTML = matches.map(s =>
-        '<div class="autocomplete-item" onclick="selectStation(' + JSON.stringify(s.name) + ')">' + s.name + '</div>'
+        '<div class="autocomplete-item" data-name="' + esc(s.name) + '">' + esc(s.name) + '</div>'
       ).join("");
       autocompleteList.classList.add("show");
+    });
+
+    // A plain click on the list fires after the input's own blur on mobile
+    // Safari, and the on-screen keyboard dismissing mid-tap can reflow the
+    // list out from under the finger before that click lands — the tap
+    // visibly does nothing. mousedown fires first, so preventDefault() here
+    // keeps the input focused (no keyboard-dismiss reflow) and selection
+    // happens right on the press instead of racing the blur.
+    autocompleteList.addEventListener("mousedown", function(e) {
+      const item = e.target.closest(".autocomplete-item");
+      if (!item) return;
+      e.preventDefault();
+      selectStation(item.getAttribute("data-name"));
     });
 
     document.addEventListener("click", function(e) {
