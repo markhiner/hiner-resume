@@ -2649,56 +2649,86 @@ function pbString(entry) {
 function pbInt(entry) {
   return entry && typeof entry.raw === "bigint" ? pbVarintToSignedInt(entry.raw) : null;
 }
+// GTFS-RT's Position.latitude/longitude are proto "float" — 4-byte IEEE 754,
+// wire type 5 (fixed32). Only user of this one so far: LIRR's VehiclePosition.
+function pbFloat(entry) {
+  return entry && entry.raw instanceof Uint8Array && entry.raw.length === 4 ? entry.raw.readFloatLE(0) : null;
+}
 
 // Decodes one FeedMessage into tripId -> { delaySec, tracks: Map(stopId ->
-// track) }. MTA's LIRR track extension (a StopTimeUpdate submessage holding
-// one string field, following the same pattern documented for Metro-North)
-// isn't published at a confirmed field number, so rather than hardcode a
-// guess, every extension field in StopTimeUpdate's reserved [1000,1999]
-// range is opportunistically decoded and kept only if it looks like a real
-// track label (short alphanumeric) — best-effort, matching how every other
-// gap in this feed already degrades to "don't show it" rather than guess.
+// track), vehicle: {lat, lon} | null }. MTA's LIRR track extension (a
+// StopTimeUpdate submessage holding one string field, following the same
+// pattern documented for Metro-North) isn't published at a confirmed field
+// number, so rather than hardcode a guess, every extension field in
+// StopTimeUpdate's reserved [1000,1999] range is opportunistically decoded
+// and kept only if it looks like a real track label (short alphanumeric) —
+// best-effort, matching how every other gap in this feed already degrades
+// to "don't show it" rather than guess.
+//
+// A trip's TripUpdate and its VehiclePosition are published as two SEPARATE
+// top-level FeedEntity objects (not one entity carrying both), so both are
+// checked independently per entity and merged into the same per-trip record.
 function decodeLirrRealtimeProto(buf) {
   const result = new Map();
+  const getOrCreate = (tripId) => {
+    let rec = result.get(tripId);
+    if (!rec) { rec = { delaySec: null, tracks: new Map(), vehicle: null }; result.set(tripId, rec); }
+    return rec;
+  };
+
   const top = pbParseFields(buf, 0, buf.length);
   const entities = top[2] || []; // FeedMessage.entity = 2
   for (const ent of entities) {
     const entFields = pbParseFields(ent.raw, 0, ent.raw.length);
-    const tuEntries = entFields[3] || []; // FeedEntity.trip_update = 3
-    if (!tuEntries.length) continue;
-    const tuFields = pbParseFields(tuEntries[0].raw, 0, tuEntries[0].raw.length);
-    const tripEntries = tuFields[1] || []; // TripUpdate.trip = 1
-    if (!tripEntries.length) continue;
-    const tripFields = pbParseFields(tripEntries[0].raw, 0, tripEntries[0].raw.length);
-    const tripId = pbString((tripFields[1] || [])[0]); // TripDescriptor.trip_id = 1
-    if (!tripId) continue;
 
-    const stopUpdates = tuFields[2] || []; // TripUpdate.stop_time_update = 2
-    let delaySec = null;
-    const tracks = new Map();
-    for (const su of stopUpdates) {
-      const suFields = pbParseFields(su.raw, 0, su.raw.length);
-      const stopId = pbString((suFields[4] || [])[0]); // StopTimeUpdate.stop_id = 4
-      const depEntries = suFields[3] || suFields[2] || []; // departure = 3, arrival = 2
-      if (depEntries.length) {
-        const depFields = pbParseFields(depEntries[0].raw, 0, depEntries[0].raw.length);
-        const d = pbInt((depFields[1] || [])[0]); // StopTimeEvent.delay = 1
-        if (d != null && delaySec == null) delaySec = d;
-      }
-      if (stopId) {
-        for (let fn = 1000; fn <= 1010; fn++) {
-          const ext = (suFields[fn] || [])[0];
-          if (!ext || ext.wireType !== 2) continue;
-          const extFields = pbParseFields(ext.raw, 0, ext.raw.length);
-          const track = pbString((extFields[1] || [])[0]);
-          if (track && /^[A-Za-z0-9]{1,4}$/.test(track.trim())) {
-            tracks.set(stopId, track.trim());
-            break;
+    const tuEntries = entFields[3] || []; // FeedEntity.trip_update = 3
+    if (tuEntries.length) {
+      const tuFields = pbParseFields(tuEntries[0].raw, 0, tuEntries[0].raw.length);
+      const tripEntries = tuFields[1] || []; // TripUpdate.trip = 1
+      const tripFields = tripEntries.length ? pbParseFields(tripEntries[0].raw, 0, tripEntries[0].raw.length) : null;
+      const tripId = tripFields ? pbString((tripFields[1] || [])[0]) : null; // TripDescriptor.trip_id = 1
+      if (tripId) {
+        const rec = getOrCreate(tripId);
+        const stopUpdates = tuFields[2] || []; // TripUpdate.stop_time_update = 2
+        for (const su of stopUpdates) {
+          const suFields = pbParseFields(su.raw, 0, su.raw.length);
+          const stopId = pbString((suFields[4] || [])[0]); // StopTimeUpdate.stop_id = 4
+          const depEntries = suFields[3] || suFields[2] || []; // departure = 3, arrival = 2
+          if (depEntries.length) {
+            const depFields = pbParseFields(depEntries[0].raw, 0, depEntries[0].raw.length);
+            const d = pbInt((depFields[1] || [])[0]); // StopTimeEvent.delay = 1
+            if (d != null && rec.delaySec == null) rec.delaySec = d;
+          }
+          if (stopId) {
+            for (let fn = 1000; fn <= 1010; fn++) {
+              const ext = (suFields[fn] || [])[0];
+              if (!ext || ext.wireType !== 2) continue;
+              const extFields = pbParseFields(ext.raw, 0, ext.raw.length);
+              const track = pbString((extFields[1] || [])[0]);
+              if (track && /^[A-Za-z0-9]{1,4}$/.test(track.trim())) {
+                rec.tracks.set(stopId, track.trim());
+                break;
+              }
+            }
           }
         }
       }
     }
-    result.set(tripId, { delaySec, tracks });
+
+    const vEntries = entFields[4] || []; // FeedEntity.vehicle = 4
+    if (vEntries.length) {
+      const vFields = pbParseFields(vEntries[0].raw, 0, vEntries[0].raw.length);
+      const tripEntries = vFields[1] || []; // VehiclePosition.trip = 1
+      const tripFields = tripEntries.length ? pbParseFields(tripEntries[0].raw, 0, tripEntries[0].raw.length) : null;
+      const tripId = tripFields ? pbString((tripFields[1] || [])[0]) : null;
+      const posEntries = vFields[2] || []; // VehiclePosition.position = 2
+      if (tripId && posEntries.length) {
+        const posFields = pbParseFields(posEntries[0].raw, 0, posEntries[0].raw.length);
+        const lat = pbFloat((posFields[1] || [])[0]); // Position.latitude = 1
+        const lon = pbFloat((posFields[2] || [])[0]); // Position.longitude = 2
+        if (lat != null && lon != null) getOrCreate(tripId).vehicle = { lat, lon };
+      }
+    }
   }
   return result;
 }
@@ -2791,6 +2821,10 @@ function computeStationDepartures(candidates, model, stationId, nowMs, realtimeB
       viaJamaica: stopsJamaica,
       skipsJamaica: stationId !== JAMAICA_STOP_ID && !stopsJamaica,
       boardStopId: stationId,
+      // The train's live GPS, when the realtime feed is currently reporting
+      // one for this trip — lets the tap-through detail map show where the
+      // train actually is right now instead of just the static route.
+      vehicle: rt && rt.vehicle ? rt.vehicle : null,
       stops: rideStops,
     });
   }
@@ -6446,6 +6480,17 @@ const lirrBoardPage = `<!DOCTYPE html>
         detailMapInstance.fitBounds(L.latLngBounds(pts), { padding: [24, 24] });
       } else {
         detailMapInstance.setView([40.75, -73.5], 9);
+      }
+      // The train's actual live GPS, when the realtime feed has one for this
+      // trip — bigger and higher-contrast than the fixed stop dots (a white
+      // halo under a bright yellow dot) so it reads as "the one that moves"
+      // at a glance, same convention the NEC map uses for its live marker.
+      if (row.vehicle && row.vehicle.lat != null && row.vehicle.lon != null) {
+        const vLatLng = [row.vehicle.lat, row.vehicle.lon];
+        L.circleMarker(vLatLng, { radius: 13, color: "#fff", weight: 0, fillColor: "#fff", fillOpacity: 1 }).addTo(detailMapInstance);
+        L.circleMarker(vLatLng, { radius: 9, color: "#000", weight: 2.5, fillColor: "#f5c518", fillOpacity: 1 })
+          .bindTooltip("Live position", { direction: "top" })
+          .addTo(detailMapInstance);
       }
       setTimeout(() => { if (detailMapInstance) detailMapInstance.invalidateSize(); }, 60);
     }
