@@ -5306,17 +5306,23 @@ body {
 .board-row:last-child { border-bottom: none; }
 .board-row:active { filter: brightness(1.18); }
 .c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.c-train { flex: 1.3; min-width: 0; }
-/* No word-break: the train number + (abbreviated) line name is short enough
-   now to stay on one line; if a badge doesn't fit, it wraps to its own line
-   rather than breaking a word apart mid-station-name. */
-.c-train .nm { white-space: normal; }
-.c-to { flex: 1; min-width: 0; white-space: normal; font-weight: 600; }
+.c-train { flex: 1; min-width: 0; }
+.c-train .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.c-to { flex: 1.3; min-width: 0; font-weight: 600; }
+/* The station name itself must never wrap, even at a word boundary — it's
+   its own line, hard-truncated with an ellipsis as a last resort rather
+   than breaking onto a second line. The SEC/plane badges are a second,
+   separate line below it so they never fight the name for space — and
+   nowrap on their own wrapper keeps them from splitting apart from each
+   other if both are present. */
+.c-to-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.c-to-badges { white-space: nowrap; display: block; margin-top: 3px; }
 .board-badge {
   display: inline-flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.35); border-radius: 4px; padding: 1px 5px; margin-left: 5px;
+  background: rgba(0,0,0,0.35); border-radius: 4px; padding: 1px 5px; margin-right: 5px;
   font-size: 9px; font-weight: 800; letter-spacing: 0.3px; vertical-align: middle;
 }
+.board-badge:last-child { margin-right: 0; }
 .board-badge.ewr { padding: 2px 4px; }
 .c-status { width: 96px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
 /* The adjusted time on a delayed row is yellow text sitting directly on
@@ -5473,10 +5479,21 @@ body {
     if (NJT_ROUTE_ABBR[name]) return NJT_ROUTE_ABBR[name];
     return name.replace(/ Line$/, "");
   }
-  // Same idea for the destination/origin column — "Trenton Station" reads
-  // just as clearly as "Trenton" and is short enough to never wrap.
+  // Same idea for the destination/origin column. A plain " Station" suffix
+  // strip isn't enough on its own — a few real termini among the lines this
+  // board covers are long enough to wrap even alone ("Montclair State
+  // University" is 27 characters) — so the worst offenders get an explicit
+  // short form first (MSU matches NJT's own app), and anything else just
+  // loses its redundant trailing " Station".
+  var NJT_STOP_ABBR = {
+    "Montclair State University": "MSU",
+    "Philadelphia 30th St.": "Philadelphia",
+    "Atlantic City Terminal": "Atlantic City",
+  };
   function shortStopName(name) {
-    return name ? name.replace(/ Station$/, "") : name;
+    if (!name) return name;
+    if (NJT_STOP_ABBR[name]) return NJT_STOP_ABBR[name];
+    return name.replace(/ Station$/, "");
   }
 
   function njtStatus(row) {
@@ -5507,9 +5524,11 @@ body {
     // Redundant (and a little silly) to flag "stops at Secaucus" on a board
     // you're already viewing from Secaucus, so skip a badge for whichever
     // station is the board's current reference point.
-    if (hasSec && state.station !== SEC_STOP_CODE) html += ' <span class="board-badge sec">SEC</span>';
-    if (hasEwr && state.station !== EWR_STOP_CODE) html += ' <span class="board-badge ewr" title="Stops at Newark Airport">' + EWR_PLANE_SVG + '</span>';
-    return html;
+    if (hasSec && state.station !== SEC_STOP_CODE) html += '<span class="board-badge sec">SEC</span>';
+    if (hasEwr && state.station !== EWR_STOP_CODE) html += '<span class="board-badge ewr" title="Stops at Newark Airport">' + EWR_PLANE_SVG + '</span>';
+    // Grouped in one nowrap wrapper so SEC and the plane icon can never land
+    // on different lines from each other — the pair moves as a unit.
+    return html ? '<span class="c-to-badges">' + html + '</span>' : '';
   }
 
   function boardRowHTML(row, idx, kind) {
@@ -5523,7 +5542,7 @@ body {
     return '<div class="board-row" data-kind="njt" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(shortRouteName(row.routeName)) + '</span></span>' +
-      '<span class="c-to">' + esc(shortStopName(row.other)) + stationBadgesHTML(row) + '</span>' +
+      '<span class="c-to"><span class="c-to-name">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(row) + '</span>' +
       '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
       '</div>';
   }
