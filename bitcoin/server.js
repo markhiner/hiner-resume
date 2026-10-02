@@ -6084,7 +6084,8 @@ const lirrBoardPage = `<!DOCTYPE html>
   .detail-title { color: white; font-size: 16px; font-weight: bold; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .detail-map { height: 38vh; flex-shrink: 0; background: #111; }
   .detail-stops { flex: 1; overflow-y: auto; }
-  .detail-stop { display: grid; grid-template-columns: 94px 1fr; gap: 10px; padding: 9px 14px; border-bottom: 1px solid #1c1c1e; color: white; }
+  .detail-stop { display: grid; grid-template-columns: 94px 1fr; gap: 10px; padding: 9px 14px; border-bottom: 1px solid #1c1c1e; color: white; cursor: pointer; }
+  .detail-stop:active { background: rgba(255,255,255,0.06); }
   /* Stops before the boarding station are earlier on this same trip's run —
      shown dimmed for route context, not as something the rider will see. */
   .detail-stop.before-board { opacity: 0.45; }
@@ -6092,6 +6093,10 @@ const lirrBoardPage = `<!DOCTYPE html>
   .detail-stop.board .detail-stop-name { color: #4ade80; }
   .detail-stop.board .stop-tag { color: #4ade80; }
   .detail-stop.dest .detail-stop-name { font-weight: bold; }
+  /* Tapping a stop (in the list or on the map) highlights both — this is
+     the one state that always wins visually, even over board/dest/dimmed. */
+  .detail-stop.selected { background: rgba(250,204,21,0.18); border-left: 3px solid #facc15; opacity: 1; }
+  .detail-stop.selected .detail-stop-name { color: #facc15; }
   .detail-stop-time { font-size: 13px; font-weight: bold; font-variant-numeric: tabular-nums; color: #ccc; line-height: 1.5; }
   .detail-stop-time .lbl { color: #777; font-weight: 600; font-size: 11px; }
   .detail-stop-name { font-size: 15px; }
@@ -6229,6 +6234,13 @@ const lirrBoardPage = `<!DOCTYPE html>
     let currentDepartures = [];
     let detailMapInstance = null;
     let openTripId = null;
+    // Set fresh by renderDetail() on every open/refresh — lets the stop-list
+    // tap handler and the map markers' own click handlers reach each other
+    // without renderDetail having to re-attach listeners every 30s refresh.
+    let currentStops = [];
+    let currentBoardIdx = -1;
+    let currentRouteColor = "#888888";
+    let stopMarkers = [];
 
     async function loadBoard() {
       try {
@@ -6301,6 +6313,49 @@ const lirrBoardPage = `<!DOCTYPE html>
       if (detailMapInstance) { detailMapInstance.remove(); detailMapInstance = null; }
     }
 
+    // Normal (unselected) style for a stop's map marker — pulled out so both
+    // the initial render and focusStop()'s "reset everything else" pass use
+    // the exact same rule for what "not selected" looks like.
+    function markerStyleFor(i) {
+      const isBoard = i === currentBoardIdx;
+      const isEnds = i === 0 || i === currentStops.length - 1;
+      return {
+        radius: isBoard ? 8 : isEnds ? 7 : 5,
+        color: "#fff", weight: 2,
+        fillColor: isBoard ? "#4ade80" : currentRouteColor,
+        fillOpacity: 1,
+      };
+    }
+
+    // Tapping a stop — on the map or in the list — highlights it in both
+    // places and zooms the map in on it, instead of leaving the two views
+    // disconnected from each other.
+    function focusStop(i) {
+      const s = currentStops[i];
+      if (!s) return;
+      stopMarkers.forEach((m, j) => { if (m) m.setStyle(markerStyleFor(j)); });
+      if (stopMarkers[i]) {
+        stopMarkers[i].setStyle({ radius: 10, color: "#facc15", weight: 3, fillColor: "#facc15", fillOpacity: 1 });
+        stopMarkers[i].openPopup();
+      }
+      if (s.lat != null && s.lon != null && detailMapInstance) {
+        detailMapInstance.flyTo([s.lat, s.lon], Math.max(detailMapInstance.getZoom(), 13), { duration: 0.5 });
+      }
+      document.querySelectorAll(".detail-stop.selected").forEach(el => el.classList.remove("selected"));
+      const rowEl = document.querySelector('.detail-stop[data-stop-idx="' + i + '"]');
+      if (rowEl) {
+        rowEl.classList.add("selected");
+        rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+
+    document.getElementById("detailStops").addEventListener("click", function(e) {
+      const rowEl = e.target.closest(".detail-stop");
+      if (!rowEl) return;
+      const idx = rowEl.getAttribute("data-stop-idx");
+      if (idx != null) focusStop(+idx);
+    });
+
     function renderDetail(row) {
       const route = row.route || {};
       document.getElementById("detailTitle").textContent =
@@ -6312,13 +6367,17 @@ const lirrBoardPage = `<!DOCTYPE html>
       // necessarily index 0 — everything before it is earlier on this same
       // run and gets dimmed rather than treated as "not boarding here".
       const boardIdx = stops.findIndex(s => s.stopId === row.boardStopId);
+      currentStops = stops;
+      currentBoardIdx = boardIdx;
+      currentRouteColor = "#" + (route.color || "888888");
+      stopMarkers = [];
       document.getElementById("detailStops").innerHTML = stops.map((s, i) => {
         const isBoard = i === boardIdx;
         const isDest = i === stops.length - 1;
         const isBeforeBoard = boardIdx !== -1 && i < boardIdx;
         const cls = (isBoard ? " board" : "") + (isDest ? " dest" : "") + (isBeforeBoard ? " before-board" : "");
         const tag = isBoard ? "Board here" : isDest ? "Final stop" : "";
-        return '<div class="detail-stop' + cls + '">' +
+        return '<div class="detail-stop' + cls + '" data-stop-idx="' + i + '">' +
           '<div class="detail-stop-time">' +
             '<span class="lbl">Arr</span> ' + formatTime(s.arrMs) + '<br>' +
             '<span class="lbl">Dep</span> ' + formatTime(s.depMs) +
@@ -6332,21 +6391,16 @@ const lirrBoardPage = `<!DOCTYPE html>
       detailMapInstance = L.map("detailMap", { zoomControl: false, attributionControl: false });
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(detailMapInstance);
 
-      const routeColor = "#" + (route.color || "888888");
       const pts = stops.filter(s => s.lat != null && s.lon != null).map(s => [s.lat, s.lon]);
       if (pts.length) {
-        L.polyline(pts, { color: routeColor, weight: 4 }).addTo(detailMapInstance);
+        L.polyline(pts, { color: currentRouteColor, weight: 4 }).addTo(detailMapInstance);
         stops.forEach((s, i) => {
           if (s.lat == null || s.lon == null) return;
-          const isBoard = i === boardIdx;
-          const isEnds = i === 0 || i === stops.length - 1;
-          L.circleMarker([s.lat, s.lon], {
-            radius: isBoard ? 8 : isEnds ? 7 : 5,
-            color: "#fff",
-            weight: 2,
-            fillColor: isBoard ? "#4ade80" : routeColor,
-            fillOpacity: 1,
-          }).bindPopup(esc(s.name) + (isBoard ? " (boarding)" : "")).addTo(detailMapInstance);
+          const marker = L.circleMarker([s.lat, s.lon], markerStyleFor(i))
+            .bindPopup(esc(s.name) + (i === boardIdx ? " (boarding)" : ""))
+            .addTo(detailMapInstance);
+          marker.on("click", () => focusStop(i));
+          stopMarkers[i] = marker;
         });
         detailMapInstance.fitBounds(L.latLngBounds(pts), { padding: [24, 24] });
       } else {
