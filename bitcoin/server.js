@@ -2765,11 +2765,13 @@ function computeStationDepartures(candidates, model, stationId, nowMs, realtimeB
     // Port Washington stops there, so whether THIS trip does is what tells
     // a rider "you can reach JFK from this train" vs "this one skips it".
     const stopsJamaica = stationId !== JAMAICA_STOP_ID && later.some((s) => s.stopId === JAMAICA_STOP_ID);
-    // Full ride from the boarding station onward, for the tap-through detail
-    // view (stop list + map) — same one-delay-figure-shifts-every-stop
-    // assumption as lirrTripStops(), since the realtime feed only posts one
-    // delay per trip, not one per stop.
-    const rideStops = [stop, ...later].map((s) => {
+    // The WHOLE trip — true origin through true terminus, not just the
+    // boarding station onward — so the tap-through detail view's map and
+    // stop list show the entire route a rider can see it laid out on, not
+    // just the portion still ahead of them. Same one-delay-figure-shifts-
+    // every-stop assumption as lirrTripStops(), since the realtime feed
+    // only posts one delay per trip, not one per stop.
+    const rideStops = c.stops.map((s) => {
       const info = stopInfoById.get(s.stopId) || {};
       return {
         stopId: s.stopId,
@@ -2788,6 +2790,7 @@ function computeStationDepartures(candidates, model, stationId, nowMs, realtimeB
       track,
       viaJamaica: stopsJamaica,
       skipsJamaica: stationId !== JAMAICA_STOP_ID && !stopsJamaica,
+      boardStopId: stationId,
       stops: rideStops,
     });
   }
@@ -6081,11 +6084,18 @@ const lirrBoardPage = `<!DOCTYPE html>
   .detail-title { color: white; font-size: 16px; font-weight: bold; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .detail-map { height: 38vh; flex-shrink: 0; background: #111; }
   .detail-stops { flex: 1; overflow-y: auto; }
-  .detail-stop { display: grid; grid-template-columns: 60px 1fr; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #1c1c1e; color: white; }
-  .detail-stop.origin .detail-stop-name { color: #4ade80; }
-  .detail-stop-time { font-size: 15px; font-weight: bold; font-variant-numeric: tabular-nums; color: #ccc; }
-  .detail-stop.origin .detail-stop-time { color: #4ade80; }
+  .detail-stop { display: grid; grid-template-columns: 94px 1fr; gap: 10px; padding: 9px 14px; border-bottom: 1px solid #1c1c1e; color: white; }
+  /* Stops before the boarding station are earlier on this same trip's run —
+     shown dimmed for route context, not as something the rider will see. */
+  .detail-stop.before-board { opacity: 0.45; }
+  .detail-stop.board { background: rgba(74,222,128,0.12); border-left: 3px solid #4ade80; }
+  .detail-stop.board .detail-stop-name { color: #4ade80; }
+  .detail-stop.board .stop-tag { color: #4ade80; }
+  .detail-stop.dest .detail-stop-name { font-weight: bold; }
+  .detail-stop-time { font-size: 13px; font-weight: bold; font-variant-numeric: tabular-nums; color: #ccc; line-height: 1.5; }
+  .detail-stop-time .lbl { color: #777; font-weight: 600; font-size: 11px; }
   .detail-stop-name { font-size: 15px; }
+  .stop-tag { display: block; font-size: 10px; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase; color: #777; margin-top: 1px; }
 </style>
 </head>
 <body>
@@ -6260,11 +6270,24 @@ const lirrBoardPage = `<!DOCTYPE html>
         formatTime(row.depMs) + " to " + row.destName + (route.name ? " \\u2014 " + route.name : "");
 
       const stops = row.stops || [];
+      // stops is now the WHOLE trip (true origin through true terminus), so
+      // the boarding station is wherever its own stopId shows up, not
+      // necessarily index 0 — everything before it is earlier on this same
+      // run and gets dimmed rather than treated as "not boarding here".
+      const boardIdx = stops.findIndex(s => s.stopId === row.boardStopId);
       document.getElementById("detailStops").innerHTML = stops.map((s, i) => {
-        const t = s.depMs != null ? s.depMs : s.arrMs;
-        return '<div class="detail-stop' + (i === 0 ? ' origin' : '') + '">' +
-          '<div class="detail-stop-time">' + formatTime(t) + '</div>' +
-          '<div class="detail-stop-name">' + esc(s.name) + (i === 0 ? " (boarding)" : "") + '</div>' +
+        const isBoard = i === boardIdx;
+        const isDest = i === stops.length - 1;
+        const isBeforeBoard = boardIdx !== -1 && i < boardIdx;
+        const cls = (isBoard ? " board" : "") + (isDest ? " dest" : "") + (isBeforeBoard ? " before-board" : "");
+        const tag = isBoard ? "Board here" : isDest ? "Final stop" : "";
+        return '<div class="detail-stop' + cls + '">' +
+          '<div class="detail-stop-time">' +
+            '<span class="lbl">Arr</span> ' + formatTime(s.arrMs) + '<br>' +
+            '<span class="lbl">Dep</span> ' + formatTime(s.depMs) +
+          '</div>' +
+          '<div><div class="detail-stop-name">' + esc(s.name) + '</div>' +
+          (tag ? '<span class="stop-tag">' + tag + '</span>' : '') + '</div>' +
           '</div>';
       }).join("");
 
@@ -6278,14 +6301,15 @@ const lirrBoardPage = `<!DOCTYPE html>
         L.polyline(pts, { color: routeColor, weight: 4 }).addTo(detailMapInstance);
         stops.forEach((s, i) => {
           if (s.lat == null || s.lon == null) return;
+          const isBoard = i === boardIdx;
           const isEnds = i === 0 || i === stops.length - 1;
           L.circleMarker([s.lat, s.lon], {
-            radius: isEnds ? 7 : 5,
+            radius: isBoard ? 8 : isEnds ? 7 : 5,
             color: "#fff",
             weight: 2,
-            fillColor: i === 0 ? "#4ade80" : routeColor,
+            fillColor: isBoard ? "#4ade80" : routeColor,
             fillOpacity: 1,
-          }).bindPopup(esc(s.name)).addTo(detailMapInstance);
+          }).bindPopup(esc(s.name) + (isBoard ? " (boarding)" : "")).addTo(detailMapInstance);
         });
         detailMapInstance.fitBounds(L.latLngBounds(pts), { padding: [24, 24] });
       } else {
