@@ -5307,8 +5307,11 @@ body {
 .board-row:active { filter: brightness(1.18); }
 .c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .c-train { flex: 1.3; min-width: 0; }
-.c-train .nm { white-space: normal; word-break: break-word; }
-.c-to { flex: 1; min-width: 0; white-space: normal; word-break: break-word; font-weight: 600; }
+/* No word-break: the train number + (abbreviated) line name is short enough
+   now to stay on one line; if a badge doesn't fit, it wraps to its own line
+   rather than breaking a word apart mid-station-name. */
+.c-train .nm { white-space: normal; }
+.c-to { flex: 1; min-width: 0; white-space: normal; font-weight: 600; }
 .board-badge {
   display: inline-flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,0.35); border-radius: 4px; padding: 1px 5px; margin-left: 5px;
@@ -5457,6 +5460,25 @@ body {
     return "in " + diffMin + "m";
   }
 
+  // Real NJT route names run long enough that "6299 Montclair-Boonton Line"
+  // wrapped the train/line column onto two lines — shortened to fit one.
+  // The two the user actually named get a human abbreviation; anything else
+  // just loses its redundant trailing " Line".
+  var NJT_ROUTE_ABBR = {
+    "Northeast Corridor": "NEC",
+    "North Jersey Coast Line": "NJ Coast",
+  };
+  function shortRouteName(name) {
+    if (!name) return name;
+    if (NJT_ROUTE_ABBR[name]) return NJT_ROUTE_ABBR[name];
+    return name.replace(/ Line$/, "");
+  }
+  // Same idea for the destination/origin column — "Trenton Station" reads
+  // just as clearly as "Trenton" and is short enough to never wrap.
+  function shortStopName(name) {
+    return name ? name.replace(/ Station$/, "") : name;
+  }
+
   function njtStatus(row) {
     if (row.state === "departed") return { text: "Departed", cls: "gone" };
     if (row.state === "arrived") return { text: "Arrived", cls: "gone" };
@@ -5500,8 +5522,8 @@ body {
     var rowfg = "#" + (row.textColor || "ffffff");
     return '<div class="board-row" data-kind="njt" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
-      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
-      '<span class="c-to">' + esc(row.other) + stationBadgesHTML(row) + '</span>' +
+      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(shortRouteName(row.routeName)) + '</span></span>' +
+      '<span class="c-to">' + esc(shortStopName(row.other)) + stationBadgesHTML(row) + '</span>' +
       '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
       '</div>';
   }
