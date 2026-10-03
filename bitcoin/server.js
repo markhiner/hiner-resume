@@ -2592,6 +2592,75 @@ function lirrPositionEstimate(stops, nowMs) {
   return null;
 }
 
+// ---------- LIRR network-wide live train map ----------
+// Every currently-running trip network-wide, not just ones touching a board
+// station. Same idea as lirrPositionEstimate's plain-English guess, just
+// turned into an actual lat/lon: linear interpolation between the two stops
+// a train is currently between, using the (delay-adjusted) schedule times —
+// there's no GPS for most of these trips, so "extrapolate from timing" is
+// the position, not just a fallback for when GPS is missing.
+function lirrActiveTrains(nowMs) {
+  if (!lirrModel) return [];
+  const stopInfoById = new Map(lirrModel.stops.map((s) => [s.stop_id, {
+    name: s.stop_name,
+    lat: Number.isFinite(+s.stop_lat) ? +s.stop_lat : null,
+    lon: Number.isFinite(+s.stop_lon) ? +s.stop_lon : null,
+  }]));
+
+  const seenTrip = new Set();
+  const trains = [];
+  for (const c of lirrCandidatesCache) {
+    if (seenTrip.has(c.tripId) || !c.stops.length) continue;
+    const rt = lirrRealtimeByTrip.get(c.tripId);
+    const delayMs = (rt && rt.delaySec ? rt.delaySec : 0) * 1000;
+    const first = c.stops[0], last = c.stops[c.stops.length - 1];
+    const startMs = first.depMs + delayMs, endMs = last.arrMs + delayMs;
+    if (nowMs < startMs || nowMs > endMs) continue;
+
+    let fromIdx = -1;
+    for (let i = 0; i < c.stops.length - 1; i++) {
+      const fromDep = c.stops[i].depMs + delayMs, toArr = c.stops[i + 1].arrMs + delayMs;
+      if (nowMs >= fromDep && nowMs <= toArr) { fromIdx = i; break; }
+    }
+    if (fromIdx === -1) continue; // sitting exactly on a zero-dwell boundary — vanishingly rare, skip rather than guess
+
+    const fromStop = c.stops[fromIdx], toStop = c.stops[fromIdx + 1];
+    const fromInfo = stopInfoById.get(fromStop.stopId) || {};
+    const toInfo = stopInfoById.get(toStop.stopId) || {};
+    if (fromInfo.lat == null || toInfo.lat == null) continue;
+
+    const fromDep = fromStop.depMs + delayMs, toArr = toStop.arrMs + delayMs;
+    const progress = Math.max(0, Math.min(1, (nowMs - fromDep) / Math.max(toArr - fromDep, 1)));
+    const lat = fromInfo.lat + (toInfo.lat - fromInfo.lat) * progress;
+    const lon = fromInfo.lon + (toInfo.lon - fromInfo.lon) * progress;
+    const heading = calculateBearing([fromInfo.lat, fromInfo.lon], [toInfo.lat, toInfo.lon]);
+
+    const trip = lirrModel.tripById.get(c.tripId);
+    const route = trip && lirrModel.routeById.get(c.routeId);
+
+    seenTrip.add(c.tripId);
+    trains.push({
+      tripId: c.tripId,
+      trainNum: trip ? trip.trip_short_name : c.tripId,
+      routeName: route ? route.route_long_name : "",
+      color: (route && route.route_color) || "6a6a6a",
+      textColor: (route && route.route_text_color) || "ffffff",
+      lat, lon, heading,
+      delaySec: rt ? rt.delaySec : null,
+      stations: c.stops.map((s) => {
+        const info = stopInfoById.get(s.stopId) || {};
+        return {
+          stopId: s.stopId, name: info.name || s.stopId,
+          lat: info.lat, lon: info.lon,
+          schedArrMs: s.arrMs, schedDepMs: s.depMs,
+          arrMs: s.arrMs + delayMs, depMs: s.depMs + delayMs,
+        };
+      }),
+    });
+  }
+  return trains;
+}
+
 // ---------- minimal protobuf wire-format reader (no dependency) ----------
 // Just enough to walk a GTFS-realtime FeedMessage by hand. The JSON variant
 // of this feed silently drops MTA's per-agency track extension (JSON has no
@@ -4393,6 +4462,11 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(getActiveNationalTrains()));
     return;
   }
+  if (url.pathname === "/api/lirr-active-trains") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(lirrActiveTrains(Date.now())));
+    return;
+  }
   if (url.pathname === "/api/njt-board") {
     if (!NJT_USERNAME || !NJT_PASSWORD) {
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -4408,6 +4482,11 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/lirr-board") {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(lirrBoardPage);
+    return;
+  }
+  if (url.pathname === "/lirr-map") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(lirrMapPage);
     return;
   }
   if (url.pathname === "/trains") {
@@ -6103,6 +6182,346 @@ const amtrakNECMapPage = `<!DOCTYPE html>
 </body>
 </html>`;
 
+// Every currently-running LIRR trip network-wide, each shown at its
+// extrapolated (schedule + live delay, not raw GPS) position — same dark
+// map/detail-sheet shell as the NEC map, but centered on Jamaica (the
+// system's real hub, where most branches converge) instead of the whole
+// Northeast Corridor, and colored directly by each branch's own real GTFS
+// color instead of a bucketed service-type palette.
+const lirrMapPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>LIRR Live Map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
+    --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66;
+    --green: #22c55e; --yellow: #f5c518; --red: #ef4444;
+  }
+  html, body { background: var(--bg); height: 100%; }
+  body {
+    margin: 0; padding: 0; -webkit-font-smoothing: antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  }
+  #map { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0a0a0c; }
+  .back-btn {
+    position: absolute; top: max(14px, env(safe-area-inset-top)); left: 14px; z-index: 1000;
+    width: 34px; height: 34px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--border);
+    color: var(--text1); cursor: pointer; font-size: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .back-btn:active { background: var(--panel); }
+
+  .train-detail {
+    position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg);
+    border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.6); max-height: 78vh; overflow-y: auto;
+    transform: translateY(100%); transition: transform 0.25s cubic-bezier(0.2,0.8,0.3,1); z-index: 900;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .train-detail.open { transform: translateY(0); }
+  .tt-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 7px auto 0; }
+  .train-detail-header { padding: 8px 14px 8px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .train-detail-title-wrap { min-width: 0; flex: 1; }
+  .train-detail-title { font-size: 15.5px; font-weight: 800; color: var(--text1); }
+  .train-detail-sub { font-size: 11.5px; color: var(--text2); margin-top: 3px; font-weight: 700; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .train-status-badge.ontime { background: rgba(34,197,94,0.16); color: var(--green); }
+  .train-status-badge.late { background: rgba(245,197,24,0.18); color: var(--yellow); }
+  .train-status-badge.verylate { background: rgba(239,68,68,0.18); color: var(--red); }
+  .train-detail-position {
+    font-size: 12px; color: var(--text1); font-weight: 600; margin-top: 6px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  }
+  .train-detail-position b { color: var(--yellow); }
+  .train-detail-close {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text2); cursor: pointer;
+    font-size: 17px; line-height: 1; flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .train-detail-close:active { background: var(--panel); color: var(--text1); }
+
+  #trainRouteMap { height: 24vh; margin: 10px 14px 0; border-radius: 10px; overflow: hidden; background: var(--panel2); }
+
+  .stops-list { padding: 4px 14px 14px; }
+  .stop-item { padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .stop-item:last-child { border-bottom: none; }
+  .stop-item.past { opacity: 0.5; }
+  .stop-item.next {
+    background: rgba(34,197,94,0.12); margin: 0 -14px; padding: 6px 14px;
+    border-left: 3px solid var(--green);
+  }
+  .stop-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .stop-name { font-size: 13px; font-weight: 700; color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .stop-item.past .stop-name { color: var(--text2); font-weight: 600; }
+  .stop-status { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); flex-shrink: 0; }
+  .stop-status.next { color: var(--green); }
+  .stop-times { font-size: 12px; color: var(--text2); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stt-label { color: var(--text3); font-weight: 600; }
+  .stt-time { color: var(--text1); font-weight: 800; }
+  .stt-est { font-size: 9.5px; color: var(--text3); font-weight: 600; margin-left: 1px; }
+  .stt-delta { font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 4px; margin-left: 3px; white-space: nowrap; }
+  .stt-delta.ontime { background: rgba(34,197,94,0.15); color: var(--green); }
+  .stt-delta.late { background: rgba(245,197,24,0.18); color: var(--yellow); }
+  .stt-delta.verylate { background: rgba(239,68,68,0.18); color: var(--red); }
+</style>
+</head>
+<body>
+  <button class="back-btn" onclick="window.location.href='/lirr-board'" title="Back">←</button>
+  <div id="map"></div>
+  <div class="train-detail" id="trainDetail">
+    <div class="tt-grip"></div>
+    <div class="train-detail-header">
+      <div class="train-detail-title-wrap">
+        <div class="train-detail-title" id="trainTitle">Train</div>
+        <div class="train-detail-sub" id="trainSubtitle"></div>
+        <div class="train-detail-position" id="trainPosition"></div>
+      </div>
+      <button class="train-detail-close" onclick="document.getElementById('trainDetail').classList.remove('open')">×</button>
+    </div>
+    <div id="trainRouteMap"></div>
+    <div class="stops-list" id="stopsList"></div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script>
+    let map = null;
+    let markers = new Map();
+    let selectedTripId = null;
+    let latestTrains = [];
+    let detailMapInstance = null;
+
+    function esc(v) {
+      return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+
+    function formatTime(ms) {
+      if (!ms) return "—";
+      const d = new Date(ms);
+      const h = String(d.getHours()).padStart(2, "0");
+      const m = String(d.getMinutes()).padStart(2, "0");
+      return h + ":" + m;
+    }
+
+    function createArrowMarker(lat, lon, bearing, color) {
+      const b = bearing || 0;
+      const svgString = '<svg width="30" height="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">' +
+        '<g transform="rotate(' + b + ' 15 15)">' +
+        '<circle cx="15" cy="15" r="12" fill="' + color + '" stroke="white" stroke-width="1.5"/>' +
+        '<polygon points="15,6 20,15 15,13 10,15" fill="white"/>' +
+        '</g></svg>';
+
+      const img = new Image();
+      img.src = "data:image/svg+xml;base64," + btoa(svgString);
+      return new L.Icon({ iconUrl: img.src, iconSize: [30, 30], iconAnchor: [15, 15] });
+    }
+
+    const COMPASS_LABELS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+    function bearingToCompass(bearing) {
+      if (bearing == null || !Number.isFinite(bearing)) return null;
+      const idx = Math.round((((bearing % 360) + 360) % 360) / 22.5) % 16;
+      return COMPASS_LABELS[idx];
+    }
+
+    // How late (minutes) a stop's actual time is against its own schedule —
+    // null when there's no actual (live) time yet to compare against.
+    function stopDelayMin(schedMs, actualMs) {
+      if (schedMs == null || actualMs == null) return null;
+      return Math.round((actualMs - schedMs) / 60000);
+    }
+
+    function deltaBadgeHTML(delayMin) {
+      if (delayMin == null) return "";
+      if (delayMin <= 1) return ' <span class="stt-delta ontime">On time</span>';
+      if (delayMin < 15) return ' <span class="stt-delta late">+' + delayMin + 'm</span>';
+      return ' <span class="stt-delta verylate">+' + delayMin + 'm</span>';
+    }
+
+    // One stop's arrival/departure line: the actual (delay-adjusted) time
+    // wins over scheduled whenever both exist, tagged with how late it ran;
+    // a stop with only a schedule shows "(est)" instead of a delay badge.
+    function stopTimeHTML(label, schedMs, actualMs) {
+      const ms = actualMs != null ? actualMs : schedMs;
+      if (ms == null) return "";
+      const delayMin = stopDelayMin(schedMs, actualMs);
+      return '<span class="stt-label">' + label + '</span> <span class="stt-time">' + formatTime(ms) + '</span>' +
+        (actualMs == null ? ' <span class="stt-est">est</span>' : deltaBadgeHTML(delayMin));
+    }
+
+    // Looks backward from the train's current position for the most recent
+    // stop with both a schedule and an actual time, and uses that gap as
+    // "how late is this train running right now" — falling back to the next
+    // stop's own predicted arrival if the train hasn't left its first stop.
+    function trainDelayMin(stations, nextIdx) {
+      for (let i = Math.min(nextIdx, stations.length) - 1; i >= 0; i--) {
+        const s = stations[i];
+        const actual = s.depMs != null ? s.depMs : s.arrMs;
+        const sched = s.depMs != null ? s.schedDepMs : s.schedArrMs;
+        const d = stopDelayMin(sched, actual);
+        if (d != null) return d;
+      }
+      if (nextIdx >= 0 && nextIdx < stations.length) {
+        const s = stations[nextIdx];
+        const actual = s.arrMs != null ? s.arrMs : s.depMs;
+        const sched = s.schedArrMs != null ? s.schedArrMs : s.schedDepMs;
+        return stopDelayMin(sched, actual);
+      }
+      return null;
+    }
+
+    function statusBadgeHTML(delayMin) {
+      if (delayMin == null) return "";
+      if (delayMin <= 1) return '<span class="train-status-badge ontime">On time</span>';
+      if (delayMin < 15) return '<span class="train-status-badge late">' + delayMin + 'm late</span>';
+      return '<span class="train-status-badge verylate">' + delayMin + 'm late</span>';
+    }
+
+    // The small route map inside the detail sheet — stop-to-stop straight
+    // lines (same simplification the per-station board's own detail map
+    // uses; LIRR's real rail alignment isn't loaded for this), the train's
+    // own branch color, and its current extrapolated position as a dot.
+    function renderTrainRouteMap(train) {
+      if (detailMapInstance) { detailMapInstance.remove(); detailMapInstance = null; }
+      const stations = train.stations || [];
+      const pts = stations.filter(s => s.lat != null && s.lon != null).map(s => [s.lat, s.lon]);
+      if (!pts.length) return;
+      detailMapInstance = L.map("trainRouteMap", { zoomControl: false, attributionControl: false });
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        subdomains: "abcd", maxZoom: 19,
+      }).addTo(detailMapInstance);
+
+      const routeColor = "#" + (train.color || "6a6a6a");
+      L.polyline(pts, { color: routeColor, weight: 4 }).addTo(detailMapInstance);
+      stations.forEach(s => {
+        if (s.lat == null || s.lon == null) return;
+        L.circleMarker([s.lat, s.lon], { radius: 5, color: "#fff", weight: 2, fillColor: routeColor, fillOpacity: 1 })
+          .bindPopup(esc(s.name)).addTo(detailMapInstance);
+      });
+      if (train.lat != null && train.lon != null) {
+        L.circleMarker([train.lat, train.lon], { radius: 9, color: "#fff", weight: 0, fillColor: "#fff", fillOpacity: 1 }).addTo(detailMapInstance);
+        L.circleMarker([train.lat, train.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#f5c518", fillOpacity: 1 })
+          .bindTooltip("Current position", { direction: "top" }).addTo(detailMapInstance);
+      }
+      detailMapInstance.fitBounds(L.latLngBounds(pts), { padding: [20, 20] });
+      setTimeout(() => { if (detailMapInstance) detailMapInstance.invalidateSize(); }, 60);
+    }
+
+    function showTrain(train) {
+      selectedTripId = train.tripId;
+      document.getElementById("trainTitle").textContent = train.trainNum + " " + train.routeName;
+
+      const stations = train.stations || [];
+      const now = Date.now();
+      let nextIdx = -1;
+      for (let i = 0; i < stations.length; i++) {
+        const s = stations[i];
+        const ref = s.arrMs != null ? s.arrMs : (s.schedArrMs != null ? s.schedArrMs : (s.depMs != null ? s.depMs : s.schedDepMs));
+        if (ref == null || now < ref) { nextIdx = i; break; }
+      }
+
+      const dirLabel = bearingToCompass(train.heading);
+      const subText = dirLabel ? dirLabel + "-bound" : "Direction unavailable";
+      const delayMin = stations.length ? trainDelayMin(stations, nextIdx) : null;
+      document.getElementById("trainSubtitle").innerHTML = esc(subText) + " " + statusBadgeHTML(delayMin);
+
+      const posEl = document.getElementById("trainPosition");
+      if (!stations.length) {
+        posEl.textContent = "";
+      } else if (nextIdx === -1) {
+        posEl.innerHTML = "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
+      } else if (nextIdx === 0) {
+        posEl.innerHTML = "Not yet departed <b>" + esc(stations[0].name) + "</b>";
+      } else {
+        const prev = stations[nextIdx - 1], next = stations[nextIdx];
+        const eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
+        posEl.innerHTML = "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " · due " + formatTime(eta) : "");
+      }
+
+      const stopsList = document.getElementById("stopsList");
+      stopsList.innerHTML = "";
+
+      stations.forEach(function (stop, i) {
+        const isPast = nextIdx === -1 ? true : i < nextIdx;
+        const isNext = i === nextIdx;
+        const item = document.createElement("div");
+        item.className = "stop-item" + (isPast ? " past" : "") + (isNext ? " next" : "");
+        const timeLines = [
+          stopTimeHTML("Arr", stop.schedArrMs, stop.arrMs),
+          stopTimeHTML("Dep", stop.schedDepMs, stop.depMs),
+        ].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
+        item.innerHTML =
+          '<div class="stop-row-top">' +
+            '<span class="stop-name">' + esc(stop.name) + '</span>' +
+            (isPast ? '<span class="stop-status">Departed</span>' : isNext ? '<span class="stop-status next">Next</span>' : '') +
+          '</div>' +
+          '<div class="stop-times">' + (timeLines || "&mdash;") + '</div>';
+        stopsList.appendChild(item);
+      });
+
+      document.getElementById("trainDetail").classList.add("open");
+      renderTrainRouteMap(train);
+    }
+
+    // A live poll shouldn't freeze an open sheet at whatever it showed when
+    // it was tapped — re-render it with the freshly fetched data each time.
+    function reopenIfStillOpen() {
+      if (selectedTripId == null) return;
+      if (!document.getElementById("trainDetail").classList.contains("open")) return;
+      const train = latestTrains.find(function (t) { return t.tripId === selectedTripId; });
+      if (train) showTrain(train);
+      else document.getElementById("trainDetail").classList.remove("open"); // train finished its run
+    }
+
+    async function updateTrains() {
+      try {
+        const res = await fetch("/api/lirr-active-trains");
+        const trains = await res.json();
+        latestTrains = trains;
+
+        markers.forEach(m => map.removeLayer(m));
+        markers.clear();
+
+        for (const train of trains) {
+          const color = "#" + (train.color || "6a6a6a");
+          const icon = createArrowMarker(train.lat, train.lon, train.heading, color);
+          const marker = L.marker([train.lat, train.lon], { icon })
+            .addTo(map)
+            .on("click", () => showTrain(train));
+          markers.set(train.tripId, marker);
+        }
+
+        reopenIfStillOpen();
+      } catch (e) {
+        console.error("Failed to fetch trains:", e);
+      }
+    }
+
+    function initMap() {
+      // Jamaica — the hub where most LIRR branches converge — centered at a
+      // medium zoom rather than fit-bounding the whole system by default.
+      map = L.map("map").setView([40.69960817, -73.80852987], 12);
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        attribution: "© OpenStreetMap contributors © CARTO",
+        subdomains: "abcd",
+        maxZoom: 19,
+      }).addTo(map);
+
+      updateTrains();
+      setInterval(updateTrains, 10000);
+    }
+
+    window.addEventListener("load", initMap);
+  </script>
+</body>
+</html>`;
+
 const lirrBoardPage = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6196,6 +6615,7 @@ const lirrBoardPage = `<!DOCTYPE html>
         <button class="quick-link" id="qlPenn" onclick="selectStation('Penn Station')">Penn</button>
         <button class="quick-link" id="qlJamaica" onclick="selectStation('Jamaica')">Jamaica</button>
         <button class="quick-link" id="qlGCT" onclick="selectStation('Grand Central')">GCT</button>
+        <button class="quick-link" onclick="window.location.href='/lirr-map'">Map</button>
       </div>
     </div>
   </div>
