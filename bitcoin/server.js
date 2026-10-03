@@ -3312,12 +3312,18 @@ function amtrakMergedEntries(now, stationCode) {
   }
   // amtraker.com's live feed has the same daily-train wrinkle as the static
   // schedule above: a long-distance train that runs once a day (Crescent,
-  // Silver Meteor, ...) shows up under its train number twice — today's
-  // run and tomorrow's — so without a same proximity check as above, the
-  // later one in the array order always won and silently bumped the train
-  // that's actually due soon off the board in favor of one due a full day
-  // out. A live entry still always beats a schedule-only one for the same
-  // key, same as before, since it's strictly more informative.
+  // Silver Meteor, ...) can show up under its train number for a DIFFERENT
+  // day's run than the one that belongs on this board — a once-daily train
+  // is typically still finishing yesterday's multi-day trip when today's
+  // instance hasn't left yet (amtraker only reports the currently-active
+  // run, not a future one), so without a proximity check a live entry for
+  // a train still rolling through Alabama from yesterday's 2pm NYP
+  // departure silently overwrote today's correct, not-yet-departed 2pm
+  // entry from the static schedule. This used to only compare against an
+  // existing LIVE entry's proximity, never against a static one's — live
+  // "always wins" is only true when the live entry is actually the same
+  // real-world occurrence, which proximity-to-now is what actually tells
+  // you, regardless of which side (live or static) got there first.
   //
   // amtraker.com's live feed also has no route-shape data of its own, so a
   // live entry overwriting a schedule entry would otherwise silently drop
@@ -3326,8 +3332,8 @@ function amtrakMergedEntries(now, stationCode) {
   for (const e of amtrakLiveEntries(stationCode)) {
     const key = e.trainNum + "|" + e.event;
     const existing = merged.get(key);
-    if (existing && existing.live && existing.schedMs != null && e.schedMs != null &&
-        Math.abs(existing.schedMs - nowMs) <= Math.abs(e.schedMs - nowMs)) {
+    if (existing && existing.schedMs != null && e.schedMs != null &&
+        Math.abs(existing.schedMs - nowMs) < Math.abs(e.schedMs - nowMs)) {
       continue;
     }
     const prevShape = existing && existing.shape;
