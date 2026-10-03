@@ -4441,9 +4441,15 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/api/lirr-stations") {
     // Return list of all LIRR stations for autocomplete — Penn included,
     // since it's now a valid departure point on the per-station board.
+    // lat/lon included too so the live map can plot every station as a
+    // labeled reference point, not just the autocomplete's name list.
     const stations = lirrModel ? lirrModel.stops
       .filter(s => !SPECIAL_EVENTS_ONLY.has(s.stop_name))
-      .map(s => ({ name: s.stop_name, id: s.stop_id }))
+      .map(s => ({
+        name: s.stop_name, id: s.stop_id,
+        lat: Number.isFinite(+s.stop_lat) ? +s.stop_lat : null,
+        lon: Number.isFinite(+s.stop_lon) ? +s.stop_lon : null,
+      }))
       .sort((a, b) => a.name.localeCompare(b.name))
     : [];
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -6257,6 +6263,11 @@ const lirrMapPage = `<!DOCTYPE html>
 
   #trainRouteMap { height: 24vh; margin: 10px 14px 0; border-radius: 10px; overflow: hidden; background: var(--panel2); }
   #trainRouteMap .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
+  .station-label {
+    background: rgba(11,11,13,0.85); color: #fff; border: none; border-radius: 4px;
+    padding: 1px 5px; font-size: 9px; font-weight: 700; box-shadow: none;
+  }
+  .station-label::before { display: none; }
 
   .stops-list { padding: 4px 14px 14px; }
   .stop-item { padding: 6px 0; border-bottom: 1px solid var(--border); }
@@ -6305,6 +6316,7 @@ const lirrMapPage = `<!DOCTYPE html>
     let selectedTripId = null;
     let latestTrains = [];
     let detailMapInstance = null;
+    let stationMarkers = []; // { marker, name } — static layer, built once
 
     function esc(v) {
       return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
@@ -6511,6 +6523,49 @@ const lirrMapPage = `<!DOCTYPE html>
       }
     }
 
+    // Every station as a small fixed dot, labeled once zoomed in enough that
+    // ~127 names wouldn't just overlap into noise — re-run on every zoom/pan
+    // since which labels fit changes with it, same declutter technique the
+    // per-station board's own route map uses for one route's stops, just
+    // applied here to the whole system's station list instead.
+    var STATION_LABEL_MIN_ZOOM = 12;
+    var MIN_LABEL_PX = 50;
+    function declutterStationLabels() {
+      var zoom = map.getZoom();
+      if (zoom < STATION_LABEL_MIN_ZOOM) {
+        stationMarkers.forEach(function (sm) { sm.marker.unbindTooltip(); });
+        return;
+      }
+      var shown = [];
+      stationMarkers.forEach(function (sm) {
+        sm.marker.unbindTooltip();
+        var pt = map.latLngToContainerPoint(sm.marker.getLatLng());
+        var tooClose = shown.some(function (p) { return Math.hypot(pt.x - p.x, pt.y - p.y) < MIN_LABEL_PX; });
+        if (!tooClose) {
+          shown.push(pt);
+          sm.marker.bindTooltip(sm.name, { permanent: true, direction: "top", className: "station-label", offset: [0, -3] });
+        }
+      });
+    }
+
+    async function loadStations() {
+      try {
+        const res = await fetch("/api/lirr-stations");
+        const stations = await res.json();
+        stationMarkers = stations
+          .filter(s => s.lat != null && s.lon != null)
+          .map(s => {
+            const marker = L.circleMarker([s.lat, s.lon], {
+              radius: 3, color: "#aab0c0", weight: 1, fillColor: "#d8dce6", fillOpacity: 0.9,
+            }).addTo(map);
+            return { marker, name: s.name };
+          });
+        declutterStationLabels();
+      } catch (e) {
+        console.error("Failed to load stations:", e);
+      }
+    }
+
     function initMap() {
       // Jamaica — the hub where most LIRR branches converge — centered at a
       // medium zoom rather than fit-bounding the whole system by default.
@@ -6519,7 +6574,9 @@ const lirrMapPage = `<!DOCTYPE html>
         attribution: "© OpenStreetMap contributors",
         maxZoom: 19,
       }).addTo(map);
+      map.on("zoomend moveend", declutterStationLabels);
 
+      loadStations();
       updateTrains();
       setInterval(updateTrains, 10000);
     }
