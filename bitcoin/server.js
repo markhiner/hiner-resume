@@ -3925,6 +3925,122 @@ async function njtApiCall(endpoint) {
   }
 }
 
+// A second, separate NJT API ("RailData", not "GTFS") that backs their own
+// app's physical departure boards — discovered by reading the Swagger spec
+// behind raildata.njtransit.com/swagger/index.html (the PDF reference guide
+// only documents the GTFS/GTFSRT side; this one isn't mentioned there at
+// all). Its getStationSchedule endpoint returns exactly the TRACK number
+// per train that the GTFS-RT feed never carries. Same account credentials,
+// but a completely separate getToken endpoint.
+//
+// Found out the hard way that this API's limit is NOT the GTFS side's
+// "10/day, token calls only" — every call here, including plain data calls
+// like getStationSchedule, shares one combined budget of just 5/day
+// ("Daily usage limit:5"). Polling all 5 board stations every 30s (the
+// original plan) would exhaust an entire day's budget in the first refresh
+// cycle. So this only ever runs once, at server startup — track data stays
+// whatever it was at boot until the next restart, which is a real
+// limitation (NJT only assigns a track a few minutes before departure), but
+// it's the only way to show real track data at all without burning the
+// day's entire quota for nothing.
+const NJT_RAILDATA_API_BASE = "https://raildata.njtransit.com/api/TrainData";
+const NJT_RAILDATA_TOKEN_FILE = path.join(NJT_CACHE_DIR, "raildata-token.json");
+// stop_id -> NJT's own 2-letter station code (stops.txt's stop_code field),
+// which is what getStationSchedule's "station" parameter actually expects.
+const NJT_STATION_2CHAR = { "109": "NY", "145": "SE", "110": "NA", "9": "AC", "126": "PH" };
+
+function njtRailDataLoadCachedToken() {
+  try {
+    const data = JSON.parse(fs.readFileSync(NJT_RAILDATA_TOKEN_FILE, "utf8"));
+    return (data && typeof data.token === "string" && data.token) || null;
+  } catch {
+    return null;
+  }
+}
+function njtRailDataSaveToken(token) {
+  fs.mkdirSync(NJT_CACHE_DIR, { recursive: true });
+  fs.writeFileSync(NJT_RAILDATA_TOKEN_FILE, JSON.stringify({ token, mintedAt: Date.now() }));
+}
+
+let njtRailDataToken = njtRailDataLoadCachedToken();
+let njtRailDataTokenMintInFlight = null;
+
+async function njtRailDataMintToken() {
+  if (!NJT_USERNAME || !NJT_PASSWORD) throw new Error("NJT credentials not configured");
+  if (njtRailDataTokenMintInFlight) return njtRailDataTokenMintInFlight;
+  njtRailDataTokenMintInFlight = (async () => {
+    const body = new FormData();
+    body.append("username", NJT_USERNAME);
+    body.append("password", NJT_PASSWORD);
+    const res = await fetch(`${NJT_RAILDATA_API_BASE}/getToken`, { method: "POST", body });
+    const json = await res.json().catch(() => null);
+    if (!json || json.Authenticated !== "True" || !json.UserToken) {
+      throw new Error("NJT RailData token mint failed" + (json && json.errorMessage ? `: ${json.errorMessage}` : ""));
+    }
+    njtRailDataToken = json.UserToken;
+    njtRailDataSaveToken(njtRailDataToken);
+    console.log("NJT: minted a fresh RailData token");
+    return njtRailDataToken;
+  })();
+  try {
+    return await njtRailDataTokenMintInFlight;
+  } finally {
+    njtRailDataTokenMintInFlight = null;
+  }
+}
+
+async function njtRailDataEnsureToken() {
+  return njtRailDataToken || njtRailDataMintToken();
+}
+
+async function njtRailDataApiCall(endpoint, extraFields) {
+  const attempt = async () => {
+    const token = await njtRailDataEnsureToken();
+    const body = new FormData();
+    body.append("token", token);
+    for (const [k, v] of Object.entries(extraFields || {})) body.append(k, v);
+    const res = await fetch(`${NJT_RAILDATA_API_BASE}/${endpoint}`, { method: "POST", body });
+    if (!res.ok) throw new Error(`NJT RailData ${endpoint} ${res.status}`);
+    const json = await res.json();
+    if (json && !Array.isArray(json) && json.errorMessage) throw { njtInvalidToken: true, message: json.errorMessage };
+    return json;
+  };
+  try {
+    return await attempt();
+  } catch (e) {
+    if (e && e.njtInvalidToken) {
+      njtRailDataToken = null;
+      await njtRailDataMintToken();
+      return attempt();
+    }
+    throw e;
+  }
+}
+
+// stationId|TRAIN_ID -> track string. NJT's RailData API (the only one that
+// exposes track) caps usage at 5 calls/day for the WHOLE api, shared across
+// every endpoint including plain data calls - not just token minting like the
+// GTFS api. That's too tight for periodic polling, so this only runs once at
+// server startup; track numbers go stale over the course of the day but never
+// cost more than 5 of today's calls.
+let njtTrackByKey = new Map();
+async function refreshNjtTrackData() {
+  const next = new Map();
+  for (const [stationId, code] of Object.entries(NJT_STATION_2CHAR)) {
+    try {
+      const items = await njtRailDataApiCall("getStationSchedule", { station: code, NJTOnly: "false" });
+      for (const station of items || []) {
+        for (const item of station.ITEMS || []) {
+          if (item.TRACK) next.set(stationId + "|" + item.TRAIN_ID, item.TRACK);
+        }
+      }
+    } catch (e) {
+      console.error(`NJT: track fetch failed for station ${code}:`, e.message);
+    }
+  }
+  if (next.size) njtTrackByKey = next;
+}
+
 async function ensureNjtStaticGTFS() {
   fs.mkdirSync(NJT_CACHE_DIR, { recursive: true });
   const zipPath = path.join(NJT_CACHE_DIR, "gtfs.zip");
@@ -4109,7 +4225,7 @@ function njtMergedEntries(now, stationId) {
   return [...merged.values()];
 }
 
-function njtBoardRow(entry, nowMs) {
+function njtBoardRow(entry, nowMs, stationId) {
   if (entry.schedMs == null || entry.atMs == null) return null;
   const graceMs = entry.event === "dep" ? NJT_DEP_GRACE_MS : NJT_ARR_GRACE_MS;
   const passed = nowMs >= entry.atMs;
@@ -4122,6 +4238,7 @@ function njtBoardRow(entry, nowMs) {
     trainNum: entry.trainNum, routeName: entry.routeName, routeShortName: entry.routeShortName,
     color: entry.color, textColor: entry.textColor,
     other: entry.other, schedMs: entry.schedMs, atMs: entry.atMs, state, stations: entry.stations,
+    track: njtTrackByKey.get(stationId + "|" + entry.trainNum) || null,
   };
 }
 
@@ -4131,7 +4248,7 @@ function njtBoard(stationId) {
   const nowMs = now.getTime();
   const departures = [], arrivals = [];
   for (const entry of njtMergedEntries(now, stationId)) {
-    const row = njtBoardRow(entry, nowMs);
+    const row = njtBoardRow(entry, nowMs, stationId);
     if (!row) continue;
     (entry.event === "dep" ? departures : arrivals).push(row);
   }
@@ -4158,6 +4275,7 @@ async function startNjtBoard() {
     console.error("NJT: static GTFS load failed:", e.message);
   }
   await refreshNjtRealtime();
+  await refreshNjtTrackData().catch((e) => console.error("NJT: initial track fetch failed:", e.message));
   njtWarmedUp = true;
   setInterval(() => refreshNjtRealtime(), NJT_RT_REFRESH_MS);
   setInterval(() => {
@@ -5432,7 +5550,8 @@ body {
 }
 .board-row:last-child { border-bottom: none; }
 .board-row:active { filter: brightness(1.18); }
-.c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.c-time { width: 50px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.c-time .trk { display: block; font-size: 8.5px; color: var(--text3); font-weight: 700; margin-top: 1px; white-space: nowrap; }
 /* There isn't enough combined width for "6925 Morris & Essex" and "Long
    Branch" to both fit on one line at any flex split between these two
    columns — shifting the ratio back and forth just moves the truncation
@@ -5678,7 +5797,7 @@ body {
     var rowbg = "#" + (row.color || "0039a6");
     var rowfg = "#" + (row.textColor || "ffffff");
     return '<div class="board-row" data-kind="njt" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
-      '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
+      '<span class="c-time">' + fmtBoardTime(row.schedMs) + (row.track ? '<span class="trk">Trk ' + esc(row.track) + '</span>' : '') + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(shortRouteName(row.routeName, row.routeShortName)) + '</span></span>' +
       '<span class="c-to"><span class="c-to-name">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(row) + '</span>' +
       '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
