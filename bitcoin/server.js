@@ -3952,7 +3952,7 @@ function loadNjtModel() {
   for (const s of stops) stopNameById.set(s.stop_id, s.stop_name);
 
   const routeById = new Map();
-  for (const r of routes) routeById.set(r.route_id, { name: r.route_long_name, color: r.route_color, textColor: r.route_text_color });
+  for (const r of routes) routeById.set(r.route_id, { name: r.route_long_name, shortName: r.route_short_name, color: r.route_color, textColor: r.route_text_color });
 
   const tripById = new Map();
   for (const t of trips) tripById.set(t.trip_id, t);
@@ -4073,7 +4073,8 @@ function njtScheduleEntries(now, stationId) {
       const at = stations[idx];
       const common = {
         tripId, trainNum: trip.trip_short_name || tripId,
-        routeName: route ? route.name : "", color: (route && route.color) || "0039a6",
+        routeName: route ? route.name : "", routeShortName: route ? route.shortName : null,
+        color: (route && route.color) || "0039a6",
         textColor: (route && route.textColor) || "ffffff", stations, live: !!rt,
       };
       if (idx > 0) {
@@ -4112,7 +4113,8 @@ function njtBoardRow(entry, nowMs) {
   else if (!entry.live) state = "scheduled";
   else state = entry.atMs - entry.schedMs > NJT_DELAY_THRESHOLD_MS ? "delayed" : "on-time";
   return {
-    trainNum: entry.trainNum, routeName: entry.routeName, color: entry.color, textColor: entry.textColor,
+    trainNum: entry.trainNum, routeName: entry.routeName, routeShortName: entry.routeShortName,
+    color: entry.color, textColor: entry.textColor,
     other: entry.other, schedMs: entry.schedMs, atMs: entry.atMs, state, stations: entry.stations,
   };
 }
@@ -5425,14 +5427,16 @@ body {
 .board-row:last-child { border-bottom: none; }
 .board-row:active { filter: brightness(1.18); }
 .c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-/* Train/line names ("6925 Morris & Essex") run longer than the now-
-   abbreviated destination names ("Dover", "Long Branch") ever do — this
-   column was still truncating real line names while the To column sat on
-   a lot of unused width, so it gets the larger share of the two instead
-   of the smaller one. */
-.c-train { flex: 1.7; min-width: 0; }
+/* There isn't enough combined width for "6925 Morris & Essex" and "Long
+   Branch" to both fit on one line at any flex split between these two
+   columns — shifting the ratio back and forth just moves the truncation
+   from one column to the other. Fixed at the source instead: the route
+   name now falls back to NJT's own short code (see shortRouteName) for
+   anything not already spelled out, so this column's real content is
+   always a few characters, and 1:1.2 comfortably fits both sides. */
+.c-train { flex: 1; min-width: 0; }
 .c-train .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-.c-to { flex: 1; min-width: 0; font-weight: 600; }
+.c-to { flex: 1.2; min-width: 0; font-weight: 600; }
 /* The station name itself must never wrap, even at a word boundary — it's
    its own line, hard-truncated with an ellipsis as a last resort rather
    than breaking onto a second line. The SEC/plane badges are a second,
@@ -5590,18 +5594,22 @@ body {
     return "in " + diffMin + "m";
   }
 
-  // Real NJT route names run long enough that "6299 Montclair-Boonton Line"
-  // wrapped the train/line column onto two lines — shortened to fit one.
-  // The two the user actually named get a human abbreviation; anything else
-  // just loses its redundant trailing " Line".
+  // Real NJT route names run long enough that even after stripping a
+  // trailing " Line" ("Morris & Essex", "Montclair-Boonton", "Atlantic City
+  // Rail") the train/line column and the To column can't both fit on one
+  // line without truncating one of them — there just isn't enough combined
+  // width for "6925 Morris & Essex" and "Long Branch" side by side. NJT's
+  // own GTFS already ships a short code per route (route_short_name) built
+  // for exactly this; used directly for anything beyond the two names the
+  // user specifically asked to see spelled out (NEC, NJ Coast).
   var NJT_ROUTE_ABBR = {
     "Northeast Corridor": "NEC",
     "North Jersey Coast Line": "NJ Coast",
   };
-  function shortRouteName(name) {
+  function shortRouteName(name, shortName) {
     if (!name) return name;
     if (NJT_ROUTE_ABBR[name]) return NJT_ROUTE_ABBR[name];
-    return name.replace(/ Line$/, "");
+    return shortName || name.replace(/ Line$/, "");
   }
   // Same idea for the destination/origin column. A plain " Station" suffix
   // strip isn't enough on its own — a few real termini among the lines this
@@ -5665,7 +5673,7 @@ body {
     var rowfg = "#" + (row.textColor || "ffffff");
     return '<div class="board-row" data-kind="njt" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
-      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(shortRouteName(row.routeName)) + '</span></span>' +
+      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(shortRouteName(row.routeName, row.routeShortName)) + '</span></span>' +
       '<span class="c-to"><span class="c-to-name">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(row) + '</span>' +
       '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
       '</div>';
