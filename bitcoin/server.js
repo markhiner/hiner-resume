@@ -5425,9 +5425,14 @@ body {
 .board-row:last-child { border-bottom: none; }
 .board-row:active { filter: brightness(1.18); }
 .c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.c-train { flex: 1; min-width: 0; }
+/* Train/line names ("6925 Morris & Essex") run longer than the now-
+   abbreviated destination names ("Dover", "Long Branch") ever do — this
+   column was still truncating real line names while the To column sat on
+   a lot of unused width, so it gets the larger share of the two instead
+   of the smaller one. */
+.c-train { flex: 1.7; min-width: 0; }
 .c-train .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-.c-to { flex: 1.3; min-width: 0; font-weight: 600; }
+.c-to { flex: 1; min-width: 0; font-weight: 600; }
 /* The station name itself must never wrap, even at a word boundary — it's
    its own line, hard-truncated with an ellipsis as a last resort rather
    than breaking onto a second line. The SEC/plane badges are a second,
