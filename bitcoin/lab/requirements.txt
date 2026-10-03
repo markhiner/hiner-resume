@@ -1,0 +1,4 @@
+requests>=2.31
+cryptography>=42.0
+lumibot>=3.8
+openbb>=4.3
