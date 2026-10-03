@@ -5888,6 +5888,11 @@ const amtrakNECMapPage = `<!DOCTYPE html>
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
   }
   #map { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0a0a0c; }
+  /* CartoDB's free dark tile endpoint now requires an API key (started
+     showing a giant "API KEY REQUIRED" watermark instead of the map) — back
+     to plain OpenStreetMap tiles, darkened with a CSS filter instead of
+     relying on a third-party dark tile server at all. */
+  #map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
   .back-btn {
     position: absolute; top: max(14px, env(safe-area-inset-top)); left: 14px; z-index: 1000;
     width: 34px; height: 34px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--border);
@@ -6167,9 +6172,8 @@ const amtrakNECMapPage = `<!DOCTYPE html>
 
     function initMap() {
       map = L.map("map").setView([39.5, -76], 7);
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        attribution: "© OpenStreetMap contributors © CARTO",
-        subdomains: "abcd",
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap contributors",
         maxZoom: 19,
       }).addTo(map);
 
@@ -6209,6 +6213,11 @@ const lirrMapPage = `<!DOCTYPE html>
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
   }
   #map { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0a0a0c; }
+  /* CartoDB's free dark tile endpoint now requires an API key (started
+     showing a giant "API KEY REQUIRED" watermark instead of the map) — back
+     to plain OpenStreetMap tiles, darkened with a CSS filter instead of
+     relying on a third-party dark tile server at all. */
+  #map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
   .back-btn {
     position: absolute; top: max(14px, env(safe-area-inset-top)); left: 14px; z-index: 1000;
     width: 34px; height: 34px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--border);
@@ -6247,6 +6256,7 @@ const lirrMapPage = `<!DOCTYPE html>
   .train-detail-close:active { background: var(--panel); color: var(--text1); }
 
   #trainRouteMap { height: 24vh; margin: 10px 14px 0; border-radius: 10px; overflow: hidden; background: var(--panel2); }
+  #trainRouteMap .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
 
   .stops-list { padding: 4px 14px 14px; }
   .stop-item { padding: 6px 0; border-bottom: 1px solid var(--border); }
@@ -6393,9 +6403,7 @@ const lirrMapPage = `<!DOCTYPE html>
       const pts = stations.filter(s => s.lat != null && s.lon != null).map(s => [s.lat, s.lon]);
       if (!pts.length) return;
       detailMapInstance = L.map("trainRouteMap", { zoomControl: false, attributionControl: false });
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        subdomains: "abcd", maxZoom: 19,
-      }).addTo(detailMapInstance);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(detailMapInstance);
 
       const routeColor = "#" + (train.color || "6a6a6a");
       L.polyline(pts, { color: routeColor, weight: 4 }).addTo(detailMapInstance);
@@ -6507,9 +6515,8 @@ const lirrMapPage = `<!DOCTYPE html>
       // Jamaica — the hub where most LIRR branches converge — centered at a
       // medium zoom rather than fit-bounding the whole system by default.
       map = L.map("map").setView([40.69960817, -73.80852987], 12);
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        attribution: "© OpenStreetMap contributors © CARTO",
-        subdomains: "abcd",
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap contributors",
         maxZoom: 19,
       }).addTo(map);
 
