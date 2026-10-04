@@ -5344,7 +5344,7 @@ body {
     </select>
   </div>
   <div class="tp-navrow">
-    <button class="tp-nav-link" id="amtrakOnlyBtn" type="button">Amtrak Only</button>
+    <button class="tp-nav-link" id="amtrakOnlyBtn" type="button">Amtrak</button>
     <a class="tp-nav-link" href="/amtrak-nec-map">NEC Map</a>
     <a class="tp-nav-link" href="/lirr-board">LIRR</a>
     <a class="tp-nav-link" href="/njt-board">NJ Transit</a>
@@ -5587,7 +5587,7 @@ body {
   var amtrakOnlyBtnEl = document.getElementById("amtrakOnlyBtn");
   amtrakOnlyBtnEl.addEventListener("click", function () {
     state.filterOperator = state.filterOperator ? null : "AMTRAK";
-    amtrakOnlyBtnEl.textContent = state.filterOperator ? "All Trains" : "Amtrak Only";
+    amtrakOnlyBtnEl.textContent = state.filterOperator ? "All Trains" : "Amtrak";
     amtrakOnlyBtnEl.classList.toggle("active", !!state.filterOperator);
     boardExpanded.dep = false;
     boardExpanded.arr = false;
