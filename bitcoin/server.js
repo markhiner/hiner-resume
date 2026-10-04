@@ -5102,13 +5102,20 @@ setInterval(load, 60000);
 // any row opens a detail sheet with the train's full route and a map;
 // which map-building function runs depends on which board the row came
 // from (renderAmtrakDetail/renderNjtDetail/renderLirrDetail).
-// One board-card's static shell (logo, Departures/Arrivals tabs, column
-// header, empty body) — called once per railroad below rather than
-// hand-duplicating the same markup three times with different ids.
-function boardCardHTML(key, logoSrc, alt) {
+// One board-card's static shell (brand banner, Departures/Arrivals tabs,
+// column header, empty body) — called once per railroad below rather than
+// hand-duplicating the same markup three times with different ids. The
+// banner is the railroad's name on the left and its logo artwork at a
+// fixed 2/3-width on the right — the logo PNGs have a transparent
+// background, so they sit directly on the banner's own dark background
+// rather than needing a box of their own.
+function boardCardHTML(key, label, logoSrc, alt) {
   return `
   <div class="board-card">
-    <img class="board-logo" src="${logoSrc}" alt="${alt}">
+    <div class="board-banner">
+      <span class="board-banner-label">${label}</span>
+      <img class="board-logo" src="${logoSrc}" alt="${alt}">
+    </div>
     <div class="board-hdr">
       <div class="board-tabs">
         <button class="board-tab active" type="button" data-board="${key}" data-view="dep">Departures</button>
@@ -5183,10 +5190,13 @@ body {
   background: #050914; border: 1px solid var(--border); border-radius: 14px;
   overflow: hidden; margin-bottom: 14px;
 }
-/* Full-width, auto height — these are wide brand banners (~3:1), not
-   square icons, so they're meant to stretch edge to edge rather than sit
-   in a fixed-size box. */
-.board-logo { display: block; width: 100%; height: auto; background: #050914; }
+/* Railroad name on the left, its logo artwork fixed at 2/3 width on the
+   right — not full-width/full-height, which read as oversized. The PNGs
+   have a transparent background, so they sit directly on the banner's own
+   dark background rather than needing a box of their own. */
+.board-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #050914; }
+.board-banner-label { font-size: 20px; font-weight: 900; color: #fff; letter-spacing: 0.2px; flex: 1; min-width: 0; }
+.board-logo { display: block; flex: 0 0 66%; width: 66%; height: auto; }
 .board-hdr { background: #eef1f8; display: flex; align-items: center; justify-content: flex-start; padding: 8px 10px; gap: 8px; }
 .board-tabs { display: flex; gap: 6px; }
 .board-tab {
@@ -5335,9 +5345,9 @@ body {
     <a class="tp-nav-link" href="/njt-board">NJ Transit</a>
   </div>
 
-  ${boardCardHTML("amtrak", "/amtraklogowide.png", "Amtrak")}
-  ${boardCardHTML("lirr", "/lirrlogowide.png", "LIRR")}
-  ${boardCardHTML("njt", "/njtlogowide.png", "NJ Transit")}
+  ${boardCardHTML("amtrak", "Amtrak", "/amtraklogowide.png", "Amtrak")}
+  ${boardCardHTML("lirr", "LIRR", "/lirrlogowide.png", "LIRR")}
+  ${boardCardHTML("njt", "NJ Transit", "/njtlogowide.png", "NJ Transit")}
 
 </div>
 
