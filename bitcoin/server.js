@@ -3503,9 +3503,32 @@ function lirrTrainNum(tripId) {
   const trip = lirrModel && lirrModel.tripById.get(tripId);
   return (trip && trip.trip_short_name) || tripId;
 }
+// LIRR's GTFS has no route_short_name at all (unlike NJT's) — every branch
+// is "<Name> Branch"/"<Name> Service"/"<Name> Zone" in route_long_name, and
+// combined with a train number that's consistently too long for the merged
+// Penn board's train column to fit on one line. Hand-picked short forms,
+// same idea as NJT's own shortRouteName.
+const LIRR_ROUTE_ABBR = {
+  "Babylon Branch": "Babylon",
+  "Hempstead Branch": "Hempstead",
+  "Oyster Bay Branch": "Oyster Bay",
+  "Ronkonkoma Branch": "Ronkonkoma",
+  "Montauk Branch": "Montauk",
+  "Long Beach Branch": "Long Beach",
+  "Far Rockaway Branch": "Far Rockaway",
+  "West Hempstead Branch": "W. Hempstead",
+  "Port Washington Branch": "Port Wash.",
+  "Port Jefferson Branch": "Port Jeff.",
+  "Belmont Park": "Belmont Park",
+  "City Terminal Zone": "City Terminal",
+  "Greenport Service": "Greenport",
+};
+function lirrShortRouteName(name) {
+  return LIRR_ROUTE_ABBR[name] || (name || "").replace(/ (Branch|Service|Zone)$/, "");
+}
 function pennRowFromLirrDep(row) {
   return {
-    operator: "LIRR", trainNum: lirrTrainNum(row.tripId), routeName: row.route ? row.route.name : "",
+    operator: "LIRR", trainNum: lirrTrainNum(row.tripId), routeName: lirrShortRouteName(row.route && row.route.name),
     color: (row.route && row.route.color) || "6a6a6a", textColor: (row.route && row.route.textColor) || "ffffff",
     other: row.destName, schedMs: row.schedDepMs, atMs: row.depMs,
     state: row.delayMs > NJT_DELAY_THRESHOLD_MS ? "delayed" : "on-time",
@@ -3514,7 +3537,7 @@ function pennRowFromLirrDep(row) {
 }
 function pennRowFromLirrArr(row) {
   return {
-    operator: "LIRR", trainNum: lirrTrainNum(row.tripId), routeName: row.route ? row.route.name : "",
+    operator: "LIRR", trainNum: lirrTrainNum(row.tripId), routeName: lirrShortRouteName(row.route && row.route.name),
     color: (row.route && row.route.color) || "6a6a6a", textColor: (row.route && row.route.textColor) || "ffffff",
     other: row.originName, schedMs: row.schedArrMs, atMs: row.arrMs,
     state: row.delayMs > NJT_DELAY_THRESHOLD_MS ? "delayed" : "on-time",
@@ -5197,13 +5220,24 @@ body {
 }
 .board-row:last-child { border-bottom: none; }
 .board-row:active { filter: brightness(1.18); }
-.logo-sq { width: 20px; height: 20px; border-radius: 4px; flex-shrink: 0; display: block; object-fit: cover; }
+/* Stretched to the row's full outer height (stretch's cross-axis size
+   plus negative margins canceling the row's own padding) and flush to the
+   left edge, rather than a small inset square — the first/last row's
+   corners still get clipped cleanly by .board-card's own border-radius +
+   overflow:hidden. */
+.logo-sq {
+  align-self: stretch; width: 40px; height: auto; flex-shrink: 0;
+  object-fit: cover; margin: -9px 0 -9px -14px;
+}
 .c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-/* no width cap and no ellipsis — full train/route names always fit, wrapping
-   onto a second line rather than being cut off */
 .c-train { flex: 1.3; min-width: 0; }
-.c-train .nm { white-space: normal; word-break: break-word; }
-.c-to { flex: 1; min-width: 0; white-space: normal; word-break: break-word; font-weight: 600; }
+/* Every row is one line now, full stop — LIRR's own route names get
+   shortened at the source (lirrShortRouteName, down in pennBoard()) so
+   they actually fit instead of needing this as a truncation crutch;
+   nowrap+ellipsis is just the safety net under that, same as NJT's board
+   already uses for the same reason. */
+.c-train .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.c-to { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .c-status { width: 70px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
 /* A row can now be any line's real color, some of them close to this same
    yellow — a dark pill behind the text keeps a delay legible regardless of
@@ -5412,6 +5446,21 @@ body {
     return state.filterOperator ? state.arrivals.filter(function (r) { return r.operator === state.filterOperator; }) : state.arrivals;
   }
 
+  // A few NJT station names are long enough to force the "To"/"From"
+  // column onto a second line on their own — same fix as the NJT board's
+  // own shortStopName. Harmless for Amtrak/LIRR names too (none of them hit
+  // these 3 exact strings, and none end in " Station" either).
+  var STOP_ABBR = {
+    "Montclair State University": "MSU",
+    "Philadelphia 30th St.": "Philadelphia",
+    "Atlantic City Terminal": "Atlantic City",
+  };
+  function shortStopName(name) {
+    if (!name) return name;
+    if (STOP_ABBR[name]) return STOP_ABBR[name];
+    return name.replace(/ Station$/, "");
+  }
+
   // One state vocabulary shared by all three operators now (the server
   // normalizes each into it), so this one function covers every row
   // regardless of which system it came from.
@@ -5463,7 +5512,7 @@ body {
       logo +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
-      '<span class="c-to">' + esc(row.other) + '</span>' +
+      '<span class="c-to">' + esc(shortStopName(row.other)) + '</span>' +
       '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
       '</div>';
   }
