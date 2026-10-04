@@ -5184,13 +5184,16 @@ body {
   background: #050914; border: 1px solid var(--border); border-radius: 14px;
   overflow: hidden; margin-bottom: 14px;
 }
-/* Railroad name on the left, its logo artwork fixed at 2/3 width on the
-   right — not full-width/full-height, which read as oversized. The PNGs
-   have a transparent background, so they sit directly on the banner's own
-   dark background rather than needing a box of their own. */
-.board-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #050914; }
-.board-banner-label { font-size: 20px; font-weight: 900; color: #fff; letter-spacing: 0.2px; flex: 1; min-width: 0; }
-.board-logo { display: block; flex: 0 0 66%; width: 66%; height: auto; }
+/* Railroad name on the left, its logo artwork fixed at well under half
+   width on the right — small and tight, no padding reserved around it, so
+   it can butt right up against (or slightly under) the label and the
+   banner's own edges rather than sitting in a box of its own whitespace.
+   The PNGs are already cropped tight to the train artwork and have a
+   transparent background, so they sit directly on the banner's own dark
+   background. */
+.board-banner { display: flex; align-items: center; gap: 4px; padding: 2px 10px; background: #050914; }
+.board-banner-label { font-size: 18px; font-weight: 900; color: #fff; letter-spacing: 0.2px; flex: 1; min-width: 0; }
+.board-logo { display: block; flex: 0 0 40%; width: 40%; height: auto; margin: -4px 0; }
 .board-cols {
   background: #dde2ee; display: flex; align-items: center; gap: 6px;
   padding: 3px 10px; font-size: 8px; font-weight: 800; letter-spacing: 0.5px;
