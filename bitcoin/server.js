@@ -4911,6 +4911,18 @@ const server = http.createServer((req, res) => {
     res.end(trainsPage);
     return;
   }
+  // The three operator logos shown on the merged Penn Station board's rows
+  // — plain static files living next to server.js, not routed through any
+  // CDN/static layer, since this Node process is its own deployment.
+  if (["/amtraklogosquare.png", "/njtlogosquare.png", "/lirrlogosquare.png"].includes(url.pathname)) {
+    const logoPath = path.join(__dirname, url.pathname.slice(1));
+    fs.readFile(logoPath, (err, data) => {
+      if (err) { res.writeHead(404); res.end(); return; }
+      res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" });
+      res.end(data);
+    });
+    return;
+  }
   if (url.pathname === "/njt-board") {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(njtBoardPage);
@@ -5146,12 +5158,15 @@ body {
   margin-left: auto; background: var(--panel2); color: var(--text1); border: 1px solid var(--border);
   border-radius: 8px; padding: 5px 8px; font-size: 12px; font-weight: 700;
 }
-.tp-navrow { display: flex; gap: 8px; padding: 0 2px 14px; }
+.tp-navrow { display: flex; gap: 8px; padding: 0 2px 14px; flex-wrap: wrap; }
 .tp-nav-link {
   background: var(--panel2); color: var(--yellow); border: 1px solid var(--border);
   border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 800; text-decoration: none;
+  font-family: inherit; cursor: pointer;
 }
 .tp-nav-link:active { background: var(--panel); }
+/* the Amtrak-only toggle, once it's actually filtering the board */
+.tp-nav-link.active { background: var(--yellow); color: #000; border-color: var(--yellow); }
 
 /* ── the departures/arrivals board — styled after the physical Solari
    board at Penn Station: light header, solid blue rows, dark gaps ── */
@@ -5168,36 +5183,35 @@ body {
   text-transform: uppercase; color: #5a6685;
 }
 .board-body { display: flex; flex-direction: column; }
+/* Each row is colored full-width by its own real line color (via
+   --rowbg/--rowfg, set inline per row) rather than a fixed navy row with a
+   small accent bar — matches NJT's own app, where the whole departure row
+   is tinted by line. Amtrak rows fall back to the old fixed navy/white
+   since Amtrak's own color field isn't a stable route color (see the note
+   on AMTRAK_LINE_COLOR further down). */
 .board-row {
   display: flex; align-items: center; gap: 8px; position: relative;
-  background: #273670; color: #fff; padding: 9px 14px 9px 22px;
+  background: var(--rowbg, #273670); color: var(--rowfg, #fff); padding: 9px 14px;
   border-bottom: 3px solid #050914; font-weight: 700; font-size: 12.5px;
   text-align: left;
 }
 .board-row:last-child { border-bottom: none; }
 .board-row:active { filter: brightness(1.18); }
-/* The service-type color used to live on a small text badge; now it's a
-   full-height bar down the row's left edge instead, via a CSS variable so
-   each row can set its own color without a class per service type. */
-.board-row::before {
-  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 8px;
-  background: var(--accent, transparent);
-}
+.logo-sq { width: 20px; height: 20px; border-radius: 4px; flex-shrink: 0; display: block; object-fit: cover; }
 .c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 /* no width cap and no ellipsis — full train/route names always fit, wrapping
    onto a second line rather than being cut off */
 .c-train { flex: 1.3; min-width: 0; }
 .c-train .nm { white-space: normal; word-break: break-word; }
-/* Which system a row belongs to, now that this board merges all three —
-   Amtrak rows get none (it's the base/majority system on this page). */
-.op-badge {
-  display: inline-flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.35); border-radius: 4px; padding: 1px 5px; margin-right: 5px;
-  font-size: 9px; font-weight: 800; letter-spacing: 0.3px; vertical-align: middle;
-}
 .c-to { flex: 1; min-width: 0; white-space: normal; word-break: break-word; font-weight: 600; }
 .c-status { width: 70px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
-.c-status.delayed { color: var(--yellow); font-weight: 800; }
+/* A row can now be any line's real color, some of them close to this same
+   yellow — a dark pill behind the text keeps a delay legible regardless of
+   what color it's sitting on, same fix NJT's own board already needed. */
+.c-status.delayed {
+  color: var(--yellow); font-weight: 800; display: inline-block;
+  background: rgba(0,0,0,0.5); border-radius: 6px; padding: 3px 6px; line-height: 1.25;
+}
 .c-status.gone { opacity: 0.75; font-style: italic; }
 .c-status.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
@@ -5296,6 +5310,7 @@ body {
     </select>
   </div>
   <div class="tp-navrow">
+    <button class="tp-nav-link" id="amtrakOnlyBtn" type="button">Amtrak Only</button>
     <a class="tp-nav-link" href="/amtrak-nec-map">NEC Map</a>
     <a class="tp-nav-link" href="/lirr-board">LIRR</a>
     <a class="tp-nav-link" href="/njt-board">NJ Transit</a>
@@ -5379,7 +5394,23 @@ body {
   var state = {
     departures: [], arrivals: [],
     station: STATION_CODES.indexOf(urlStation) !== -1 ? urlStation : "${AMTRAK_DEFAULT_STATION}",
+    // null = show everything merged in; "AMTRAK" = just the Amtrak board,
+    // toggled via the button next to the station picker. Only meaningful at
+    // NY Penn — Philadelphia/Washington are Amtrak-only already.
+    filterOperator: null,
   };
+
+  // Whatever's actually on screen right now — every render AND every
+  // data-idx lookup (openDetail, reopenIfStillOpen, the "more" button) goes
+  // through these two instead of state.departures/arrivals directly, so a
+  // row's on-screen position always matches the array it's looked up from,
+  // filtered or not.
+  function visibleDepartures() {
+    return state.filterOperator ? state.departures.filter(function (r) { return r.operator === state.filterOperator; }) : state.departures;
+  }
+  function visibleArrivals() {
+    return state.filterOperator ? state.arrivals.filter(function (r) { return r.operator === state.filterOperator; }) : state.arrivals;
+  }
 
   // One state vocabulary shared by all three operators now (the server
   // normalizes each into it), so this one function covers every row
@@ -5393,11 +5424,11 @@ body {
   }
 
   // Same palette as the NEC map's legend, keyed by the service type the
-  // server already classifies each train into (Amtrak's own per-route
-  // color isn't used here — this is deliberately the same small,
-  // consistent set across both pages rather than dozens of near-identical
-  // route-specific shades). Rows are all one fixed blue now; this just
-  // feeds the full-height accent bar down the row's left edge.
+  // server already classifies each train into — Amtrak's own color field
+  // isn't a stable route color (see the AMTRAK_LINE_COLOR note further
+  // down: it's a timeliness indicator, not a brand color), so this small
+  // fixed set stands in for "Amtrak's line color" instead. Now used as the
+  // row's full-width background, same as NJT/LIRR's own real line colors.
   var SERVICE_COLORS = {
     acela:    "#19ebfa",
     regional: "#1959fa",
@@ -5405,20 +5436,33 @@ body {
     empire:   "#0f942c",
     longdist: "#d93636",
   };
-  var OPERATOR_BADGE = { NJT: "NJT", LIRR: "LIRR" };
+  // Paired text color per service color above — several of them (acela's
+  // cyan, keystone's yellow-green) are too light for white text to read on.
+  var SERVICE_TEXT = {
+    acela:    "#06212b",
+    regional: "#ffffff",
+    keystone: "#1d2a06",
+    empire:   "#ffffff",
+    longdist: "#ffffff",
+  };
+  var OPERATOR_LOGO = { AMTRAK: "/amtraklogosquare.png", NJT: "/njtlogosquare.png", LIRR: "/lirrlogosquare.png" };
 
   function boardRowHTML(row, idx, kind) {
     var status = rowStatus(row);
-    // Amtrak keeps its own fixed service-type palette (real per-route color
-    // isn't meaningful there — see the note further down); NJT and LIRR get
-    // their own real line color instead, since those actually mean something.
-    var accent = row.operator === "AMTRAK"
-      ? (SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist)
-      : "#" + (row.color || "888888");
-    var badge = OPERATOR_BADGE[row.operator] ? '<span class="op-badge">' + OPERATOR_BADGE[row.operator] + '</span>' : "";
-    return '<div class="board-row" data-kind="' + row.operator.toLowerCase() + '" data-event="' + kind + '" data-idx="' + idx + '" style="--accent:' + accent + ';">' +
+    var rowbg, rowfg;
+    if (row.operator === "AMTRAK") {
+      rowbg = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
+      rowfg = SERVICE_TEXT[row.serviceType] || SERVICE_TEXT.longdist;
+    } else {
+      rowbg = "#" + (row.color || "888888");
+      rowfg = "#" + (row.textColor || "ffffff");
+    }
+    var logo = OPERATOR_LOGO[row.operator]
+      ? '<img class="logo-sq" src="' + OPERATOR_LOGO[row.operator] + '" alt="' + row.operator + '">' : "";
+    return '<div class="board-row" data-kind="' + row.operator.toLowerCase() + '" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
+      logo +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
-      '<span class="c-train"><span class="nm">' + badge + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
+      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
       '<span class="c-to">' + esc(row.other) + '</span>' +
       '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
       '</div>';
@@ -5459,8 +5503,8 @@ body {
       state.departures = d.departures || [];
       state.arrivals = d.arrivals || [];
       state.amtrakWarming = !!d.warming;
-      renderBoard("depBody", state.departures, "dep");
-      renderBoard("arrBody", state.arrivals, "arr");
+      renderBoard("depBody", visibleDepartures(), "dep");
+      renderBoard("arrBody", visibleArrivals(), "arr");
       // an open sheet should stay live rather than freeze at whatever it
       // showed when it was opened — the train may have moved since
       if (openTrain) reopenIfStillOpen();
@@ -5490,6 +5534,18 @@ body {
     loadPennBoard();
   });
   updateDepTitle();
+
+  var amtrakOnlyBtnEl = document.getElementById("amtrakOnlyBtn");
+  amtrakOnlyBtnEl.addEventListener("click", function () {
+    state.filterOperator = state.filterOperator ? null : "AMTRAK";
+    amtrakOnlyBtnEl.textContent = state.filterOperator ? "All Trains" : "Amtrak Only";
+    amtrakOnlyBtnEl.classList.toggle("active", !!state.filterOperator);
+    boardExpanded.dep = false;
+    boardExpanded.arr = false;
+    if (openTrain) closeTrain(); // filtering can shift/remove the open row's index
+    renderBoard("depBody", visibleDepartures(), "dep");
+    renderBoard("arrBody", visibleArrivals(), "arr");
+  });
 
   function tickClocks() {
     var now = new Date();
@@ -5958,13 +6014,13 @@ body {
     ttMapJustOpened = true;
     ttLastZoom = null;
     ttStopsExpanded = false;
-    var row = (event === "dep" ? state.departures : state.arrivals)[idx];
+    var row = (event === "dep" ? visibleDepartures() : visibleArrivals())[idx];
     if (row) renderDetailForRow(row);
   }
 
   function reopenIfStillOpen() {
     if (!openTrain) return;
-    var list = openTrain.event === "dep" ? state.departures : state.arrivals;
+    var list = openTrain.event === "dep" ? visibleDepartures() : visibleArrivals();
     if (openTrain.idx < list.length) renderDetailForRow(list[openTrain.idx]);
     else closeTrain(); // the train aged off the board while the sheet was open
   }
@@ -5974,7 +6030,7 @@ body {
     if (more) {
       var mkind = more.getAttribute("data-more");
       boardExpanded[mkind] = !boardExpanded[mkind];
-      renderBoard(mkind === "dep" ? "depBody" : "arrBody", mkind === "dep" ? state.departures : state.arrivals, mkind);
+      renderBoard(mkind === "dep" ? "depBody" : "arrBody", mkind === "dep" ? visibleDepartures() : visibleArrivals(), mkind);
       return;
     }
     if (e.target.closest("[data-tt-stops-more]")) {
