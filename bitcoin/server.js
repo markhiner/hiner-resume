@@ -2884,6 +2884,8 @@ function computeStationDepartures(candidates, model, stationId, nowMs, realtimeB
     out.push({
       tripId: c.tripId,
       depMs,
+      schedDepMs: stop.depMs,
+      delayMs,
       destName: stopInfoById.get(finalStop.stopId)?.name || finalStop.stopId,
       route: route ? { name: route.route_long_name, color: route.route_color, textColor: route.route_text_color } : null,
       track,
@@ -2898,6 +2900,59 @@ function computeStationDepartures(candidates, model, stationId, nowMs, realtimeB
     });
   }
   out.sort((a, b) => a.depMs - b.depMs);
+  return out.slice(0, limit);
+}
+
+// Mirror of computeStationDepartures for the OTHER direction — a train
+// whose next stop here is an arrival (it originated somewhere earlier on
+// this same trip), for the Penn Station merged board's Arrivals column.
+// LIRR's own per-station board never needed this (it's departures-only,
+// same as the real physical board at a terminal), but the merged board
+// covers both directions the way Amtrak/NJT's own boards already do.
+function computeStationArrivals(candidates, model, stationId, nowMs, realtimeByTrip, limit) {
+  const stopInfoById = new Map(model.stops.map((s) => [s.stop_id, { name: s.stop_name, lat: +s.stop_lat, lon: +s.stop_lon }]));
+  const out = [];
+  for (const c of candidates) {
+    const stop = c.stops.find((s) => s.stopId === stationId);
+    if (!stop || stop.arrMs == null || stop.arrMs < nowMs) continue;
+    const earlier = c.stops.filter((s) => s.seq < stop.seq);
+    if (!earlier.length) continue; // train originates here — not an arrival
+    const originStop = earlier.reduce((a, b) => (b.seq < a.seq ? b : a));
+    const route = model.routeById.get(c.routeId);
+    const rt = realtimeByTrip.get(c.tripId);
+    let arrMs = stop.arrMs;
+    let track = null;
+    let delayMs = 0;
+    if (rt) {
+      if (rt.delaySec) { arrMs += rt.delaySec * 1000; delayMs = rt.delaySec * 1000; }
+      const t = rt.tracks.get(stationId);
+      if (t) track = t;
+    }
+    const rideStops = c.stops.map((s) => {
+      const info = stopInfoById.get(s.stopId) || {};
+      return {
+        stopId: s.stopId,
+        name: info.name || s.stopId,
+        lat: Number.isFinite(info.lat) ? info.lat : null,
+        lon: Number.isFinite(info.lon) ? info.lon : null,
+        arrMs: s.arrMs + delayMs,
+        depMs: s.depMs + delayMs,
+      };
+    });
+    out.push({
+      tripId: c.tripId,
+      arrMs,
+      schedArrMs: stop.arrMs,
+      delayMs,
+      originName: stopInfoById.get(originStop.stopId)?.name || originStop.stopId,
+      route: route ? { name: route.route_long_name, color: route.route_color, textColor: route.route_text_color } : null,
+      track,
+      boardStopId: stationId,
+      vehicle: rt && rt.vehicle ? rt.vehicle : null,
+      stops: rideStops,
+    });
+  }
+  out.sort((a, b) => a.arrMs - b.arrMs);
   return out.slice(0, limit);
 }
 
@@ -3408,6 +3463,96 @@ function amtrakBoard(stationCode) {
     arrivals: arrivals.slice(0, AMTRAK_BOARD_MAX_ROWS),
     updatedAt: nowMs,
     warming: !amtrakBoardWarmedUp,
+  };
+}
+
+// Normalizes each operator's own board-row shape into one common shape the
+// merged Penn Station board's client can render without caring which
+// system a given row came from: { operator, trainNum, routeName, color,
+// textColor, other, schedMs, atMs, state, track, stations, vehicle }.
+function pennRowFromAmtrak(row) {
+  return {
+    operator: "AMTRAK", trainNum: row.trainNum, routeName: row.routeName,
+    color: row.color, textColor: row.textColor, other: row.other,
+    schedMs: row.schedMs, atMs: row.atMs, state: row.state, track: row.track,
+    stations: row.stations, shape: row.shape || null, serviceType: row.serviceType,
+    // lat/lon/velocity/heading kept as-is (not just folded into `vehicle`)
+    // because renderAmtrakDetail — reused unchanged on the merged board —
+    // reads them directly; `vehicle` is there too for the merged board's
+    // own operator-agnostic code paths that don't know Amtrak's shape.
+    lat: row.lat, lon: row.lon, velocity: row.velocity, heading: row.heading,
+    vehicle: row.lat != null && row.lon != null ? { lat: row.lat, lon: row.lon } : null,
+  };
+}
+function pennRowFromNjt(row) {
+  return {
+    operator: "NJT", trainNum: row.trainNum, routeName: row.routeShortName || row.routeName,
+    color: row.color, textColor: row.textColor, other: row.other,
+    schedMs: row.schedMs, atMs: row.atMs, state: row.state, track: row.track,
+    stations: row.stations, vehicle: row.vehicle,
+  };
+}
+// LIRR's computeStationDepartures/computeStationArrivals only ever return
+// trains that haven't departed/arrived yet (nowMs is filtered at the
+// source), so unlike Amtrak/NJT's board rows, "state" here is never
+// departed/arrived/scheduled — just delayed-or-not.
+// LIRR's own trip_short_name is a real train number (e.g. "2607"), same
+// idea as Amtrak/NJT's — the raw GTFS tripId ("GO202_26_2") is an internal
+// schedule-generator ID, never something a rider would recognize.
+function lirrTrainNum(tripId) {
+  const trip = lirrModel && lirrModel.tripById.get(tripId);
+  return (trip && trip.trip_short_name) || tripId;
+}
+function pennRowFromLirrDep(row) {
+  return {
+    operator: "LIRR", trainNum: lirrTrainNum(row.tripId), routeName: row.route ? row.route.name : "",
+    color: (row.route && row.route.color) || "6a6a6a", textColor: (row.route && row.route.textColor) || "ffffff",
+    other: row.destName, schedMs: row.schedDepMs, atMs: row.depMs,
+    state: row.delayMs > NJT_DELAY_THRESHOLD_MS ? "delayed" : "on-time",
+    track: row.track, stations: row.stops, vehicle: row.vehicle,
+  };
+}
+function pennRowFromLirrArr(row) {
+  return {
+    operator: "LIRR", trainNum: lirrTrainNum(row.tripId), routeName: row.route ? row.route.name : "",
+    color: (row.route && row.route.color) || "6a6a6a", textColor: (row.route && row.route.textColor) || "ffffff",
+    other: row.originName, schedMs: row.schedArrMs, atMs: row.arrMs,
+    state: row.delayMs > NJT_DELAY_THRESHOLD_MS ? "delayed" : "on-time",
+    track: row.track, stations: row.stops, vehicle: row.vehicle,
+  };
+}
+
+const PENN_BOARD_MAX_ROWS = 40;
+// The actual physical Penn Station board — Amtrak always, plus NJT and
+// LIRR merged in too, but ONLY when the selected reference station is NY
+// Penn itself (the Philadelphia/Washington Amtrak-only views on this same
+// page have no NJT or LIRR service to merge in).
+function pennBoard(stationCode) {
+  const amtrak = amtrakBoard(stationCode);
+  const departures = amtrak.departures.map(pennRowFromAmtrak);
+  const arrivals = amtrak.arrivals.map(pennRowFromAmtrak);
+
+  if (stationCode === "NYP") {
+    const nowMs = Date.now();
+    if (njtModel) {
+      const njt = njtBoard(NJT_DEFAULT_STATION);
+      departures.push(...(njt.departures || []).map(pennRowFromNjt));
+      arrivals.push(...(njt.arrivals || []).map(pennRowFromNjt));
+    }
+    if (lirrModel) {
+      departures.push(...computeStationDepartures(lirrCandidatesCache, lirrModel, PENN_STOP_ID, nowMs, lirrRealtimeByTrip, PENN_BOARD_MAX_ROWS).map(pennRowFromLirrDep));
+      arrivals.push(...computeStationArrivals(lirrCandidatesCache, lirrModel, PENN_STOP_ID, nowMs, lirrRealtimeByTrip, PENN_BOARD_MAX_ROWS).map(pennRowFromLirrArr));
+    }
+  }
+
+  departures.sort((a, b) => a.schedMs - b.schedMs);
+  arrivals.sort((a, b) => a.schedMs - b.schedMs);
+  return {
+    station: stationCode,
+    departures: departures.slice(0, PENN_BOARD_MAX_ROWS),
+    arrivals: arrivals.slice(0, PENN_BOARD_MAX_ROWS),
+    updatedAt: amtrak.updatedAt,
+    warming: amtrak.warming,
   };
 }
 
@@ -4090,15 +4235,13 @@ function loadNjtModel() {
     if (!stByTrip.has(st.trip_id)) stByTrip.set(st.trip_id, []);
     stByTrip.get(st.trip_id).push(st);
   }
-  // Only trips that touch one of the board's reference stations are kept —
-  // same reasoning as Amtrak's model: the full national (well, statewide)
-  // stop_times.txt is far bigger than what a board pointed at 3 stations
-  // ever needs to hold in memory.
-  const boardCodes = Object.keys(NJT_BOARD_STATIONS);
-  for (const [tripId, sts] of stByTrip) {
-    if (!sts.some((s) => boardCodes.includes(s.stop_id))) stByTrip.delete(tripId);
-    else sts.sort((a, b) => +a.stop_sequence - +b.stop_sequence);
-  }
+  // Unlike Amtrak's nationwide model (filtered down to trips touching a
+  // handful of board stations, since the full nationwide stop_times.txt is
+  // huge), NJT's own rail-only GTFS is tiny — ~17k stop_times rows across
+  // the whole state — so every trip is kept. That's what makes the
+  // systemwide live map possible: it needs every branch's trips, not just
+  // the 5 the per-station board happens to be pointed at.
+  for (const sts of stByTrip.values()) sts.sort((a, b) => +a.stop_sequence - +b.stop_sequence);
 
   const activeByDate = new Map(); // "YYYYMMDD" -> Set(service_id)
   for (const cd of calDates) {
@@ -4108,7 +4251,7 @@ function loadNjtModel() {
   }
 
   njtModel = { stopInfoById, routeById, tripById, stByTrip, activeByDate };
-  console.log(`NJT: loaded ${stByTrip.size} trips touching a board station, ${routes.length} routes`);
+  console.log(`NJT: loaded ${stByTrip.size} trips statewide, ${routes.length} routes`);
 }
 
 // Standard GTFS-realtime TripUpdate parsing (field numbers are the public
@@ -4152,13 +4295,127 @@ function njtDecodeTripUpdates(buf) {
   return byTrip;
 }
 
+// getVehiclePositions is a SEPARATE feed/call from getTripUpdates (unlike
+// LIRR, where both entity types ride in one combined feed) — same
+// VehiclePosition schema though: trip descriptor at field 1, Position
+// (lat=1, lon=2, both float/wiretype5) at field 2.
+function njtDecodeVehiclePositions(buf) {
+  const top = pbParseFields(buf, 0, buf.length);
+  const byTrip = new Map(); // tripId -> { lat, lon }
+  for (const ent of top[2] || []) {
+    const entFields = pbParseFields(ent.raw, 0, ent.raw.length);
+    const vEntry = entFields[4] && entFields[4][0];
+    if (!vEntry) continue;
+    const v = pbParseFields(vEntry.raw, 0, vEntry.raw.length);
+    const tripDescEntry = v[1] && v[1][0];
+    if (!tripDescEntry) continue;
+    const td = pbParseFields(tripDescEntry.raw, 0, tripDescEntry.raw.length);
+    const tripId = pbString(td[1] && td[1][0]);
+    if (!tripId) continue;
+    const posEntry = v[2] && v[2][0];
+    if (!posEntry) continue;
+    const p = pbParseFields(posEntry.raw, 0, posEntry.raw.length);
+    const lat = pbFloat(p[1] && p[1][0]);
+    const lon = pbFloat(p[2] && p[2][0]);
+    if (lat == null || lon == null) continue;
+    byTrip.set(tripId, { lat, lon });
+  }
+  return byTrip;
+}
+
 let njtRealtimeByTrip = new Map();
+let njtVehicleByTrip = new Map();
 async function refreshNjtRealtime() {
   try {
     njtRealtimeByTrip = njtDecodeTripUpdates(await njtApiCall("getTripUpdates"));
   } catch (e) {
     console.error("NJT realtime fetch failed (keeping last good data):", e.message);
   }
+  try {
+    njtVehicleByTrip = njtDecodeVehiclePositions(await njtApiCall("getVehiclePositions"));
+  } catch (e) {
+    console.error("NJT vehicle position fetch failed (keeping last good data):", e.message);
+  }
+}
+
+// Every currently-running NJT trip statewide, positioned by schedule +
+// delay interpolation between its current stop pair — same approach as
+// LIRR's lirrActiveTrains, for the same reason: the systemwide live map
+// needs continuous motion for every train, not just the ones NJT's
+// realtime feed happens to have a current GPS fix for. When a real fix
+// IS available (njtVehicleByTrip), it's used instead of the interpolated
+// point — real position wins over an estimate whenever we actually have it.
+function njtActiveTrains(nowMs) {
+  if (!njtModel) return [];
+  const dateContexts = [
+    nyDateParts(new Date(nowMs - 86400000)),
+    nyDateParts(new Date(nowMs)),
+    nyDateParts(new Date(nowMs + 86400000)),
+  ];
+  const trains = [];
+  for (const [tripId, sts] of njtModel.stByTrip) {
+    if (!sts.length) continue;
+    const trip = njtModel.tripById.get(tripId);
+    if (!trip) continue;
+    const route = njtModel.routeById.get(trip.route_id);
+    const rt = njtRealtimeByTrip.get(tripId);
+    if (rt && rt.canceled) continue;
+    const vehicle = njtVehicleByTrip.get(tripId);
+
+    for (const parts of dateContexts) {
+      const activeSet = njtModel.activeByDate.get(ymdKey(parts));
+      if (!activeSet || !activeSet.has(trip.service_id)) continue;
+
+      const stations = sts.map((s) => {
+        const info = njtModel.stopInfoById.get(s.stop_id);
+        const schedArrMs = gtfsTimeToMs(parts, s.arrival_time);
+        const schedDepMs = gtfsTimeToMs(parts, s.departure_time);
+        const delays = rt && rt.stopDelays.get(s.stop_id);
+        return {
+          stopId: s.stop_id, name: (info && info.name) || s.stop_id,
+          lat: info ? info.lat : null, lon: info ? info.lon : null,
+          schedArrMs, schedDepMs,
+          arrMs: delays && delays.arrDelaySec != null && schedArrMs != null ? schedArrMs + delays.arrDelaySec * 1000 : schedArrMs,
+          depMs: delays && delays.depDelaySec != null && schedDepMs != null ? schedDepMs + delays.depDelaySec * 1000 : schedDepMs,
+        };
+      });
+      const first = stations[0], last = stations[stations.length - 1];
+      if (first.depMs == null || last.arrMs == null) continue;
+      if (nowMs < first.depMs || nowMs > last.arrMs) continue;
+
+      let fromIdx = -1;
+      for (let i = 0; i < stations.length - 1; i++) {
+        const fromDep = stations[i].depMs, toArr = stations[i + 1].arrMs;
+        if (fromDep == null || toArr == null) continue;
+        if (nowMs >= fromDep && nowMs <= toArr) { fromIdx = i; break; }
+      }
+      if (fromIdx === -1) continue;
+
+      const fromStop = stations[fromIdx], toStop = stations[fromIdx + 1];
+      if (fromStop.lat == null || toStop.lat == null) continue;
+
+      let lat, lon;
+      if (vehicle) {
+        lat = vehicle.lat; lon = vehicle.lon;
+      } else {
+        const progress = Math.max(0, Math.min(1, (nowMs - fromStop.depMs) / Math.max(toStop.arrMs - fromStop.depMs, 1)));
+        lat = fromStop.lat + (toStop.lat - fromStop.lat) * progress;
+        lon = fromStop.lon + (toStop.lon - fromStop.lon) * progress;
+      }
+      const heading = calculateBearing([fromStop.lat, fromStop.lon], [toStop.lat, toStop.lon]);
+
+      trains.push({
+        tripId, trainNum: trip.trip_short_name || tripId,
+        routeName: route ? route.name : "",
+        color: (route && route.color) || "0039a6",
+        textColor: (route && route.textColor) || "ffffff",
+        lat, lon, heading, live: !!vehicle,
+        stations,
+      });
+      break; // matched a date context — the other two are yesterday/tomorrow's copy of this same trip
+    }
+  }
+  return trains;
 }
 
 // The static schedule checks yesterday/today/tomorrow's service calendar for
@@ -4206,6 +4463,7 @@ function njtScheduleEntries(now, stationId) {
         routeName: route ? route.name : "", routeShortName: route ? route.shortName : null,
         color: (route && route.color) || "0039a6",
         textColor: (route && route.textColor) || "ffffff", stations, live: !!rt,
+        vehicle: njtVehicleByTrip.get(tripId) || null,
       };
       if (idx > 0) {
         const from = stations[0];
@@ -4247,6 +4505,7 @@ function njtBoardRow(entry, nowMs, stationId) {
     color: entry.color, textColor: entry.textColor,
     other: entry.other, schedMs: entry.schedMs, atMs: entry.atMs, state, stations: entry.stations,
     track: njtTrackByKey.get(stationId + "|" + entry.trainNum) || null,
+    vehicle: entry.vehicle,
   };
 }
 
@@ -4594,7 +4853,7 @@ const server = http.createServer((req, res) => {
     const requested = (url.searchParams.get("station") || "").toUpperCase();
     const station = AMTRAK_BOARD_STATIONS[requested] ? requested : AMTRAK_DEFAULT_STATION;
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(amtrakBoard(station)));
+    res.end(JSON.stringify(pennBoard(station)));
     return;
   }
   if (url.pathname === "/api/amtrak-nec-trains") {
@@ -4617,6 +4876,24 @@ const server = http.createServer((req, res) => {
     const station = NJT_BOARD_STATIONS[requested] ? requested : NJT_DEFAULT_STATION;
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ enabled: true, ...njtBoard(station) }));
+    return;
+  }
+  if (url.pathname === "/api/njt-active-trains") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(njtActiveTrains(Date.now())));
+    return;
+  }
+  if (url.pathname === "/api/njt-stations") {
+    const stations = njtModel ? [...njtModel.stopInfoById.entries()].map(([id, info]) => ({
+      id, name: info.name, lat: info.lat, lon: info.lon,
+    })).sort((a, b) => a.name.localeCompare(b.name)) : [];
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(stations));
+    return;
+  }
+  if (url.pathname === "/njt-map") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(njtMapPage);
     return;
   }
   if (url.pathname === "/lirr-board") {
@@ -4816,12 +5093,13 @@ setInterval(load, 60000);
 
 // A standalone page — its own template literal, no PIN gate (train
 // schedules aren't the sensitive personal-finance data the main ticker
-// hides). Two pieces: a literal Amtrak "Departures"/"Arrivals" board for NY
-// Penn, styled after the physical Solari board at Penn Station, and the
-// LIRR "Next Train To…" board moved here from the main ticker page. Tapping
-// any row opens a detail sheet with the train's full route; Amtrak trains
-// get a live map (real GPS), LIRR trains get a plain-English position
-// estimate (their public feed has delay, not GPS).
+// hides). The literal Departures/Arrivals board for NY Penn, styled after
+// the physical Solari board there — Amtrak always, with NJT and LIRR
+// merged in (server-side, in pennBoard()) whenever the selected reference
+// station is Penn itself, since those two don't serve Philadelphia or
+// Washington. Tapping any row opens a detail sheet with the train's full
+// route and a map; which map-building function runs depends on
+// row.operator (renderAmtrakDetail/renderNjtDetail/renderLirrDetail).
 const trainsPage = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -4910,6 +5188,13 @@ body {
    onto a second line rather than being cut off */
 .c-train { flex: 1.3; min-width: 0; }
 .c-train .nm { white-space: normal; word-break: break-word; }
+/* Which system a row belongs to, now that this board merges all three —
+   Amtrak rows get none (it's the base/majority system on this page). */
+.op-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.35); border-radius: 4px; padding: 1px 5px; margin-right: 5px;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.3px; vertical-align: middle;
+}
 .c-to { flex: 1; min-width: 0; white-space: normal; word-break: break-word; font-weight: 600; }
 .c-status { width: 70px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
 .c-status.delayed { color: var(--yellow); font-weight: 800; }
@@ -4960,7 +5245,7 @@ body {
 .tt-map-label::before { display: none; }
 .tt-stops { margin-top: 14px; border-top: 1px solid var(--border); }
 .tt-stop {
-  display: flex; align-items: center; gap: 8px; padding: 5px 0;
+  display: flex; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer;
   border-bottom: 1px solid var(--border); font-size: 12px;
 }
 .tt-stop.here { background: rgba(245,197,24,0.08); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
@@ -4976,6 +5261,14 @@ body {
   border-left: 3px solid var(--green); opacity: 1;
 }
 .tt-stop.next-stop .nm { color: var(--text1); font-weight: 700; }
+/* Tapping a stop — in the list or on the map, for the NJT/LIRR detail
+   maps that support it — always wins visually, same rule as the LIRR
+   per-station board's own tap-to-highlight. */
+.tt-stop.selected {
+  background: rgba(250,204,21,0.18); margin: 0 -16px; padding-left: 16px; padding-right: 16px;
+  border-left: 3px solid #facc15; opacity: 1;
+}
+.tt-stop.selected .nm { color: #facc15; font-weight: 700; }
 .tt-stop .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text1); }
 .tt-stop .tm { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text2); }
 .tt-stop .st { width: 74px; flex-shrink: 0; text-align: right; font-size: 10px; color: var(--text3); }
@@ -4995,7 +5288,7 @@ body {
 
   <div class="tp-topbar">
     <a class="tp-back" href="/" aria-label="Back to BTC ticker">&larr;</a>
-    <span class="tp-brand">Amtrak &middot; Departures &amp; Arrivals</span>
+    <span class="tp-brand">Penn Station &middot; Departures &amp; Arrivals</span>
     <select class="tp-station-select" id="stationSelect" aria-label="Reference station">
       ${Object.entries(AMTRAK_BOARD_STATIONS).map(([code, name]) =>
         `<option value="${code}"${code === AMTRAK_DEFAULT_STATION ? " selected" : ""}>${name}</option>`
@@ -5077,7 +5370,7 @@ body {
     return out;
   }
 
-  // ---------- NY Penn Departures / Arrivals (Amtrak) ----------
+  // ---------- NY Penn Departures / Arrivals (Amtrak + NJT + LIRR) ----------
 
   var STATION_NAMES = ${JSON.stringify(AMTRAK_BOARD_STATIONS)};
   var STATION_TITLES = ${JSON.stringify(AMTRAK_BOARD_STATION_TITLES)};
@@ -5088,7 +5381,10 @@ body {
     station: STATION_CODES.indexOf(urlStation) !== -1 ? urlStation : "${AMTRAK_DEFAULT_STATION}",
   };
 
-  function amtrakStatus(row) {
+  // One state vocabulary shared by all three operators now (the server
+  // normalizes each into it), so this one function covers every row
+  // regardless of which system it came from.
+  function rowStatus(row) {
     if (row.state === "departed") return { text: "Departed", cls: "gone" };
     if (row.state === "arrived") return { text: "Arrived", cls: "gone" };
     if (row.state === "delayed") return { text: fmtBoardTime(row.atMs), cls: "delayed" };
@@ -5109,13 +5405,20 @@ body {
     empire:   "#0f942c",
     longdist: "#d93636",
   };
+  var OPERATOR_BADGE = { NJT: "NJT", LIRR: "LIRR" };
 
   function boardRowHTML(row, idx, kind) {
-    var status = amtrakStatus(row);
-    var accent = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
-    return '<div class="board-row" data-kind="amtrak" data-event="' + kind + '" data-idx="' + idx + '" style="--accent:' + accent + ';">' +
+    var status = rowStatus(row);
+    // Amtrak keeps its own fixed service-type palette (real per-route color
+    // isn't meaningful there — see the note further down); NJT and LIRR get
+    // their own real line color instead, since those actually mean something.
+    var accent = row.operator === "AMTRAK"
+      ? (SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist)
+      : "#" + (row.color || "888888");
+    var badge = OPERATOR_BADGE[row.operator] ? '<span class="op-badge">' + OPERATOR_BADGE[row.operator] + '</span>' : "";
+    return '<div class="board-row" data-kind="' + row.operator.toLowerCase() + '" data-event="' + kind + '" data-idx="' + idx + '" style="--accent:' + accent + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
-      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
+      '<span class="c-train"><span class="nm">' + badge + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
       '<span class="c-to">' + esc(row.other) + '</span>' +
       '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
       '</div>';
@@ -5132,8 +5435,8 @@ body {
       // right now" and saying so as if it were reads as broken rather than
       // just not caught up yet.
       el.innerHTML = state.amtrakWarming
-        ? '<div class="board-empty">Loading Amtrak schedule&hellip;</div>'
-        : '<div class="board-empty">No ' + (kind === "dep" ? "departures" : "arrivals") + ' from Amtrak in this window.</div>';
+        ? '<div class="board-empty">Loading schedules&hellip;</div>'
+        : '<div class="board-empty">No ' + (kind === "dep" ? "departures" : "arrivals") + ' in this window.</div>';
       return;
     }
     var expanded = boardExpanded[kind];
@@ -5209,6 +5512,14 @@ body {
   var elBody = document.getElementById("ttBody");
   var openTrain = null; // { event, idx } — kept so a live poll can re-render it
   var ttMap = null, ttMarker = null;
+  // NJT/LIRR's own detail maps (below) share this same ttMap instance
+  // rather than keeping a separate one each — only one detail sheet is
+  // ever open at a time, so there's nothing to collide with. Keyed by
+  // station index into whichever row's stations/stops array is currently
+  // rendered; ttRouteColor is that row's own line color, used both to draw
+  // and to restore a marker's un-selected look.
+  var ttStopMarkers = {};
+  var ttRouteColor = "#0039a6";
   // true only for the render that follows a fresh tap — reopenIfStillOpen()
   // re-renders the same sheet every board refresh, and re-animating the
   // zoom on each of those would yank the map out from under someone still
@@ -5273,7 +5584,12 @@ body {
     return '<span class="st">On Time</span>';
   }
 
-  function amtrakStopBest(s) {
+  // Shared across all three operators' detail renderers — every station
+  // shape (Amtrak, NJT, LIRR) carries arrMs/depMs, falling back to a
+  // schedXxxMs when the live value isn't there yet (LIRR's never is, since
+  // its rideStops already bake delay straight into arrMs/depMs and don't
+  // keep a separate scheduled figure, so the fallback is simply unused).
+  function stopBest(s) {
     var arr = s.arrMs != null ? s.arrMs : s.schedArrMs;
     var dep = s.depMs != null ? s.depMs : s.schedDepMs;
     return { arr: arr, dep: dep };
@@ -5290,7 +5606,7 @@ body {
   var AMTRAK_LIVE_COLOR = "#f5c518";
 
   function renderAmtrakDetail(row) {
-    var status = amtrakStatus(row);
+    var status = rowStatus(row);
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
     var showMap = routeStops.length >= 2 || (row.lat != null && row.lon != null);
     var speedBit = row.velocity != null
@@ -5311,12 +5627,12 @@ body {
       var now = Date.now();
       var nextIdx = -1;
       for (var ni = 0; ni < row.stations.length; ni++) {
-        var best = amtrakStopBest(row.stations[ni]);
+        var best = stopBest(row.stations[ni]);
         var ref = best.arr != null ? best.arr : best.dep;
         if (ref == null || now < ref) { nextIdx = ni; break; }
       }
       var rowsHtml = row.stations.map(function (s, i) {
-        var best = amtrakStopBest(s);
+        var best = stopBest(s);
         var timeMs = best.dep != null ? best.dep : best.arr;
         var schedMs = s.schedDepMs != null ? s.schedDepMs : s.schedArrMs;
         var atMs = timeMs;
@@ -5444,6 +5760,197 @@ body {
     }
   }
 
+  // ---------- NJT / LIRR detail maps (simpler than Amtrak's: no live-GPS
+  // wide->medium->tight zoom animation, no real rail-alignment shape — just
+  // fit the route and let the rider tap a stop to zoom in on it) ----------
+
+  var PENN_LIRR_STOP_ID = ${JSON.stringify(PENN_STOP_ID)};
+
+  // Normal (unselected) dot style for a stop's map marker — pulled out so
+  // both the initial render and focusStop()'s "reset everything else" pass
+  // use the exact same rule for what "not selected" looks like.
+  function ttMarkerDotStyle() {
+    return { radius: 4.5, color: "#000", weight: 1.5, fillColor: ttRouteColor, fillOpacity: 1 };
+  }
+
+  // Tapping a stop — in the list or on the map — highlights it in both
+  // places and zooms the map in on it, instead of leaving the two views
+  // disconnected from each other. Shared by the NJT and LIRR detail maps
+  // (Amtrak's own map, above, has its own live-GPS zoom choreography and
+  // doesn't use this).
+  function focusStop(i) {
+    var rm = ttStopMarkers[i];
+    if (!rm) return;
+    Object.keys(ttStopMarkers).forEach(function (k) { ttStopMarkers[k].marker.setStyle(ttMarkerDotStyle()); });
+    rm.marker.setStyle({ radius: 8, color: "#000", weight: 2.5, fillColor: "#facc15", fillOpacity: 1 });
+    rm.marker.bringToFront();
+    if (ttMap) ttMap.flyTo(rm.marker.getLatLng(), Math.max(ttMap.getZoom(), 14), { duration: 0.5 });
+    document.querySelectorAll(".tt-stop.selected").forEach(function (el) { el.classList.remove("selected"); });
+    var rowEl = document.querySelector('.tt-stop[data-stop-idx="' + i + '"]');
+    if (rowEl) {
+      rowEl.classList.add("selected");
+      rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
+
+  // Builds the route map + stop markers shared by renderNjtDetail and
+  // renderLirrDetail — "here" tags the row whose index should always keep
+  // its label (the board's own reference station for NJT, or the Penn stop
+  // for LIRR), "vehicle" is the train's live GPS when there is one.
+  function renderOperatorRouteMap(stations, routeColor, hereCode, vehicle) {
+    ttRouteColor = routeColor;
+    if (ttMap) { ttMap.remove(); ttMap = null; }
+    ttStopMarkers = {};
+    ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
+    var routeStops = stations.filter(function (s) { return s.lat != null && s.lon != null; });
+    var latlngs = routeStops.map(function (s) { return [s.lat, s.lon]; });
+    if (latlngs.length >= 2) {
+      L.polyline(latlngs, { color: "#ffffff", weight: 7, opacity: 0.95, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
+      L.polyline(latlngs, { color: routeColor, weight: 4, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
+    }
+    var routeMarkers = [];
+    stations.forEach(function (s, i) {
+      if (s.lat == null || s.lon == null) return;
+      L.circleMarker([s.lat, s.lon], { radius: 6, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
+      var marker = L.circleMarker([s.lat, s.lon], ttMarkerDotStyle()).bindPopup(esc(s.name)).addTo(ttMap);
+      marker.on("click", function () { focusStop(i); });
+      var rm = { marker: marker, name: s.name, forceLabel: i === 0 || i === stations.length - 1 || (hereCode != null && (s.code === hereCode || s.stopId === hereCode)) };
+      routeMarkers.push(rm);
+      ttStopMarkers[i] = rm;
+    });
+    var MIN_LABEL_PX = 46;
+    function declutterLabels() {
+      var shown = [];
+      routeMarkers.forEach(function (rm) {
+        rm.marker.unbindTooltip();
+        var pt = ttMap.latLngToContainerPoint(rm.marker.getLatLng());
+        var tooClose = shown.some(function (p) { return Math.hypot(pt.x - p.x, pt.y - p.y) < MIN_LABEL_PX; });
+        if (rm.forceLabel || !tooClose) {
+          shown.push(pt);
+          rm.marker.bindTooltip(rm.name, { permanent: true, direction: "top", className: "tt-map-label", offset: [0, -4] });
+        }
+      });
+    }
+    if (latlngs.length >= 2) {
+      ttMap.on("zoomend moveend", declutterLabels);
+      ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+      declutterLabels();
+    } else if (vehicle) {
+      ttMap.setView([vehicle.lat, vehicle.lon], 11);
+    }
+    if (vehicle) {
+      L.circleMarker([vehicle.lat, vehicle.lon], { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
+      L.circleMarker([vehicle.lat, vehicle.lon], { radius: 9, color: "#000", weight: 2.5, fillColor: "#f5c518", fillOpacity: 1 })
+        .bindTooltip("Live position", { direction: "top" }).addTo(ttMap);
+    }
+    setTimeout(function () { if (ttMap) ttMap.invalidateSize(); }, 60);
+  }
+
+  function renderNjtDetail(row) {
+    var status = rowStatus(row);
+    var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
+    var hasVehicle = row.vehicle && row.vehicle.lat != null && row.vehicle.lon != null;
+    var showMap = routeStops.length >= 2 || hasVehicle;
+    elBody.innerHTML =
+      '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
+      '<div class="tt-sub">NJ Transit &middot; ' + status.text + '</div>' +
+      (showMap ? '<div id="ttMap"></div>' : '') +
+      '<div class="tt-stops" id="ttStops"></div>';
+
+    var stopsEl = document.getElementById("ttStops");
+    if (!row.stations || !row.stations.length) {
+      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
+      return;
+    }
+    var now = Date.now();
+    var nextIdx = -1;
+    for (var ni = 0; ni < row.stations.length; ni++) {
+      var best = stopBest(row.stations[ni]);
+      var ref = best.arr != null ? best.arr : best.dep;
+      if (ref == null || now < ref) { nextIdx = ni; break; }
+    }
+    var rowsHtml = row.stations.map(function (s, i) {
+      var best = stopBest(s);
+      var timeMs = best.dep != null ? best.dep : best.arr;
+      var schedMs = s.schedDepMs != null ? s.schedDepMs : s.schedArrMs;
+      var atMs = timeMs;
+      var here = s.code === "${NJT_DEFAULT_STATION}";
+      var isPast = nextIdx === -1 ? true : i < nextIdx;
+      var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
+      return '<div class="tt-stop' + cls + '" data-stop-idx="' + i + '"><span class="nm">' + esc(s.name) + '</span>' +
+        '<span class="tm">' + fmtBoardTime(schedMs != null ? schedMs : timeMs) + '</span>' +
+        stopStateHTML(schedMs, atMs, "Departed") + '</div>';
+    });
+    renderStopsList(rowsHtml, nextIdx);
+
+    if (!showMap || !window.L) return;
+    setTimeout(function () {
+      try {
+        renderOperatorRouteMap(row.stations, "#" + (row.color || "0039a6"), "${NJT_DEFAULT_STATION}", hasVehicle ? row.vehicle : null);
+      } catch (e) {
+        console.error("NJT train detail map failed to build:", e);
+      }
+    }, 0);
+  }
+
+  function renderLirrDetail(row) {
+    var status = rowStatus(row);
+    var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
+    var hasVehicle = row.vehicle && row.vehicle.lat != null && row.vehicle.lon != null;
+    var showMap = routeStops.length >= 2 || hasVehicle;
+    elBody.innerHTML =
+      '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
+      '<div class="tt-sub">LIRR &middot; ' + status.text + '</div>' +
+      (showMap ? '<div id="ttMap"></div>' : '') +
+      '<div class="tt-stops" id="ttStops"></div>';
+
+    var stopsEl = document.getElementById("ttStops");
+    if (!row.stations || !row.stations.length) {
+      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
+      return;
+    }
+    // LIRR's own stop list has no separate scheduled-vs-actual figure (its
+    // arrMs/depMs already have delay baked in) — "On Time"/"Now HH:MM" per
+    // stop isn't available the way it is for Amtrak/NJT, so each stop just
+    // shows its one real time, same as the dedicated LIRR board's own list.
+    var now = Date.now();
+    var nextIdx = -1;
+    for (var ni = 0; ni < row.stations.length; ni++) {
+      var s = row.stations[ni];
+      var ref = s.arrMs != null ? s.arrMs : s.depMs;
+      if (ref == null || now < ref) { nextIdx = ni; break; }
+    }
+    var rowsHtml = row.stations.map(function (s, i) {
+      var timeMs = s.depMs != null ? s.depMs : s.arrMs;
+      var here = s.stopId === PENN_LIRR_STOP_ID;
+      var isPast = nextIdx === -1 ? true : i < nextIdx;
+      var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
+      return '<div class="tt-stop' + cls + '" data-stop-idx="' + i + '"><span class="nm">' + esc(s.name) + '</span>' +
+        '<span class="tm">' + fmtBoardTime(timeMs) + '</span>' +
+        '<span class="st' + (isPast ? " done" : "") + '">' + (isPast ? "Departed" : "On Time") + '</span></div>';
+    });
+    renderStopsList(rowsHtml, nextIdx);
+
+    if (!showMap || !window.L) return;
+    setTimeout(function () {
+      try {
+        renderOperatorRouteMap(row.stations, "#" + (row.color || "6a6a6a"), PENN_LIRR_STOP_ID, hasVehicle ? row.vehicle : null);
+      } catch (e) {
+        console.error("LIRR train detail map failed to build:", e);
+      }
+    }, 0);
+  }
+
+  // Which detail renderer a row needs — only Amtrak gets the live-GPS
+  // wide->medium->tight zoom choreography (ttMapJustOpened/ttLastZoom);
+  // NJT/LIRR's simpler maps ignore those two entirely.
+  function renderDetailForRow(row) {
+    if (row.operator === "NJT") renderNjtDetail(row);
+    else if (row.operator === "LIRR") renderLirrDetail(row);
+    else renderAmtrakDetail(row);
+  }
+
   function openDetail(event, idx) {
     openTrain = { event: event, idx: idx };
     elSheet.classList.add("on");
@@ -5452,13 +5959,13 @@ body {
     ttLastZoom = null;
     ttStopsExpanded = false;
     var row = (event === "dep" ? state.departures : state.arrivals)[idx];
-    if (row) renderAmtrakDetail(row);
+    if (row) renderDetailForRow(row);
   }
 
   function reopenIfStillOpen() {
     if (!openTrain) return;
     var list = openTrain.event === "dep" ? state.departures : state.arrivals;
-    if (openTrain.idx < list.length) renderAmtrakDetail(list[openTrain.idx]);
+    if (openTrain.idx < list.length) renderDetailForRow(list[openTrain.idx]);
     else closeTrain(); // the train aged off the board while the sheet was open
   }
 
@@ -5473,6 +5980,18 @@ body {
     if (e.target.closest("[data-tt-stops-more]")) {
       ttStopsExpanded = true;
       if (lastStopsRowsHtml) renderStopsList(lastStopsRowsHtml, lastStopsNextIdx);
+      return;
+    }
+    // #ttStops gets replaced wholesale (elBody.innerHTML) every time a train
+    // is opened or re-rendered, so a listener attached directly to it would
+    // die the moment that happens — delegating from document instead, same
+    // fix as every other "list gets rebuilt under you" spot in this app.
+    // Amtrak's own stop rows don't carry data-stop-idx (no tap-to-zoom there,
+    // see renderAmtrakDetail), so this is a no-op for them.
+    var stopRow = e.target.closest(".tt-stop");
+    if (stopRow) {
+      var stopIdx = stopRow.getAttribute("data-stop-idx");
+      if (stopIdx != null) focusStop(+stopIdx);
       return;
     }
     var row = e.target.closest("[data-kind]");
@@ -5635,7 +6154,7 @@ body {
 .tt-map-label::before { display: none; }
 .tt-stops { margin-top: 14px; border-top: 1px solid var(--border); }
 .tt-stop {
-  display: flex; align-items: center; gap: 8px; padding: 5px 0;
+  display: flex; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer;
   border-bottom: 1px solid var(--border); font-size: 12px;
 }
 .tt-stop.here { background: rgba(245,197,24,0.08); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
@@ -5646,6 +6165,14 @@ body {
   border-left: 3px solid var(--green); opacity: 1;
 }
 .tt-stop.next-stop .nm { color: var(--text1); font-weight: 700; }
+/* Tapping a stop — in the list or on the map — always wins visually, even
+   over here/next-stop/past, same rule the LIRR board uses for its own
+   tap-to-highlight. */
+.tt-stop.selected {
+  background: rgba(250,204,21,0.18); margin: 0 -16px; padding-left: 16px; padding-right: 16px;
+  border-left: 3px solid #facc15; opacity: 1;
+}
+.tt-stop.selected .nm { color: #facc15; font-weight: 700; }
 .tt-stop .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text1); }
 .tt-stop .tm { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text2); }
 .tt-stop .st { width: 74px; flex-shrink: 0; text-align: right; font-size: 10px; color: var(--text3); }
@@ -5674,8 +6201,8 @@ body {
   </div>
   <div class="tp-navrow">
     <a class="tp-nav-link" href="/trains">Amtrak</a>
-    <a class="tp-nav-link" href="/amtrak-nec-map">NEC Map</a>
     <a class="tp-nav-link" href="/lirr-board">LIRR</a>
+    <a class="tp-nav-link" href="/njt-map">NJT Map</a>
   </div>
 
   <div class="board-card">
@@ -5910,6 +6437,8 @@ body {
   var elBody = document.getElementById("ttBody");
   var openTrain = null; // { event, idx } — kept so a live poll can re-render it
   var ttMap = null;
+  var ttStopMarkers = {}; // station index (into row.stations) -> { marker, name }
+  var ttRouteColor = "#0039a6";
   var ttStopsExpanded = false;
   var TT_STOPS_COLLAPSE_KEEP = 1;
   var lastStopsRowsHtml = null, lastStopsNextIdx = null;
@@ -5955,10 +6484,36 @@ body {
     return { arr: arr, dep: dep };
   }
 
+  // Normal (unselected) dot style for a stop's map marker — pulled out so
+  // both the initial render and focusStop()'s "reset everything else" pass
+  // use the exact same rule for what "not selected" looks like.
+  function njtMarkerDotStyle() {
+    return { radius: 4.5, color: "#000", weight: 1.5, fillColor: ttRouteColor, fillOpacity: 1 };
+  }
+
+  // Tapping a stop — in the list or on the map — highlights it in both
+  // places and zooms the map in on it, instead of leaving the two views
+  // disconnected from each other. Mirrors the LIRR board's focusStop().
+  function focusStop(i) {
+    var rm = ttStopMarkers[i];
+    if (!rm) return;
+    Object.keys(ttStopMarkers).forEach(function (k) { ttStopMarkers[k].marker.setStyle(njtMarkerDotStyle()); });
+    rm.marker.setStyle({ radius: 8, color: "#000", weight: 2.5, fillColor: "#facc15", fillOpacity: 1 });
+    rm.marker.bringToFront();
+    if (ttMap) ttMap.flyTo(rm.marker.getLatLng(), Math.max(ttMap.getZoom(), 14), { duration: 0.5 });
+    document.querySelectorAll(".tt-stop.selected").forEach(function (el) { el.classList.remove("selected"); });
+    var rowEl = document.querySelector('.tt-stop[data-stop-idx="' + i + '"]');
+    if (rowEl) {
+      rowEl.classList.add("selected");
+      rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }
   function renderNjtDetail(row) {
     var status = njtStatus(row);
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
-    var showMap = routeStops.length >= 2;
+    var hasVehicle = row.vehicle && row.vehicle.lat != null && row.vehicle.lon != null;
+    var showMap = routeStops.length >= 2 || hasVehicle;
+    ttRouteColor = "#" + (row.color || "0039a6");
     elBody.innerHTML =
       '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
       '<div class="tt-sub">NJ Transit &middot; ' + status.text + '</div>' +
@@ -5985,7 +6540,7 @@ body {
       var here = s.code === state.station;
       var isPast = nextIdx === -1 ? true : i < nextIdx;
       var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
-      return '<div class="tt-stop' + cls + '"><span class="nm">' + esc(s.name) + '</span>' +
+      return '<div class="tt-stop' + cls + '" data-stop-idx="' + i + '"><span class="nm">' + esc(s.name) + '</span>' +
         '<span class="tm">' + fmtBoardTime(schedMs != null ? schedMs : timeMs) + '</span>' +
         stopStateHTML(schedMs, atMs, "Departed") + '</div>';
     });
@@ -5997,19 +6552,28 @@ body {
     setTimeout(function () {
       try {
         if (ttMap) { ttMap.remove(); ttMap = null; }
+        ttStopMarkers = {};
         ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
-        var routeColor = "#" + (row.color || "0039a6");
         var latlngs = routeStops.map(function (s) { return [s.lat, s.lon]; });
-        // White halo underneath so the line/dots stay visible regardless of
-        // what's under them on OSM's pale basemap, same convention as the
-        // Amtrak board's own route map.
-        L.polyline(latlngs, { color: "#ffffff", weight: 7, opacity: 0.95, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
-        L.polyline(latlngs, { color: routeColor, weight: 4, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
-        var routeMarkers = routeStops.map(function (s, i) {
+        if (latlngs.length >= 2) {
+          // White halo underneath so the line/dots stay visible regardless of
+          // what's under them on OSM's pale basemap, same convention as the
+          // Amtrak board's own route map.
+          L.polyline(latlngs, { color: "#ffffff", weight: 7, opacity: 0.95, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
+          L.polyline(latlngs, { color: ttRouteColor, weight: 4, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
+        }
+        var routeMarkers = [];
+        row.stations.forEach(function (s, i) {
+          if (s.lat == null || s.lon == null) return;
           L.circleMarker([s.lat, s.lon], { radius: 6, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
-          var marker = L.circleMarker([s.lat, s.lon], { radius: 4.5, color: "#000", weight: 1.5, fillColor: routeColor, fillOpacity: 1 }).addTo(ttMap);
-          return { marker: marker, name: s.name, forceLabel: i === 0 || i === routeStops.length - 1 || s.code === state.station };
+          var marker = L.circleMarker([s.lat, s.lon], njtMarkerDotStyle())
+            .bindPopup(esc(s.name))
+            .addTo(ttMap);
+          marker.on("click", function () { focusStop(i); });
+          var rm = { marker: marker, name: s.name, forceLabel: i === 0 || i === row.stations.length - 1 || s.code === state.station };
+          routeMarkers.push(rm);
+          ttStopMarkers[i] = rm;
         });
         // Endpoints and the board's own reference station always keep their
         // label; everything else only keeps one once it's far enough away (in
@@ -6029,9 +6593,23 @@ body {
             }
           });
         }
-        ttMap.on("zoomend moveend", declutterLabels);
-        ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
-        declutterLabels();
+        if (latlngs.length >= 2) {
+          ttMap.on("zoomend moveend", declutterLabels);
+          ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+          declutterLabels();
+        } else if (hasVehicle) {
+          ttMap.setView([row.vehicle.lat, row.vehicle.lon], 11);
+        }
+        // The train's actual live GPS, when NJT's realtime feed has one for
+        // this trip — bigger and higher-contrast than the fixed stop dots (a
+        // white halo under a bright yellow dot), same convention the Amtrak
+        // board and LIRR map use for "the one that moves".
+        if (hasVehicle) {
+          L.circleMarker([row.vehicle.lat, row.vehicle.lon], { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
+          L.circleMarker([row.vehicle.lat, row.vehicle.lon], { radius: 9, color: "#000", weight: 2.5, fillColor: "#f5c518", fillOpacity: 1 })
+            .bindTooltip("Live position", { direction: "top" })
+            .addTo(ttMap);
+        }
         setTimeout(function () { if (ttMap) ttMap.invalidateSize(); }, 60);
       } catch (e) {
         console.error("NJT train detail map failed to build:", e);
@@ -6068,6 +6646,16 @@ body {
       if (lastStopsRowsHtml) renderStopsList(lastStopsRowsHtml, lastStopsNextIdx);
       return;
     }
+    // #ttStops gets replaced wholesale (elBody.innerHTML) every time a train
+    // is opened or re-rendered, so a listener attached directly to it would
+    // die the moment that happens — delegating from document instead, same
+    // fix as every other "list gets rebuilt under you" spot in this app.
+    var stopRow = e.target.closest(".tt-stop");
+    if (stopRow) {
+      var stopIdx = stopRow.getAttribute("data-stop-idx");
+      if (stopIdx != null) focusStop(+stopIdx);
+      return;
+    }
     var row = e.target.closest("[data-kind]");
     if (!row) return;
     var idx = +row.getAttribute("data-idx");
@@ -6075,6 +6663,399 @@ body {
   });
 })();
 </script>
+</body>
+</html>`;
+
+// Systemwide live map for NJ Transit rail — same shell as the LIRR live map
+// (/lirr-map), just pointed at NJT's own active-trains/stations endpoints.
+// Every running trip is positioned by schedule+delay interpolation; a trip
+// NJT's realtime feed currently has a real GPS fix for uses that instead
+// (njtActiveTrains picks whichever's available server-side, so the client
+// here just plots whatever lat/lon comes back either way).
+const njtMapPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>NJ Transit Live Map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
+    --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66;
+    --green: #22c55e; --yellow: #f5c518; --red: #ef4444;
+  }
+  html, body { background: var(--bg); height: 100%; }
+  body {
+    margin: 0; padding: 0; -webkit-font-smoothing: antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  }
+  #map { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0a0a0c; }
+  #map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
+  .back-btn {
+    position: absolute; top: max(14px, env(safe-area-inset-top)); left: 14px; z-index: 1000;
+    width: 34px; height: 34px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--border);
+    color: var(--text1); cursor: pointer; font-size: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .back-btn:active { background: var(--panel); }
+
+  .train-detail {
+    position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg);
+    border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.6); max-height: 78vh; overflow-y: auto;
+    transform: translateY(100%); transition: transform 0.25s cubic-bezier(0.2,0.8,0.3,1); z-index: 900;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .train-detail.open { transform: translateY(0); }
+  .tt-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 7px auto 0; }
+  .train-detail-header { padding: 8px 14px 8px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .train-detail-title-wrap { min-width: 0; flex: 1; }
+  .train-detail-title { font-size: 15.5px; font-weight: 800; color: var(--text1); }
+  .train-detail-sub { font-size: 11.5px; color: var(--text2); margin-top: 3px; font-weight: 700; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .train-status-badge.ontime { background: rgba(34,197,94,0.16); color: var(--green); }
+  .train-status-badge.late { background: rgba(245,197,24,0.18); color: var(--yellow); }
+  .train-status-badge.verylate { background: rgba(239,68,68,0.18); color: var(--red); }
+  .train-detail-position {
+    font-size: 12px; color: var(--text1); font-weight: 600; margin-top: 6px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  }
+  .train-detail-position b { color: var(--yellow); }
+  .train-detail-close {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text2); cursor: pointer;
+    font-size: 17px; line-height: 1; flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .train-detail-close:active { background: var(--panel); color: var(--text1); }
+
+  #trainRouteMap { height: 24vh; margin: 10px 14px 0; border-radius: 10px; overflow: hidden; background: var(--panel2); }
+  #trainRouteMap .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
+  .station-label {
+    background: rgba(11,11,13,0.85); color: #fff; border: none; border-radius: 4px;
+    padding: 1px 5px; font-size: 9px; font-weight: 700; box-shadow: none;
+  }
+  .station-label::before { display: none; }
+
+  .stops-list { padding: 4px 14px 14px; }
+  .stop-item { padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .stop-item:last-child { border-bottom: none; }
+  .stop-item.past { opacity: 0.5; }
+  .stop-item.next {
+    background: rgba(34,197,94,0.12); margin: 0 -14px; padding: 6px 14px;
+    border-left: 3px solid var(--green);
+  }
+  .stop-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .stop-name { font-size: 13px; font-weight: 700; color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .stop-item.past .stop-name { color: var(--text2); font-weight: 600; }
+  .stop-status { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); flex-shrink: 0; }
+  .stop-status.next { color: var(--green); }
+  .stop-times { font-size: 12px; color: var(--text2); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stt-label { color: var(--text3); font-weight: 600; }
+  .stt-time { color: var(--text1); font-weight: 800; }
+  .stt-est { font-size: 9.5px; color: var(--text3); font-weight: 600; margin-left: 1px; }
+  .stt-delta { font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 4px; margin-left: 3px; white-space: nowrap; }
+  .stt-delta.ontime { background: rgba(34,197,94,0.15); color: var(--green); }
+  .stt-delta.late { background: rgba(245,197,24,0.18); color: var(--yellow); }
+  .stt-delta.verylate { background: rgba(239,68,68,0.18); color: var(--red); }
+</style>
+</head>
+<body>
+  <button class="back-btn" onclick="window.location.href='/njt-board'" title="Back">←</button>
+  <div id="map"></div>
+  <div class="train-detail" id="trainDetail">
+    <div class="tt-grip"></div>
+    <div class="train-detail-header">
+      <div class="train-detail-title-wrap">
+        <div class="train-detail-title" id="trainTitle">Train</div>
+        <div class="train-detail-sub" id="trainSubtitle"></div>
+        <div class="train-detail-position" id="trainPosition"></div>
+      </div>
+      <button class="train-detail-close" onclick="document.getElementById('trainDetail').classList.remove('open')">×</button>
+    </div>
+    <div id="trainRouteMap"></div>
+    <div class="stops-list" id="stopsList"></div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script>
+    let map = null;
+    let markers = new Map();
+    let selectedTripId = null;
+    let latestTrains = [];
+    let detailMapInstance = null;
+    let stationMarkers = []; // { marker, name } — static layer, built once
+
+    function esc(v) {
+      return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+
+    function formatTime(ms) {
+      if (!ms) return "—";
+      const d = new Date(ms);
+      const h = String(d.getHours()).padStart(2, "0");
+      const m = String(d.getMinutes()).padStart(2, "0");
+      return h + ":" + m;
+    }
+
+    function createArrowMarker(lat, lon, bearing, color) {
+      const b = bearing || 0;
+      const svgString = '<svg width="30" height="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">' +
+        '<g transform="rotate(' + b + ' 15 15)">' +
+        '<circle cx="15" cy="15" r="12" fill="' + color + '" stroke="white" stroke-width="1.5"/>' +
+        '<polygon points="15,6 20,15 15,13 10,15" fill="white"/>' +
+        '</g></svg>';
+
+      const img = new Image();
+      img.src = "data:image/svg+xml;base64," + btoa(svgString);
+      return new L.Icon({ iconUrl: img.src, iconSize: [30, 30], iconAnchor: [15, 15] });
+    }
+
+    const COMPASS_LABELS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+    function bearingToCompass(bearing) {
+      if (bearing == null || !Number.isFinite(bearing)) return null;
+      const idx = Math.round((((bearing % 360) + 360) % 360) / 22.5) % 16;
+      return COMPASS_LABELS[idx];
+    }
+
+    // How late (minutes) a stop's actual time is against its own schedule —
+    // null when there's no actual (live) time yet to compare against.
+    function stopDelayMin(schedMs, actualMs) {
+      if (schedMs == null || actualMs == null) return null;
+      return Math.round((actualMs - schedMs) / 60000);
+    }
+
+    function deltaBadgeHTML(delayMin) {
+      if (delayMin == null) return "";
+      if (delayMin <= 1) return ' <span class="stt-delta ontime">On time</span>';
+      if (delayMin < 15) return ' <span class="stt-delta late">+' + delayMin + 'm</span>';
+      return ' <span class="stt-delta verylate">+' + delayMin + 'm</span>';
+    }
+
+    // One stop's arrival/departure line: the actual (delay-adjusted) time
+    // wins over scheduled whenever both exist, tagged with how late it ran;
+    // a stop with only a schedule shows "(est)" instead of a delay badge.
+    function stopTimeHTML(label, schedMs, actualMs) {
+      const ms = actualMs != null ? actualMs : schedMs;
+      if (ms == null) return "";
+      const delayMin = stopDelayMin(schedMs, actualMs);
+      return '<span class="stt-label">' + label + '</span> <span class="stt-time">' + formatTime(ms) + '</span>' +
+        (actualMs == null ? ' <span class="stt-est">est</span>' : deltaBadgeHTML(delayMin));
+    }
+
+    // Looks backward from the train's current position for the most recent
+    // stop with both a schedule and an actual time, and uses that gap as
+    // "how late is this train running right now" — falling back to the next
+    // stop's own predicted arrival if the train hasn't left its first stop.
+    function trainDelayMin(stations, nextIdx) {
+      for (let i = Math.min(nextIdx, stations.length) - 1; i >= 0; i--) {
+        const s = stations[i];
+        const actual = s.depMs != null ? s.depMs : s.arrMs;
+        const sched = s.depMs != null ? s.schedDepMs : s.schedArrMs;
+        const d = stopDelayMin(sched, actual);
+        if (d != null) return d;
+      }
+      if (nextIdx >= 0 && nextIdx < stations.length) {
+        const s = stations[nextIdx];
+        const actual = s.arrMs != null ? s.arrMs : s.depMs;
+        const sched = s.schedArrMs != null ? s.schedArrMs : s.schedDepMs;
+        return stopDelayMin(sched, actual);
+      }
+      return null;
+    }
+
+    function statusBadgeHTML(delayMin) {
+      if (delayMin == null) return "";
+      if (delayMin <= 1) return '<span class="train-status-badge ontime">On time</span>';
+      if (delayMin < 15) return '<span class="train-status-badge late">' + delayMin + 'm late</span>';
+      return '<span class="train-status-badge verylate">' + delayMin + 'm late</span>';
+    }
+
+    // The small route map inside the detail sheet — stop-to-stop straight
+    // lines, the train's own line color, and its current position as a dot
+    // (real GPS when the server had one, interpolated otherwise — the
+    // client doesn't need to know which, since njtActiveTrains already
+    // picked for it).
+    function renderTrainRouteMap(train) {
+      if (detailMapInstance) { detailMapInstance.remove(); detailMapInstance = null; }
+      const stations = train.stations || [];
+      const pts = stations.filter(s => s.lat != null && s.lon != null).map(s => [s.lat, s.lon]);
+      if (!pts.length) return;
+      detailMapInstance = L.map("trainRouteMap", { zoomControl: false, attributionControl: false });
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(detailMapInstance);
+
+      const routeColor = "#" + (train.color || "0039a6");
+      L.polyline(pts, { color: routeColor, weight: 4 }).addTo(detailMapInstance);
+      stations.forEach(s => {
+        if (s.lat == null || s.lon == null) return;
+        L.circleMarker([s.lat, s.lon], { radius: 5, color: "#fff", weight: 2, fillColor: routeColor, fillOpacity: 1 })
+          .bindPopup(esc(s.name)).addTo(detailMapInstance);
+      });
+      if (train.lat != null && train.lon != null) {
+        L.circleMarker([train.lat, train.lon], { radius: 9, color: "#fff", weight: 0, fillColor: "#fff", fillOpacity: 1 }).addTo(detailMapInstance);
+        L.circleMarker([train.lat, train.lon], { radius: 6, color: "#000", weight: 2, fillColor: "#f5c518", fillOpacity: 1 })
+          .bindTooltip(train.live ? "Live GPS position" : "Estimated position", { direction: "top" }).addTo(detailMapInstance);
+      }
+      detailMapInstance.fitBounds(L.latLngBounds(pts), { padding: [20, 20] });
+      setTimeout(() => { if (detailMapInstance) detailMapInstance.invalidateSize(); }, 60);
+    }
+
+    function showTrain(train) {
+      selectedTripId = train.tripId;
+      document.getElementById("trainTitle").textContent = train.trainNum + " " + train.routeName;
+
+      const stations = train.stations || [];
+      const now = Date.now();
+      let nextIdx = -1;
+      for (let i = 0; i < stations.length; i++) {
+        const s = stations[i];
+        const ref = s.arrMs != null ? s.arrMs : (s.schedArrMs != null ? s.schedArrMs : (s.depMs != null ? s.depMs : s.schedDepMs));
+        if (ref == null || now < ref) { nextIdx = i; break; }
+      }
+
+      const dirLabel = bearingToCompass(train.heading);
+      const subText = (dirLabel ? dirLabel + "-bound" : "Direction unavailable") + (train.live ? " · Live GPS" : "");
+      const delayMin = stations.length ? trainDelayMin(stations, nextIdx) : null;
+      document.getElementById("trainSubtitle").innerHTML = esc(subText) + " " + statusBadgeHTML(delayMin);
+
+      const posEl = document.getElementById("trainPosition");
+      if (!stations.length) {
+        posEl.textContent = "";
+      } else if (nextIdx === -1) {
+        posEl.innerHTML = "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
+      } else if (nextIdx === 0) {
+        posEl.innerHTML = "Not yet departed <b>" + esc(stations[0].name) + "</b>";
+      } else {
+        const prev = stations[nextIdx - 1], next = stations[nextIdx];
+        const eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
+        posEl.innerHTML = "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " · due " + formatTime(eta) : "");
+      }
+
+      const stopsList = document.getElementById("stopsList");
+      stopsList.innerHTML = "";
+
+      stations.forEach(function (stop, i) {
+        const isPast = nextIdx === -1 ? true : i < nextIdx;
+        const isNext = i === nextIdx;
+        const item = document.createElement("div");
+        item.className = "stop-item" + (isPast ? " past" : "") + (isNext ? " next" : "");
+        const timeLines = [
+          stopTimeHTML("Arr", stop.schedArrMs, stop.arrMs),
+          stopTimeHTML("Dep", stop.schedDepMs, stop.depMs),
+        ].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
+        item.innerHTML =
+          '<div class="stop-row-top">' +
+            '<span class="stop-name">' + esc(stop.name) + '</span>' +
+            (isPast ? '<span class="stop-status">Departed</span>' : isNext ? '<span class="stop-status next">Next</span>' : '') +
+          '</div>' +
+          '<div class="stop-times">' + (timeLines || "&mdash;") + '</div>';
+        stopsList.appendChild(item);
+      });
+
+      document.getElementById("trainDetail").classList.add("open");
+      renderTrainRouteMap(train);
+    }
+
+    // A live poll shouldn't freeze an open sheet at whatever it showed when
+    // it was tapped — re-render it with the freshly fetched data each time.
+    function reopenIfStillOpen() {
+      if (selectedTripId == null) return;
+      if (!document.getElementById("trainDetail").classList.contains("open")) return;
+      const train = latestTrains.find(function (t) { return t.tripId === selectedTripId; });
+      if (train) showTrain(train);
+      else document.getElementById("trainDetail").classList.remove("open"); // train finished its run
+    }
+
+    async function updateTrains() {
+      try {
+        const res = await fetch("/api/njt-active-trains");
+        const trains = await res.json();
+        latestTrains = trains;
+
+        markers.forEach(m => map.removeLayer(m));
+        markers.clear();
+
+        for (const train of trains) {
+          const color = "#" + (train.color || "0039a6");
+          const icon = createArrowMarker(train.lat, train.lon, train.heading, color);
+          const marker = L.marker([train.lat, train.lon], { icon })
+            .addTo(map)
+            .on("click", () => showTrain(train));
+          markers.set(train.tripId, marker);
+        }
+
+        reopenIfStillOpen();
+      } catch (e) {
+        console.error("Failed to fetch trains:", e);
+      }
+    }
+
+    // Every station as a small fixed dot, labeled once zoomed in enough that
+    // the ~170 statewide names wouldn't just overlap into noise — re-run on
+    // every zoom/pan since which labels fit changes with it, same declutter
+    // technique the LIRR live map and the per-train route maps both use.
+    var STATION_LABEL_MIN_ZOOM = 11;
+    var MIN_LABEL_PX = 50;
+    function declutterStationLabels() {
+      var zoom = map.getZoom();
+      if (zoom < STATION_LABEL_MIN_ZOOM) {
+        stationMarkers.forEach(function (sm) { sm.marker.unbindTooltip(); });
+        return;
+      }
+      var shown = [];
+      stationMarkers.forEach(function (sm) {
+        sm.marker.unbindTooltip();
+        var pt = map.latLngToContainerPoint(sm.marker.getLatLng());
+        var tooClose = shown.some(function (p) { return Math.hypot(pt.x - p.x, pt.y - p.y) < MIN_LABEL_PX; });
+        if (!tooClose) {
+          shown.push(pt);
+          sm.marker.bindTooltip(sm.name, { permanent: true, direction: "top", className: "station-label", offset: [0, -3] });
+        }
+      });
+    }
+
+    async function loadStations() {
+      try {
+        const res = await fetch("/api/njt-stations");
+        const stations = await res.json();
+        stationMarkers = stations
+          .filter(s => s.lat != null && s.lon != null)
+          .map(s => {
+            const marker = L.circleMarker([s.lat, s.lon], {
+              radius: 3, color: "#aab0c0", weight: 1, fillColor: "#d8dce6", fillOpacity: 0.9,
+            }).addTo(map);
+            return { marker, name: s.name };
+          });
+        declutterStationLabels();
+      } catch (e) {
+        console.error("Failed to load stations:", e);
+      }
+    }
+
+    function initMap() {
+      // NJT's rail network spans the whole state (NYC down to Atlantic
+      // City and Philadelphia, west to Hackettstown) — much wider than
+      // LIRR's Long Island map, so this centers lower/wider (near Newark)
+      // at a zoom that keeps the core NYC-Newark-Trenton corridor in frame
+      // without cutting off the shore and Atlantic City lines entirely.
+      map = L.map("map").setView([40.4, -74.4], 9);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap contributors",
+        maxZoom: 19,
+      }).addTo(map);
+      map.on("zoomend moveend", declutterStationLabels);
+
+      loadStations();
+      updateTrains();
+      setInterval(updateTrains, 10000);
+    }
+
+    window.addEventListener("load", initMap);
+  </script>
 </body>
 </html>`;
 
