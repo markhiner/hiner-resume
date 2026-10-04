@@ -4060,7 +4060,7 @@ async function ensureNjtStaticGTFS() {
   console.log("NJT: static GTFS refreshed");
 }
 
-let njtModel = null; // { stopNameById, routeById, tripById, stByTrip, activeByDate }
+let njtModel = null; // { stopInfoById, routeById, tripById, stByTrip, activeByDate }
 
 function loadNjtModel() {
   const read = (f) => fs.readFileSync(path.join(NJT_CACHE_DIR, f), "utf8");
@@ -4070,8 +4070,14 @@ function loadNjtModel() {
   const stopTimes = parseCSV(read("stop_times.txt"));
   const calDates = parseCSV(read("calendar_dates.txt"));
 
-  const stopNameById = new Map();
-  for (const s of stops) stopNameById.set(s.stop_id, s.stop_name);
+  const stopInfoById = new Map();
+  for (const s of stops) {
+    stopInfoById.set(s.stop_id, {
+      name: s.stop_name,
+      lat: Number.isFinite(+s.stop_lat) ? +s.stop_lat : null,
+      lon: Number.isFinite(+s.stop_lon) ? +s.stop_lon : null,
+    });
+  }
 
   const routeById = new Map();
   for (const r of routes) routeById.set(r.route_id, { name: r.route_long_name, shortName: r.route_short_name, color: r.route_color, textColor: r.route_text_color });
@@ -4101,7 +4107,7 @@ function loadNjtModel() {
     activeByDate.get(cd.date).add(cd.service_id);
   }
 
-  njtModel = { stopNameById, routeById, tripById, stByTrip, activeByDate };
+  njtModel = { stopInfoById, routeById, tripById, stByTrip, activeByDate };
   console.log(`NJT: loaded ${stByTrip.size} trips touching a board station, ${routes.length} routes`);
 }
 
@@ -4180,11 +4186,13 @@ function njtScheduleEntries(now, stationId) {
       if (!activeSet || !activeSet.has(trip.service_id)) continue;
 
       const stations = sts.map((s) => {
+        const info = njtModel.stopInfoById.get(s.stop_id);
         const schedArrMs = gtfsTimeToMs(parts, s.arrival_time);
         const schedDepMs = gtfsTimeToMs(parts, s.departure_time);
         const delays = rt && rt.stopDelays.get(s.stop_id);
         return {
-          code: s.stop_id, name: njtModel.stopNameById.get(s.stop_id) || s.stop_id,
+          code: s.stop_id, name: (info && info.name) || s.stop_id,
+          lat: info ? info.lat : null, lon: info ? info.lon : null,
           schedArrMs, schedDepMs,
           arrMs: delays && delays.arrDelaySec != null && schedArrMs != null ? schedArrMs + delays.arrDelaySec * 1000 : null,
           depMs: delays && delays.depDelaySec != null && schedDepMs != null ? schedDepMs + delays.depDelaySec * 1000 : null,
@@ -5478,13 +5486,14 @@ body {
 </html>`;
 
 // Same board/detail-sheet shell as the Amtrak page above, wired to
-// /api/njt-board instead. No map here — NJT's static GTFS stop list this
-// board keeps doesn't carry lat/lon (the board only needs the 3 reference
-// stations' schedule + trip stop times, not a geographic shape), so the
-// detail sheet is stop list only, no Leaflet.
+// /api/njt-board instead. The detail sheet's route map reuses the same
+// stop-dot-plus-declutter-labels approach as the Amtrak board's #ttMap —
+// just without the live-GPS marker/zoom animation, since NJT's realtime
+// feed only carries per-stop delays, no vehicle position.
 const njtBoardPage = `<!DOCTYPE html>
 <html lang="en">
 <head>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -5618,6 +5627,12 @@ body {
 .tt-body { padding: 14px 16px 28px; }
 .tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; }
 .tt-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+#ttMap { height: 260px; border-radius: 12px; margin-top: 12px; background: var(--panel2); }
+.tt-map-label {
+  background: rgba(11,11,13,0.85); color: #fff; border: none; border-radius: 4px;
+  padding: 1px 5px; font-size: 9px; font-weight: 700; box-shadow: none;
+}
+.tt-map-label::before { display: none; }
 .tt-stops { margin-top: 14px; border-top: 1px solid var(--border); }
 .tt-stop {
   display: flex; align-items: center; gap: 8px; padding: 5px 0;
@@ -5688,6 +5703,7 @@ body {
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 (function () {
   function esc(v) {
@@ -5893,6 +5909,7 @@ body {
   var elSheet = document.getElementById("ttSheet");
   var elBody = document.getElementById("ttBody");
   var openTrain = null; // { event, idx } — kept so a live poll can re-render it
+  var ttMap = null;
   var ttStopsExpanded = false;
   var TT_STOPS_COLLAPSE_KEEP = 1;
   var lastStopsRowsHtml = null, lastStopsNextIdx = null;
@@ -5940,9 +5957,12 @@ body {
 
   function renderNjtDetail(row) {
     var status = njtStatus(row);
+    var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
+    var showMap = routeStops.length >= 2;
     elBody.innerHTML =
       '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
       '<div class="tt-sub">NJ Transit &middot; ' + status.text + '</div>' +
+      (showMap ? '<div id="ttMap"></div>' : '') +
       '<div class="tt-stops" id="ttStops"></div>';
 
     var stopsEl = document.getElementById("ttStops");
@@ -5970,6 +5990,53 @@ body {
         stopStateHTML(schedMs, atMs, "Departed") + '</div>';
     });
     renderStopsList(rowsHtml, nextIdx);
+
+    if (!showMap || !window.L) return;
+    // Deferred a tick so #ttMap actually exists in the DOM (it was just set
+    // via innerHTML above) before Leaflet tries to measure it.
+    setTimeout(function () {
+      try {
+        if (ttMap) { ttMap.remove(); ttMap = null; }
+        ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
+        var routeColor = "#" + (row.color || "0039a6");
+        var latlngs = routeStops.map(function (s) { return [s.lat, s.lon]; });
+        // White halo underneath so the line/dots stay visible regardless of
+        // what's under them on OSM's pale basemap, same convention as the
+        // Amtrak board's own route map.
+        L.polyline(latlngs, { color: "#ffffff", weight: 7, opacity: 0.95, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
+        L.polyline(latlngs, { color: routeColor, weight: 4, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
+        var routeMarkers = routeStops.map(function (s, i) {
+          L.circleMarker([s.lat, s.lon], { radius: 6, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
+          var marker = L.circleMarker([s.lat, s.lon], { radius: 4.5, color: "#000", weight: 1.5, fillColor: routeColor, fillOpacity: 1 }).addTo(ttMap);
+          return { marker: marker, name: s.name, forceLabel: i === 0 || i === routeStops.length - 1 || s.code === state.station };
+        });
+        // Endpoints and the board's own reference station always keep their
+        // label; everything else only keeps one once it's far enough away (in
+        // screen pixels, so this redoes itself on zoom/pan) from a label
+        // that's already showing — same declutter rule the Amtrak board and
+        // the LIRR live map both use for the same reason.
+        var MIN_LABEL_PX = 46;
+        function declutterLabels() {
+          var shown = [];
+          routeMarkers.forEach(function (rm) {
+            rm.marker.unbindTooltip();
+            var pt = ttMap.latLngToContainerPoint(rm.marker.getLatLng());
+            var tooClose = shown.some(function (p) { return Math.hypot(pt.x - p.x, pt.y - p.y) < MIN_LABEL_PX; });
+            if (rm.forceLabel || !tooClose) {
+              shown.push(pt);
+              rm.marker.bindTooltip(rm.name, { permanent: true, direction: "top", className: "tt-map-label", offset: [0, -4] });
+            }
+          });
+        }
+        ttMap.on("zoomend moveend", declutterLabels);
+        ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+        declutterLabels();
+        setTimeout(function () { if (ttMap) ttMap.invalidateSize(); }, 60);
+      } catch (e) {
+        console.error("NJT train detail map failed to build:", e);
+      }
+    }, 0);
   }
 
   function openDetail(event, idx) {
