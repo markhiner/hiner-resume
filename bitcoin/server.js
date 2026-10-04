@@ -5116,12 +5116,6 @@ function boardCardHTML(key, label, logoSrc, alt) {
       <span class="board-banner-label">${label}</span>
       <img class="board-logo" src="${logoSrc}" alt="${alt}">
     </div>
-    <div class="board-hdr">
-      <div class="board-tabs">
-        <button class="board-tab active" type="button" data-board="${key}" data-view="dep">Departures</button>
-        <button class="board-tab" type="button" data-board="${key}" data-view="arr">Arrivals</button>
-      </div>
-    </div>
     <div class="board-cols"><span class="c-time">Time</span><span class="c-train">Train</span><span class="c-to" id="${key}ToLabel">To</span><span class="c-status">Status</span></div>
     <div class="board-body" id="${key}Body"><div class="board-empty">Loading&hellip;</div></div>
   </div>`;
@@ -5197,13 +5191,6 @@ body {
 .board-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #050914; }
 .board-banner-label { font-size: 20px; font-weight: 900; color: #fff; letter-spacing: 0.2px; flex: 1; min-width: 0; }
 .board-logo { display: block; flex: 0 0 66%; width: 66%; height: auto; }
-.board-hdr { background: #eef1f8; display: flex; align-items: center; justify-content: flex-start; padding: 8px 10px; gap: 8px; }
-.board-tabs { display: flex; gap: 6px; }
-.board-tab {
-  background: #dde2ee; color: #5a6685; border: none; border-radius: 7px;
-  padding: 5px 11px; font-size: 11.5px; font-weight: 800; font-family: inherit; cursor: pointer;
-}
-.board-tab.active { background: #14265c; color: #fff; }
 .board-cols {
   background: #dde2ee; display: flex; align-items: center; gap: 6px;
   padding: 3px 10px; font-size: 8px; font-weight: 800; letter-spacing: 0.5px;
@@ -5245,12 +5232,20 @@ body {
 .c-status.gone { opacity: 0.75; font-style: italic; }
 .c-status.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 16px 0; font-size: 11px; font-style: italic; }
-.board-more {
-  display: block; width: 100%; text-align: center;
+/* The Departures/Arrivals toggle used to be its own tab bar above the
+   column header — its own full row just for a two-way switch read as a
+   lot of space spent on something this small, so it now shares the one
+   footer row with "More" instead (one or both, depending on whether this
+   board has enough rows to need "More" at all). */
+.board-foot { display: flex; }
+.board-toggle-btn, .board-more {
+  flex: 1; display: block; text-align: center;
   background: #142a5c; color: #fff; border: none; border-top: 2px solid #050914;
   padding: 7px 14px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px;
+  font-family: inherit; cursor: pointer;
 }
-.board-more:active { background: #1e3a7a; }
+.board-toggle-btn { border-right: 2px solid #050914; }
+.board-toggle-btn:active, .board-more:active { background: #1e3a7a; }
 
 /* ── the detail sheet (same slide-up pattern as the hotel/flight sheets
    on the main page — a fresh copy, this is a standalone template) ── */
@@ -5493,6 +5488,20 @@ body {
 
   var BOARD_COLLAPSED_ROWS = 6;
 
+  // The Departures/Arrivals switch is a single button labeled with
+  // whichever direction is currently showing, sharing the one footer row
+  // with "More" instead of its own tab bar above the column header — that
+  // was a whole extra row of space spent on a two-way switch.
+  function boardFootHTML(key, kind, rows, expanded) {
+    var toggleHtml = '<button class="board-toggle-btn" data-toggle-board="' + key + '">' +
+      (kind === "dep" ? "Departures" : "Arrivals") + '</button>';
+    var moreHtml = rows.length > BOARD_COLLAPSED_ROWS
+      ? '<button class="board-more" data-more-board="' + key + '">' +
+        (expanded ? "Show fewer" : "More (" + (rows.length - BOARD_COLLAPSED_ROWS) + ")") + '</button>'
+      : "";
+    return '<div class="board-foot">' + toggleHtml + moreHtml + '</div>';
+  }
+
   function renderBoard(key) {
     var b = BOARDS[key];
     var kind = b.view;
@@ -5504,38 +5513,22 @@ body {
       // Right after a (re)start the server hasn't finished its own first
       // live fetch yet — that's not the same fact as "nothing is running
       // right now" and saying so as if it were reads as broken rather than
-      // just not caught up yet.
-      el.innerHTML = (key === "amtrak" && b.warming)
+      // just not caught up yet. The toggle still needs to render even with
+      // zero rows, so the rider can switch to whichever direction does
+      // have something, rather than this being a dead end.
+      var emptyHtml = (key === "amtrak" && b.warming)
         ? '<div class="board-empty">Loading schedule&hellip;</div>'
         : (key === "njt" && !b.enabled)
         ? '<div class="board-empty">NJ Transit board not configured.</div>'
         : '<div class="board-empty">No ' + (kind === "dep" ? "departures" : "arrivals") + ' in this window.</div>';
+      el.innerHTML = emptyHtml + boardFootHTML(key, kind, rows, false);
       return;
     }
     var expanded = b.expanded[kind];
     var visible = expanded ? rows : rows.slice(0, BOARD_COLLAPSED_ROWS);
     var html = visible.map(function (r, i) { return boardRowHTML(key, r, i, kind); }).join("");
-    if (rows.length > BOARD_COLLAPSED_ROWS) {
-      html += '<button class="board-more" data-more-board="' + key + '">' +
-        (expanded ? "Show fewer" : "More (" + (rows.length - BOARD_COLLAPSED_ROWS) + ")") + '</button>';
-    }
-    el.innerHTML = html;
+    el.innerHTML = html + boardFootHTML(key, kind, rows, expanded);
   }
-
-  document.querySelectorAll(".board-tab").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var key = btn.getAttribute("data-board");
-      var view = btn.getAttribute("data-view");
-      var b = BOARDS[key];
-      if (b.view === view) return;
-      b.view = view;
-      document.querySelectorAll('.board-tab[data-board="' + key + '"]').forEach(function (t) {
-        t.classList.toggle("active", t === btn);
-      });
-      if (openTrain && openTrain.board === key) closeTrain(); // the view switch can shift/remove the open row's index
-      renderBoard(key);
-    });
-  });
 
   function loadAmtrakBoard() {
     fetch("/api/penn-board?station=" + state.station).then(function (r) { return r.json(); }).then(function (d) {
@@ -6074,6 +6067,15 @@ body {
   }
 
   document.addEventListener("click", function (e) {
+    var toggle = e.target.closest("[data-toggle-board]");
+    if (toggle) {
+      var tkey = toggle.getAttribute("data-toggle-board");
+      var tb = BOARDS[tkey];
+      tb.view = tb.view === "dep" ? "arr" : "dep";
+      if (openTrain && openTrain.board === tkey) closeTrain(); // the view switch can shift/remove the open row's index
+      renderBoard(tkey);
+      return;
+    }
     var more = e.target.closest("[data-more-board]");
     if (more) {
       var mkey = more.getAttribute("data-more-board");
