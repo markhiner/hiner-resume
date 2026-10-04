@@ -3466,36 +3466,6 @@ function amtrakBoard(stationCode) {
   };
 }
 
-// Normalizes each operator's own board-row shape into one common shape the
-// merged Penn Station board's client can render without caring which
-// system a given row came from: { operator, trainNum, routeName, color,
-// textColor, other, schedMs, atMs, state, track, stations, vehicle }.
-function pennRowFromAmtrak(row) {
-  return {
-    operator: "AMTRAK", trainNum: row.trainNum, routeName: row.routeName,
-    color: row.color, textColor: row.textColor, other: row.other,
-    schedMs: row.schedMs, atMs: row.atMs, state: row.state, track: row.track,
-    stations: row.stations, shape: row.shape || null, serviceType: row.serviceType,
-    // lat/lon/velocity/heading kept as-is (not just folded into `vehicle`)
-    // because renderAmtrakDetail — reused unchanged on the merged board —
-    // reads them directly; `vehicle` is there too for the merged board's
-    // own operator-agnostic code paths that don't know Amtrak's shape.
-    lat: row.lat, lon: row.lon, velocity: row.velocity, heading: row.heading,
-    vehicle: row.lat != null && row.lon != null ? { lat: row.lat, lon: row.lon } : null,
-  };
-}
-function pennRowFromNjt(row) {
-  return {
-    operator: "NJT", trainNum: row.trainNum, routeName: row.routeShortName || row.routeName,
-    color: row.color, textColor: row.textColor, other: row.other,
-    schedMs: row.schedMs, atMs: row.atMs, state: row.state, track: row.track,
-    stations: row.stations, vehicle: row.vehicle,
-  };
-}
-// LIRR's computeStationDepartures/computeStationArrivals only ever return
-// trains that haven't departed/arrived yet (nowMs is filtered at the
-// source), so unlike Amtrak/NJT's board rows, "state" here is never
-// departed/arrived/scheduled — just delayed-or-not.
 // LIRR's own trip_short_name is a real train number (e.g. "2607"), same
 // idea as Amtrak/NJT's — the raw GTFS tripId ("GO202_26_2") is an internal
 // schedule-generator ID, never something a rider would recognize.
@@ -3505,9 +3475,9 @@ function lirrTrainNum(tripId) {
 }
 // LIRR's GTFS has no route_short_name at all (unlike NJT's) — every branch
 // is "<Name> Branch"/"<Name> Service"/"<Name> Zone" in route_long_name, and
-// combined with a train number that's consistently too long for the merged
-// Penn board's train column to fit on one line. Hand-picked short forms,
-// same idea as NJT's own shortRouteName.
+// combined with a train number that's consistently too long for the
+// board's train column to fit on one line. Hand-picked short forms, same
+// idea as NJT's own shortRouteName.
 const LIRR_ROUTE_ABBR = {
   "Babylon Branch": "Babylon",
   "Hempstead Branch": "Hempstead",
@@ -3526,56 +3496,40 @@ const LIRR_ROUTE_ABBR = {
 function lirrShortRouteName(name) {
   return LIRR_ROUTE_ABBR[name] || (name || "").replace(/ (Branch|Service|Zone)$/, "");
 }
-function pennRowFromLirrDep(row) {
+// LIRR's own per-station board (/lirr-board) is departures-only, same as a
+// real terminal board — this is the one spot in the app that also needs
+// LIRR arrivals (the /trains page's own Penn-anchored LIRR board), so both
+// directions get normalized into the same shape Amtrak/NJT's board rows
+// already use: { trainNum, routeName, color, textColor, other, schedMs,
+// atMs, state, track, stations, vehicle }. computeStationDepartures/
+// computeStationArrivals only ever return trains that haven't
+// departed/arrived yet (nowMs filtered at the source), so "state" here is
+// never departed/arrived/scheduled — just delayed-or-not.
+function lirrPennDepartureRow(row) {
   return {
-    operator: "LIRR", trainNum: lirrTrainNum(row.tripId), routeName: lirrShortRouteName(row.route && row.route.name),
+    trainNum: lirrTrainNum(row.tripId), routeName: lirrShortRouteName(row.route && row.route.name),
     color: (row.route && row.route.color) || "6a6a6a", textColor: (row.route && row.route.textColor) || "ffffff",
     other: row.destName, schedMs: row.schedDepMs, atMs: row.depMs,
     state: row.delayMs > NJT_DELAY_THRESHOLD_MS ? "delayed" : "on-time",
     track: row.track, stations: row.stops, vehicle: row.vehicle,
   };
 }
-function pennRowFromLirrArr(row) {
+function lirrPennArrivalRow(row) {
   return {
-    operator: "LIRR", trainNum: lirrTrainNum(row.tripId), routeName: lirrShortRouteName(row.route && row.route.name),
+    trainNum: lirrTrainNum(row.tripId), routeName: lirrShortRouteName(row.route && row.route.name),
     color: (row.route && row.route.color) || "6a6a6a", textColor: (row.route && row.route.textColor) || "ffffff",
     other: row.originName, schedMs: row.schedArrMs, atMs: row.arrMs,
     state: row.delayMs > NJT_DELAY_THRESHOLD_MS ? "delayed" : "on-time",
     track: row.track, stations: row.stops, vehicle: row.vehicle,
   };
 }
-
-const PENN_BOARD_MAX_ROWS = 40;
-// The actual physical Penn Station board — Amtrak always, plus NJT and
-// LIRR merged in too, but ONLY when the selected reference station is NY
-// Penn itself (the Philadelphia/Washington Amtrak-only views on this same
-// page have no NJT or LIRR service to merge in).
-function pennBoard(stationCode) {
-  const amtrak = amtrakBoard(stationCode);
-  const departures = amtrak.departures.map(pennRowFromAmtrak);
-  const arrivals = amtrak.arrivals.map(pennRowFromAmtrak);
-
-  if (stationCode === "NYP") {
-    const nowMs = Date.now();
-    if (njtModel) {
-      const njt = njtBoard(NJT_DEFAULT_STATION);
-      departures.push(...(njt.departures || []).map(pennRowFromNjt));
-      arrivals.push(...(njt.arrivals || []).map(pennRowFromNjt));
-    }
-    if (lirrModel) {
-      departures.push(...computeStationDepartures(lirrCandidatesCache, lirrModel, PENN_STOP_ID, nowMs, lirrRealtimeByTrip, PENN_BOARD_MAX_ROWS).map(pennRowFromLirrDep));
-      arrivals.push(...computeStationArrivals(lirrCandidatesCache, lirrModel, PENN_STOP_ID, nowMs, lirrRealtimeByTrip, PENN_BOARD_MAX_ROWS).map(pennRowFromLirrArr));
-    }
-  }
-
-  departures.sort((a, b) => a.schedMs - b.schedMs);
-  arrivals.sort((a, b) => a.schedMs - b.schedMs);
+const LIRR_PENN_BOARD_MAX_ROWS = 40;
+function lirrPennBoard() {
+  if (!lirrModel) return { departures: [], arrivals: [] };
+  const nowMs = Date.now();
   return {
-    station: stationCode,
-    departures: departures.slice(0, PENN_BOARD_MAX_ROWS),
-    arrivals: arrivals.slice(0, PENN_BOARD_MAX_ROWS),
-    updatedAt: amtrak.updatedAt,
-    warming: amtrak.warming,
+    departures: computeStationDepartures(lirrCandidatesCache, lirrModel, PENN_STOP_ID, nowMs, lirrRealtimeByTrip, LIRR_PENN_BOARD_MAX_ROWS).map(lirrPennDepartureRow),
+    arrivals: computeStationArrivals(lirrCandidatesCache, lirrModel, PENN_STOP_ID, nowMs, lirrRealtimeByTrip, LIRR_PENN_BOARD_MAX_ROWS).map(lirrPennArrivalRow),
   };
 }
 
@@ -4876,7 +4830,12 @@ const server = http.createServer((req, res) => {
     const requested = (url.searchParams.get("station") || "").toUpperCase();
     const station = AMTRAK_BOARD_STATIONS[requested] ? requested : AMTRAK_DEFAULT_STATION;
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(pennBoard(station)));
+    res.end(JSON.stringify(amtrakBoard(station)));
+    return;
+  }
+  if (url.pathname === "/api/lirr-penn-board") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(lirrPennBoard()));
     return;
   }
   if (url.pathname === "/api/amtrak-nec-trains") {
@@ -4934,10 +4893,16 @@ const server = http.createServer((req, res) => {
     res.end(trainsPage);
     return;
   }
-  // The three operator logos shown on the merged Penn Station board's rows
-  // — plain static files living next to server.js, not routed through any
-  // CDN/static layer, since this Node process is its own deployment.
-  if (["/amtraklogosquare.png", "/njtlogosquare.png", "/lirrlogosquare.png"].includes(url.pathname)) {
+  // The operator logos shown on the Penn Station page's boards — the wide
+  // ones at the top of each board card; the square ones are no longer used
+  // on this page (each board now has one big logo instead of one per row)
+  // but stay servable since nothing's actually wrong with them. Plain
+  // static files living next to server.js, not routed through any CDN/
+  // static layer, since this Node process is its own deployment.
+  if ([
+    "/amtraklogosquare.png", "/njtlogosquare.png", "/lirrlogosquare.png",
+    "/amtraklogowide.png", "/njtlogowide.png", "/lirrlogowide.png",
+  ].includes(url.pathname)) {
     const logoPath = path.join(__dirname, url.pathname.slice(1));
     fs.readFile(logoPath, (err, data) => {
       if (err) { res.writeHead(404); res.end(); return; }
@@ -5128,13 +5093,33 @@ setInterval(load, 60000);
 
 // A standalone page — its own template literal, no PIN gate (train
 // schedules aren't the sensitive personal-finance data the main ticker
-// hides). The literal Departures/Arrivals board for NY Penn, styled after
-// the physical Solari board there — Amtrak always, with NJT and LIRR
-// merged in (server-side, in pennBoard()) whenever the selected reference
-// station is Penn itself, since those two don't serve Philadelphia or
-// Washington. Tapping any row opens a detail sheet with the train's full
-// route and a map; which map-building function runs depends on
-// row.operator (renderAmtrakDetail/renderNjtDetail/renderLirrDetail).
+// hides). Three separate departures/arrivals boards, one each for Amtrak,
+// LIRR and NJT, stacked on one screen (each anchored to Penn Station,
+// except Amtrak's which can switch to Philadelphia/Washington via its own
+// station picker) — styled after the physical Solari board at Penn
+// Station. Each board has its own Departures/Arrivals tab, since showing
+// both directions for all three systems at once would never fit. Tapping
+// any row opens a detail sheet with the train's full route and a map;
+// which map-building function runs depends on which board the row came
+// from (renderAmtrakDetail/renderNjtDetail/renderLirrDetail).
+// One board-card's static shell (logo, Departures/Arrivals tabs, column
+// header, empty body) — called once per railroad below rather than
+// hand-duplicating the same markup three times with different ids.
+function boardCardHTML(key, logoSrc, alt) {
+  return `
+  <div class="board-card">
+    <img class="board-logo" src="${logoSrc}" alt="${alt}">
+    <div class="board-hdr">
+      <div class="board-tabs">
+        <button class="board-tab active" type="button" data-board="${key}" data-view="dep">Departures</button>
+        <button class="board-tab" type="button" data-board="${key}" data-view="arr">Arrivals</button>
+      </div>
+    </div>
+    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">Train</span><span class="c-to" id="${key}ToLabel">To</span><span class="c-status">Status</span></div>
+    <div class="board-body" id="${key}Body"><div class="board-empty">Loading&hellip;</div></div>
+  </div>`;
+}
+
 const trainsPage = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5178,31 +5163,40 @@ body {
 .tp-back:active { background: var(--panel); }
 .tp-brand { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--text2); text-transform: uppercase; }
 .tp-station-select {
-  margin-left: auto; background: var(--panel2); color: var(--text1); border: 1px solid var(--border);
+  background: var(--panel2); color: var(--text1); border: 1px solid var(--border);
   border-radius: 8px; padding: 5px 8px; font-size: 12px; font-weight: 700;
 }
-.tp-navrow { display: flex; gap: 8px; padding: 0 2px 14px; flex-wrap: wrap; }
+.tp-navrow { display: flex; gap: 8px; padding: 0 2px 14px; flex-wrap: wrap; align-items: center; }
 .tp-nav-link {
   background: var(--panel2); color: var(--yellow); border: 1px solid var(--border);
   border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 800; text-decoration: none;
   font-family: inherit; cursor: pointer;
 }
 .tp-nav-link:active { background: var(--panel); }
-/* the Amtrak-only toggle, once it's actually filtering the board */
-.tp-nav-link.active { background: var(--yellow); color: #000; border-color: var(--yellow); }
+.tp-clock { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--text2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-/* ── the departures/arrivals board — styled after the physical Solari
-   board at Penn Station: light header, solid blue rows, dark gaps ── */
+/* ── three separate departures/arrivals boards, one per railroad —
+   styled after the physical Solari board at Penn Station: a wide brand
+   logo up top instead of per-row logos, a Departures/Arrivals tab pair
+   instead of two stacked boards, then solid colored rows, dark gaps. */
 .board-card {
   background: #050914; border: 1px solid var(--border); border-radius: 14px;
   overflow: hidden; margin-bottom: 14px;
 }
-.board-hdr { background: #eef1f8; display: flex; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px; }
-.board-title { font-size: 19px; font-weight: 900; color: #14265c; letter-spacing: -0.3px; }
-.board-clock { font-size: 13px; font-weight: 700; color: #14265c; font-variant-numeric: tabular-nums; }
+/* Full-width, auto height — these are wide brand banners (~3:1), not
+   square icons, so they're meant to stretch edge to edge rather than sit
+   in a fixed-size box. */
+.board-logo { display: block; width: 100%; height: auto; background: #050914; }
+.board-hdr { background: #eef1f8; display: flex; align-items: center; justify-content: flex-start; padding: 8px 10px; gap: 8px; }
+.board-tabs { display: flex; gap: 6px; }
+.board-tab {
+  background: #dde2ee; color: #5a6685; border: none; border-radius: 7px;
+  padding: 5px 11px; font-size: 11.5px; font-weight: 800; font-family: inherit; cursor: pointer;
+}
+.board-tab.active { background: #14265c; color: #fff; }
 .board-cols {
-  background: #dde2ee; display: flex; align-items: center; gap: 8px;
-  padding: 4px 14px 4px 22px; font-size: 8.5px; font-weight: 800; letter-spacing: 0.6px;
+  background: #dde2ee; display: flex; align-items: center; gap: 6px;
+  padding: 3px 10px; font-size: 8px; font-weight: 800; letter-spacing: 0.5px;
   text-transform: uppercase; color: #5a6685;
 }
 .board-body { display: flex; flex-direction: column; }
@@ -5211,49 +5205,40 @@ body {
    small accent bar — matches NJT's own app, where the whole departure row
    is tinted by line. Amtrak rows fall back to the old fixed navy/white
    since Amtrak's own color field isn't a stable route color (see the note
-   on AMTRAK_LINE_COLOR further down). */
+   on AMTRAK_LINE_COLOR further down). Text and padding shrunk from the
+   single-board version so each of the three boards still fits several
+   rows without the page turning into one long scroll. */
 .board-row {
-  display: flex; align-items: center; gap: 8px; position: relative;
-  background: var(--rowbg, #273670); color: var(--rowfg, #fff); padding: 9px 14px;
-  border-bottom: 3px solid #050914; font-weight: 700; font-size: 12.5px;
+  display: flex; align-items: center; gap: 6px; position: relative;
+  background: var(--rowbg, #273670); color: var(--rowfg, #fff); padding: 5px 10px;
+  border-bottom: 2px solid #050914; font-weight: 700; font-size: 11px;
   text-align: left;
 }
 .board-row:last-child { border-bottom: none; }
 .board-row:active { filter: brightness(1.18); }
-/* Stretched to the row's full outer height (stretch's cross-axis size
-   plus negative margins canceling the row's own padding) and flush to the
-   left edge, rather than a small inset square — the first/last row's
-   corners still get clipped cleanly by .board-card's own border-radius +
-   overflow:hidden. */
-.logo-sq {
-  align-self: stretch; width: 40px; height: auto; flex-shrink: 0;
-  object-fit: cover; margin: -9px 0 -9px -14px;
-}
-.c-time { width: 46px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.c-time { width: 38px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .c-train { flex: 1.3; min-width: 0; }
-/* Every row is one line now, full stop — LIRR's own route names get
-   shortened at the source (lirrShortRouteName, down in pennBoard()) so
-   they actually fit instead of needing this as a truncation crutch;
-   nowrap+ellipsis is just the safety net under that, same as NJT's board
-   already uses for the same reason. */
+/* One line, full stop — LIRR's own route names get shortened at the
+   source (lirrShortRouteName) so they actually fit instead of needing
+   this as a truncation crutch; nowrap+ellipsis is just the safety net
+   under that, same as NJT's board already uses for the same reason. */
 .c-train .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 .c-to { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
-.c-status { width: 70px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
+.c-status { width: 56px; flex-shrink: 0; font-size: 9.5px; text-align: right; }
 /* A row can now be any line's real color, some of them close to this same
    yellow — a dark pill behind the text keeps a delay legible regardless of
    what color it's sitting on, same fix NJT's own board already needed. */
 .c-status.delayed {
   color: var(--yellow); font-weight: 800; display: inline-block;
-  background: rgba(0,0,0,0.5); border-radius: 6px; padding: 3px 6px; line-height: 1.25;
+  background: rgba(0,0,0,0.5); border-radius: 6px; padding: 2px 5px; line-height: 1.2;
 }
 .c-status.gone { opacity: 0.75; font-style: italic; }
 .c-status.scheduled { opacity: 0.75; font-style: italic; }
-.board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
-.board-ftr { background: #dde2ee; color: #5a6685; text-align: right; padding: 6px 14px; font-size: 10px; letter-spacing: 0.4px; }
+.board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 16px 0; font-size: 11px; font-style: italic; }
 .board-more {
   display: block; width: 100%; text-align: center;
-  background: #142a5c; color: #fff; border: none; border-top: 3px solid #050914;
-  padding: 9px 14px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+  background: #142a5c; color: #fff; border: none; border-top: 2px solid #050914;
+  padding: 7px 14px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px;
 }
 .board-more:active { background: #1e3a7a; }
 
@@ -5336,34 +5321,23 @@ body {
 
   <div class="tp-topbar">
     <a class="tp-back" href="/" aria-label="Back to BTC ticker">&larr;</a>
-    <span class="tp-brand">Penn Station &middot; Departures &amp; Arrivals</span>
-    <select class="tp-station-select" id="stationSelect" aria-label="Reference station">
+    <span class="tp-brand">Penn Station</span>
+    <span class="tp-clock" id="sharedClock">&mdash;</span>
+  </div>
+  <div class="tp-navrow">
+    <select class="tp-station-select" id="stationSelect" aria-label="Amtrak reference station">
       ${Object.entries(AMTRAK_BOARD_STATIONS).map(([code, name]) =>
         `<option value="${code}"${code === AMTRAK_DEFAULT_STATION ? " selected" : ""}>${name}</option>`
       ).join("")}
     </select>
-  </div>
-  <div class="tp-navrow">
-    <button class="tp-nav-link" id="amtrakOnlyBtn" type="button">Amtrak</button>
     <a class="tp-nav-link" href="/amtrak-nec-map">NEC Map</a>
     <a class="tp-nav-link" href="/lirr-board">LIRR</a>
     <a class="tp-nav-link" href="/njt-board">NJ Transit</a>
   </div>
 
-  <div class="board-card">
-    <div class="board-hdr"><span class="board-title" id="depTitle">Departures</span><span class="board-clock" id="depClock">&mdash;</span></div>
-    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">To</span><span class="c-status">Status</span></div>
-    <div class="board-body" id="depBody"><div class="board-empty">Loading&hellip;</div></div>
-    <div class="board-ftr" id="depDate">&mdash;</div>
-  </div>
-
-  <div class="board-card">
-    <div class="board-hdr"><span class="board-title">Arrivals</span><span class="board-clock" id="arrClock">&mdash;</span></div>
-    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">From</span><span class="c-status">Status</span></div>
-    <div class="board-body" id="arrBody"><div class="board-empty">Loading&hellip;</div></div>
-    <div class="board-ftr" id="arrDate">&mdash;</div>
-  </div>
-
+  ${boardCardHTML("amtrak", "/amtraklogowide.png", "Amtrak")}
+  ${boardCardHTML("lirr", "/lirrlogowide.png", "LIRR")}
+  ${boardCardHTML("njt", "/njtlogowide.png", "NJ Transit")}
 
 </div>
 
@@ -5419,32 +5393,25 @@ body {
     return out;
   }
 
-  // ---------- NY Penn Departures / Arrivals (Amtrak + NJT + LIRR) ----------
+  // ---------- three boards: Amtrak, LIRR, NJT ----------
 
-  var STATION_NAMES = ${JSON.stringify(AMTRAK_BOARD_STATIONS)};
-  var STATION_TITLES = ${JSON.stringify(AMTRAK_BOARD_STATION_TITLES)};
   var STATION_CODES = ${JSON.stringify(Object.keys(AMTRAK_BOARD_STATIONS))};
   var urlStation = new URL(location.href).searchParams.get("station");
-  var state = {
-    departures: [], arrivals: [],
-    station: STATION_CODES.indexOf(urlStation) !== -1 ? urlStation : "${AMTRAK_DEFAULT_STATION}",
-    // null = show everything merged in; "AMTRAK" = just the Amtrak board,
-    // toggled via the button next to the station picker. Only meaningful at
-    // NY Penn — Philadelphia/Washington are Amtrak-only already.
-    filterOperator: null,
-  };
+  // Only the Amtrak board's own reference station is switchable (Philly/
+  // Washington have no LIRR or NJT service to show); "state" is just that
+  // one value now; LIRR and NJT's boards are always anchored to Penn.
+  var state = { station: STATION_CODES.indexOf(urlStation) !== -1 ? urlStation : "${AMTRAK_DEFAULT_STATION}" };
 
-  // Whatever's actually on screen right now — every render AND every
-  // data-idx lookup (openDetail, reopenIfStillOpen, the "more" button) goes
-  // through these two instead of state.departures/arrivals directly, so a
-  // row's on-screen position always matches the array it's looked up from,
-  // filtered or not.
-  function visibleDepartures() {
-    return state.filterOperator ? state.departures.filter(function (r) { return r.operator === state.filterOperator; }) : state.departures;
-  }
-  function visibleArrivals() {
-    return state.filterOperator ? state.arrivals.filter(function (r) { return r.operator === state.filterOperator; }) : state.arrivals;
-  }
+  // One entry per board — its own departures/arrivals, which direction is
+  // currently showing, and its own "show more" state per direction. Kept
+  // separate (rather than one shared list with an operator filter, like an
+  // earlier version of this page did) since all three are visible at once
+  // now, not alternate views of the same list.
+  var BOARDS = {
+    amtrak: { departures: [], arrivals: [], view: "dep", warming: false, expanded: { dep: false, arr: false } },
+    lirr:   { departures: [], arrivals: [], view: "dep", expanded: { dep: false, arr: false } },
+    njt:    { departures: [], arrivals: [], view: "dep", enabled: true, expanded: { dep: false, arr: false } },
+  };
 
   // A few NJT station names are long enough to force the "To"/"From"
   // column onto a second line on their own — same fix as the NJT board's
@@ -5476,7 +5443,7 @@ body {
   // server already classifies each train into — Amtrak's own color field
   // isn't a stable route color (see the AMTRAK_LINE_COLOR note further
   // down: it's a timeliness indicator, not a brand color), so this small
-  // fixed set stands in for "Amtrak's line color" instead. Now used as the
+  // fixed set stands in for "Amtrak's line color" instead. Used as the
   // row's full-width background, same as NJT/LIRR's own real line colors.
   var SERVICE_COLORS = {
     acela:    "#19ebfa",
@@ -5494,122 +5461,141 @@ body {
     empire:   "#ffffff",
     longdist: "#ffffff",
   };
-  var OPERATOR_LOGO = { AMTRAK: "/amtraklogosquare.png", NJT: "/njtlogosquare.png", LIRR: "/lirrlogosquare.png" };
 
-  function boardRowHTML(row, idx, kind) {
+  function boardRowHTML(boardKey, row, idx, kind) {
     var status = rowStatus(row);
     var rowbg, rowfg;
-    if (row.operator === "AMTRAK") {
+    if (boardKey === "amtrak") {
       rowbg = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
       rowfg = SERVICE_TEXT[row.serviceType] || SERVICE_TEXT.longdist;
     } else {
       rowbg = "#" + (row.color || "888888");
       rowfg = "#" + (row.textColor || "ffffff");
     }
-    var logo = OPERATOR_LOGO[row.operator]
-      ? '<img class="logo-sq" src="' + OPERATOR_LOGO[row.operator] + '" alt="' + row.operator + '">' : "";
-    return '<div class="board-row" data-kind="' + row.operator.toLowerCase() + '" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
-      logo +
+    var routeName = boardKey === "njt" ? (row.routeShortName || row.routeName) : row.routeName;
+    return '<div class="board-row" data-board="' + boardKey + '" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
-      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
+      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span></span>' +
       '<span class="c-to">' + esc(shortStopName(row.other)) + '</span>' +
       '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
       '</div>';
   }
 
-  var BOARD_COLLAPSED_ROWS = 5;
-  var boardExpanded = { dep: false, arr: false };
+  var BOARD_COLLAPSED_ROWS = 6;
 
-  function renderBoard(bodyId, rows, kind) {
-    var el = document.getElementById(bodyId);
+  function renderBoard(key) {
+    var b = BOARDS[key];
+    var kind = b.view;
+    var rows = kind === "dep" ? b.departures : b.arrivals;
+    var el = document.getElementById(key + "Body");
+    var toLabelEl = document.getElementById(key + "ToLabel");
+    if (toLabelEl) toLabelEl.textContent = kind === "dep" ? "To" : "From";
     if (!rows.length) {
       // Right after a (re)start the server hasn't finished its own first
       // live fetch yet — that's not the same fact as "nothing is running
       // right now" and saying so as if it were reads as broken rather than
       // just not caught up yet.
-      el.innerHTML = state.amtrakWarming
-        ? '<div class="board-empty">Loading schedules&hellip;</div>'
+      el.innerHTML = (key === "amtrak" && b.warming)
+        ? '<div class="board-empty">Loading schedule&hellip;</div>'
+        : (key === "njt" && !b.enabled)
+        ? '<div class="board-empty">NJ Transit board not configured.</div>'
         : '<div class="board-empty">No ' + (kind === "dep" ? "departures" : "arrivals") + ' in this window.</div>';
       return;
     }
-    var expanded = boardExpanded[kind];
+    var expanded = b.expanded[kind];
     var visible = expanded ? rows : rows.slice(0, BOARD_COLLAPSED_ROWS);
-    var html = visible.map(function (r, i) { return boardRowHTML(r, i, kind); }).join("");
+    var html = visible.map(function (r, i) { return boardRowHTML(key, r, i, kind); }).join("");
     if (rows.length > BOARD_COLLAPSED_ROWS) {
-      html += '<button class="board-more" data-more="' + kind + '">' +
+      html += '<button class="board-more" data-more-board="' + key + '">' +
         (expanded ? "Show fewer" : "More (" + (rows.length - BOARD_COLLAPSED_ROWS) + ")") + '</button>';
     }
     el.innerHTML = html;
   }
 
-  function loadPennBoard() {
-    var forStation = state.station;
-    fetch("/api/penn-board?station=" + forStation).then(function (r) { return r.json(); }).then(function (d) {
+  document.querySelectorAll(".board-tab").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var key = btn.getAttribute("data-board");
+      var view = btn.getAttribute("data-view");
+      var b = BOARDS[key];
+      if (b.view === view) return;
+      b.view = view;
+      document.querySelectorAll('.board-tab[data-board="' + key + '"]').forEach(function (t) {
+        t.classList.toggle("active", t === btn);
+      });
+      if (openTrain && openTrain.board === key) closeTrain(); // the view switch can shift/remove the open row's index
+      renderBoard(key);
+    });
+  });
+
+  function loadAmtrakBoard() {
+    fetch("/api/penn-board?station=" + state.station).then(function (r) { return r.json(); }).then(function (d) {
       // the dropdown may have changed again while this request was in
       // flight — a late response for the station we've since navigated
       // away from would otherwise flash back over the one the user picked
       if (d.station !== state.station) return;
-      state.departures = d.departures || [];
-      state.arrivals = d.arrivals || [];
-      state.amtrakWarming = !!d.warming;
-      renderBoard("depBody", visibleDepartures(), "dep");
-      renderBoard("arrBody", visibleArrivals(), "arr");
-      // an open sheet should stay live rather than freeze at whatever it
-      // showed when it was opened — the train may have moved since
-      if (openTrain) reopenIfStillOpen();
+      BOARDS.amtrak.departures = d.departures || [];
+      BOARDS.amtrak.arrivals = d.arrivals || [];
+      BOARDS.amtrak.warming = !!d.warming;
+      renderBoard("amtrak");
+      if (openTrain && openTrain.board === "amtrak") reopenIfStillOpen();
     }).catch(function (e) {
-      document.getElementById("depBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
-      document.getElementById("arrBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
+      document.getElementById("amtrakBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
     });
   }
 
-  function updateDepTitle() {
-    document.getElementById("depTitle").textContent = (STATION_TITLES[state.station] || STATION_NAMES[state.station]) + " Departures";
+  function loadLirrBoard() {
+    fetch("/api/lirr-penn-board").then(function (r) { return r.json(); }).then(function (d) {
+      BOARDS.lirr.departures = d.departures || [];
+      BOARDS.lirr.arrivals = d.arrivals || [];
+      renderBoard("lirr");
+      if (openTrain && openTrain.board === "lirr") reopenIfStillOpen();
+    }).catch(function (e) {
+      document.getElementById("lirrBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
+    });
+  }
+
+  function loadNjtBoard() {
+    fetch("/api/njt-board?station=${NJT_DEFAULT_STATION}").then(function (r) { return r.json(); }).then(function (d) {
+      BOARDS.njt.enabled = !!d.enabled;
+      if (!d.enabled) { renderBoard("njt"); return; }
+      BOARDS.njt.departures = d.departures || [];
+      BOARDS.njt.arrivals = d.arrivals || [];
+      renderBoard("njt");
+      if (openTrain && openTrain.board === "njt") reopenIfStillOpen();
+    }).catch(function (e) {
+      document.getElementById("njtBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
+    });
   }
 
   var stationSelectEl = document.getElementById("stationSelect");
   stationSelectEl.value = state.station;
   stationSelectEl.addEventListener("change", function () {
     state.station = stationSelectEl.value;
-    boardExpanded.dep = false;
-    boardExpanded.arr = false;
-    if (openTrain) closeTrain();
+    BOARDS.amtrak.expanded.dep = false;
+    BOARDS.amtrak.expanded.arr = false;
+    if (openTrain && openTrain.board === "amtrak") closeTrain();
     var url = new URL(location.href);
     url.searchParams.set("station", state.station);
     history.replaceState(null, "", url);
-    document.getElementById("depBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
-    document.getElementById("arrBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
-    updateDepTitle();
-    loadPennBoard();
-  });
-  updateDepTitle();
-
-  var amtrakOnlyBtnEl = document.getElementById("amtrakOnlyBtn");
-  amtrakOnlyBtnEl.addEventListener("click", function () {
-    state.filterOperator = state.filterOperator ? null : "AMTRAK";
-    amtrakOnlyBtnEl.textContent = state.filterOperator ? "All Trains" : "Amtrak";
-    amtrakOnlyBtnEl.classList.toggle("active", !!state.filterOperator);
-    boardExpanded.dep = false;
-    boardExpanded.arr = false;
-    if (openTrain) closeTrain(); // filtering can shift/remove the open row's index
-    renderBoard("depBody", visibleDepartures(), "dep");
-    renderBoard("arrBody", visibleArrivals(), "arr");
+    document.getElementById("amtrakBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
+    loadAmtrakBoard();
   });
 
-  function tickClocks() {
+  function tickClock() {
     var now = new Date();
     var t = now.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false });
     if (t.slice(0, 3) === "24:") t = "00:" + t.slice(3);
-    var d = now.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric", year: "numeric" });
-    document.getElementById("depClock").textContent = t;
-    document.getElementById("arrClock").textContent = t;
-    document.getElementById("depDate").textContent = d;
-    document.getElementById("arrDate").textContent = d;
+    document.getElementById("sharedClock").textContent = t;
   }
-  tickClocks();
-  setInterval(tickClocks, 1000);
-  loadPennBoard();
-  setInterval(loadPennBoard, 30000);
+  tickClock();
+  setInterval(tickClock, 1000);
+
+  loadAmtrakBoard();
+  loadLirrBoard();
+  loadNjtBoard();
+  setInterval(loadAmtrakBoard, 30000);
+  setInterval(loadLirrBoard, 30000);
+  setInterval(loadNjtBoard, 30000);
 
   // ---------- the detail sheet ----------
 
@@ -5746,7 +5732,7 @@ body {
         var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
         // the "(New York)"-style annotation this used to add for the board's
         // own reference station is redundant now: s.name already goes through
-        // the same city-name cleanup as STATION_NAMES, so the two agree.
+        // the same city-name cleanup server-side, so the two agree.
         return '<div class="tt-stop' + cls + '"><span class="nm">' + esc(s.name) + '</span>' +
           '<span class="tm">' + fmtBoardTime(schedMs != null ? schedMs : timeMs) + '</span>' +
           stopStateHTML(schedMs, atMs, "Departed") + '</div>';
@@ -6049,37 +6035,41 @@ body {
 
   // Which detail renderer a row needs — only Amtrak gets the live-GPS
   // wide->medium->tight zoom choreography (ttMapJustOpened/ttLastZoom);
-  // NJT/LIRR's simpler maps ignore those two entirely.
-  function renderDetailForRow(row) {
-    if (row.operator === "NJT") renderNjtDetail(row);
-    else if (row.operator === "LIRR") renderLirrDetail(row);
+  // NJT/LIRR's simpler maps ignore those two entirely. Dispatched by which
+  // board the row came from now, not a per-row operator field — each
+  // board only ever holds rows from its own one system.
+  function renderDetailForBoard(board, row) {
+    if (board === "njt") renderNjtDetail(row);
+    else if (board === "lirr") renderLirrDetail(row);
     else renderAmtrakDetail(row);
   }
 
-  function openDetail(event, idx) {
-    openTrain = { event: event, idx: idx };
+  function openDetail(board, event, idx) {
+    openTrain = { board: board, event: event, idx: idx };
     elSheet.classList.add("on");
     document.body.style.overflow = "hidden";
     ttMapJustOpened = true;
     ttLastZoom = null;
     ttStopsExpanded = false;
-    var row = (event === "dep" ? visibleDepartures() : visibleArrivals())[idx];
-    if (row) renderDetailForRow(row);
+    var list = event === "dep" ? BOARDS[board].departures : BOARDS[board].arrivals;
+    var row = list[idx];
+    if (row) renderDetailForBoard(board, row);
   }
 
   function reopenIfStillOpen() {
     if (!openTrain) return;
-    var list = openTrain.event === "dep" ? visibleDepartures() : visibleArrivals();
-    if (openTrain.idx < list.length) renderDetailForRow(list[openTrain.idx]);
+    var list = openTrain.event === "dep" ? BOARDS[openTrain.board].departures : BOARDS[openTrain.board].arrivals;
+    if (openTrain.idx < list.length) renderDetailForBoard(openTrain.board, list[openTrain.idx]);
     else closeTrain(); // the train aged off the board while the sheet was open
   }
 
   document.addEventListener("click", function (e) {
-    var more = e.target.closest("[data-more]");
+    var more = e.target.closest("[data-more-board]");
     if (more) {
-      var mkind = more.getAttribute("data-more");
-      boardExpanded[mkind] = !boardExpanded[mkind];
-      renderBoard(mkind === "dep" ? "depBody" : "arrBody", mkind === "dep" ? visibleDepartures() : visibleArrivals(), mkind);
+      var mkey = more.getAttribute("data-more-board");
+      var mkind = BOARDS[mkey].view;
+      BOARDS[mkey].expanded[mkind] = !BOARDS[mkey].expanded[mkind];
+      renderBoard(mkey);
       return;
     }
     if (e.target.closest("[data-tt-stops-more]")) {
@@ -6099,10 +6089,14 @@ body {
       if (stopIdx != null) focusStop(+stopIdx);
       return;
     }
-    var row = e.target.closest("[data-kind]");
+    // .board-body's innerHTML gets replaced wholesale on every refresh, so
+    // this has to be delegated too — same reasoning as every other row
+    // list in this app. Only .board-row elements carry data-board (the tab
+    // buttons above each board also do, for their own direct listener), so
+    // matching the class first keeps this from ever misreading a tab click.
+    var row = e.target.closest(".board-row");
     if (!row) return;
-    var idx = +row.getAttribute("data-idx");
-    openDetail(row.getAttribute("data-event"), idx);
+    openDetail(row.getAttribute("data-board"), row.getAttribute("data-event"), +row.getAttribute("data-idx"));
   });
 })();
 </script>
