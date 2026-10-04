@@ -5102,18 +5102,26 @@ setInterval(load, 60000);
 // any row opens a detail sheet with the train's full route and a map;
 // which map-building function runs depends on which board the row came
 // from (renderAmtrakDetail/renderNjtDetail/renderLirrDetail).
+// These logo files have been swapped out several times in place (same
+// filename, new bytes each time) while the look was being worked out — the
+// route below sends them with a 24h cache header, so without a cache-
+// busting query param a browser that already had an old one cached would
+// just keep showing it, long after a new version had actually shipped.
+// Keyed off the file's own mtime, so only a logo that actually changed
+// gets a new URL.
+function logoVersion(filename) {
+  try { return Math.round(fs.statSync(path.join(__dirname, filename)).mtimeMs); } catch { return 0; }
+}
+
 // One board-card's static shell (brand banner, Departures/Arrivals tabs,
 // column header, empty body) — called once per railroad below rather than
-// hand-duplicating the same markup three times with different ids. The
-// banner is the railroad's name on the left and its logo artwork at a
-// fixed 2/3-width on the right — the logo PNGs have a transparent
-// background, so they sit directly on the banner's own dark background
-// rather than needing a box of their own.
+// hand-duplicating the same markup three times with different ids.
 function boardCardHTML(key, logoSrc, alt) {
+  const versionedSrc = logoSrc + "?v=" + logoVersion(logoSrc.slice(1));
   return `
   <div class="board-card">
     <div class="board-banner">
-      <img class="board-logo" src="${logoSrc}" alt="${alt}">
+      <img class="board-logo" src="${versionedSrc}" alt="${alt}">
     </div>
     <div class="board-cols"><span class="c-time">Time</span><span class="c-train">Train</span><span class="c-to" id="${key}ToLabel">To</span><span class="c-status">Status</span></div>
     <div class="board-body" id="${key}Body"><div class="board-empty">Loading&hellip;</div></div>
@@ -5189,7 +5197,7 @@ body {
    cropped tight to the train and have a transparent background, so they
    sit directly on the banner's own dark background. */
 .board-banner { display: flex; align-items: center; justify-content: center; padding: 4px 0; background: #050914; }
-.board-logo { display: block; width: 96%; height: auto; }
+.board-logo { display: block; width: 80%; height: auto; }
 .board-cols {
   background: #dde2ee; display: flex; align-items: center; gap: 6px;
   padding: 3px 10px; font-size: 8px; font-weight: 800; letter-spacing: 0.5px;
