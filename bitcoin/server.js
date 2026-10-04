@@ -5109,11 +5109,10 @@ setInterval(load, 60000);
 // fixed 2/3-width on the right — the logo PNGs have a transparent
 // background, so they sit directly on the banner's own dark background
 // rather than needing a box of their own.
-function boardCardHTML(key, label, logoSrc, alt) {
+function boardCardHTML(key, logoSrc, alt) {
   return `
   <div class="board-card">
     <div class="board-banner">
-      <span class="board-banner-label">${label}</span>
       <img class="board-logo" src="${logoSrc}" alt="${alt}">
     </div>
     <div class="board-cols"><span class="c-time">Time</span><span class="c-train">Train</span><span class="c-to" id="${key}ToLabel">To</span><span class="c-status">Status</span></div>
@@ -5184,16 +5183,13 @@ body {
   background: #050914; border: 1px solid var(--border); border-radius: 14px;
   overflow: hidden; margin-bottom: 14px;
 }
-/* Railroad name on the left, its logo artwork fixed at well under half
-   width on the right — small and tight, no padding reserved around it, so
-   it can butt right up against (or slightly under) the label and the
-   banner's own edges rather than sitting in a box of its own whitespace.
-   The PNGs are already cropped tight to the train artwork and have a
-   transparent background, so they sit directly on the banner's own dark
-   background. */
-.board-banner { display: flex; align-items: center; gap: 4px; padding: 2px 10px; background: #050914; }
-.board-banner-label { font-size: 18px; font-weight: 900; color: #fff; letter-spacing: 0.2px; flex: 1; min-width: 0; }
-.board-logo { display: block; flex: 0 0 40%; width: 40%; height: auto; margin: -4px 0; }
+/* No label text anymore — the real train photo/render is identifiable on
+   its own — just the logo artwork spanning almost the full card width,
+   centered, with next to no padding around it. The PNGs are already
+   cropped tight to the train and have a transparent background, so they
+   sit directly on the banner's own dark background. */
+.board-banner { display: flex; align-items: center; justify-content: center; padding: 4px 0; background: #050914; }
+.board-logo { display: block; width: 96%; height: auto; }
 .board-cols {
   background: #dde2ee; display: flex; align-items: center; gap: 6px;
   padding: 3px 10px; font-size: 8px; font-weight: 800; letter-spacing: 0.5px;
@@ -5343,9 +5339,9 @@ body {
     <a class="tp-nav-link" href="/njt-board">NJ Transit</a>
   </div>
 
-  ${boardCardHTML("amtrak", "Amtrak", "/amtraklogowide.png", "Amtrak")}
-  ${boardCardHTML("lirr", "LIRR", "/lirrlogowide.png", "LIRR")}
-  ${boardCardHTML("njt", "NJ Transit", "/njtlogowide.png", "NJ Transit")}
+  ${boardCardHTML("amtrak", "/amtraklogowide.png", "Amtrak")}
+  ${boardCardHTML("lirr", "/lirrlogowide.png", "LIRR")}
+  ${boardCardHTML("njt", "/njtlogowide.png", "NJ Transit")}
 
 </div>
 
