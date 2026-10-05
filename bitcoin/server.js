@@ -5180,7 +5180,7 @@ body {
    styled after the physical Solari board at Penn Station: a wide brand
    logo overlapping the top of the card instead of a boxed-in banner row,
    then solid colored rows, dark gaps, no column header. */
-.board-wrap { position: relative; margin-bottom: 14px; }
+.board-wrap { position: relative; margin-bottom: 8px; }
 /* The logo row sits in normal flow, then a negative bottom margin pulls
    the card up underneath it so the logo's own bottom edge overlaps the
    first train row by a few px — "atop" the board, not boxed above it.
@@ -5193,14 +5193,14 @@ body {
 /* pointer-events:none on the row itself (re-enabled just on .board-link)
    so the sliver of this row that overlaps the first train row below never
    steals that row's tap — nothing up here but artwork and one real link. */
-.board-logo-row { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; margin-bottom: -14px; pointer-events: none; }
+.board-logo-row { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; margin-bottom: -8px; pointer-events: none; }
 .board-link {
   background: #142a5c; color: #fff; border-radius: 6px; padding: 4px 10px;
   font-size: 10px; font-weight: 800; letter-spacing: 0.4px; text-decoration: none;
   flex-shrink: 0; pointer-events: auto;
 }
 .board-link:active { background: #1e3a7a; }
-.board-logo { width: 88%; height: auto; flex-shrink: 0; margin-left: 8px; margin-right: -32px; }
+.board-logo { width: 97%; height: auto; flex-shrink: 0; margin-left: 8px; margin-right: -32px; }
 .board-card {
   position: relative; z-index: 0;
   background: #050914; border: 1px solid var(--border); border-radius: 14px;
