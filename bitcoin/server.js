@@ -5200,7 +5200,7 @@ body {
   flex-shrink: 0; pointer-events: auto;
 }
 .board-link:active { background: #1e3a7a; }
-.board-logo { width: 97%; height: auto; flex-shrink: 0; margin-left: 8px; margin-right: -32px; }
+.board-logo { position: relative; top: -4px; width: 97%; height: auto; flex-shrink: 0; margin-left: 8px; margin-right: -32px; }
 .board-card {
   position: relative; z-index: 0;
   background: #050914; border: 1px solid var(--border); border-radius: 14px;
@@ -5464,6 +5464,52 @@ body {
     longdist: "#ffffff",
   };
 
+  // Across three railroads' own real line colors (plus Amtrak's stand-in
+  // palette above), "blue" and "green" each show up as several different
+  // exact shades — NJT's Northeast Corridor blue isn't the same blue as
+  // Amtrak's Regional, LIRR's Port Jefferson, or NJT's own Coast Line.
+  // Rather than leave riders to learn which shade means what per operator,
+  // every color on this page gets bucketed by hue into a blue family and a
+  // green family, each collapsed to one LIRR-branded shade: Port
+  // Jefferson's blue (that's the "Huntington train" to LIRR riders, since
+  // most Port Jeff-branch trains terminate there) and Babylon's green.
+  // LIRR's own Oyster Bay branch is the one exception — its green stays
+  // its own shade rather than collapsing into Babylon's, since this is
+  // LIRR's own palette being used as the standard, not erased by it.
+  // Anything outside those two hue bands (red, orange, yellow, purple,
+  // teal, brown, or anything too desaturated to read as a color at all)
+  // is left exactly as that operator's own feed has it.
+  var HUNTINGTON_BLUE = "006ec7";
+  var BABYLON_GREEN = "00985f";
+  var LIRR_OYSTER_BAY_GREEN = "00af3f";
+  function hexHueSat(hex) {
+    var r = parseInt(hex.slice(0, 2), 16) / 255;
+    var g = parseInt(hex.slice(2, 4), 16) / 255;
+    var b = parseInt(hex.slice(4, 6), 16) / 255;
+    var max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    var h = 0;
+    if (d !== 0) {
+      if (max === r) h = ((g - b) / d) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60;
+      if (h < 0) h += 360;
+    }
+    var l = (max + min) / 2;
+    var s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+    return { h: h, s: s };
+  }
+  function standardizeLineColor(boardKey, hex) {
+    hex = (hex || "").toLowerCase();
+    if (!/^[0-9a-f]{6}$/.test(hex)) return hex;
+    if (boardKey === "lirr" && hex === LIRR_OYSTER_BAY_GREEN) return hex;
+    var hs = hexHueSat(hex);
+    if (hs.s < 0.2) return hex;
+    if (hs.h >= 196 && hs.h <= 245) return HUNTINGTON_BLUE;
+    if (hs.h >= 95 && hs.h <= 175) return BABYLON_GREEN;
+    return hex;
+  }
+
   function boardRowHTML(boardKey, row, idx, kind) {
     var status = rowStatus(row);
     var rowbg, rowfg;
@@ -5473,6 +5519,12 @@ body {
     } else {
       rowbg = "#" + (row.color || "888888");
       rowfg = "#" + (row.textColor || "ffffff");
+    }
+    var rawHex = rowbg.replace("#", "").toLowerCase();
+    var stdHex = standardizeLineColor(boardKey, rawHex);
+    if (stdHex !== rawHex) {
+      rowbg = "#" + stdHex;
+      rowfg = "#ffffff";
     }
     var routeName = boardKey === "njt" ? (row.routeShortName || row.routeName) : row.routeName;
     return '<div class="board-row" data-board="' + boardKey + '" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
@@ -5970,7 +6022,7 @@ body {
     if (!showMap || !window.L) return;
     setTimeout(function () {
       try {
-        renderOperatorRouteMap(row.stations, "#" + (row.color || "0039a6"), "${NJT_DEFAULT_STATION}", hasVehicle ? row.vehicle : null);
+        renderOperatorRouteMap(row.stations, "#" + standardizeLineColor("njt", row.color || "0039a6"), "${NJT_DEFAULT_STATION}", hasVehicle ? row.vehicle : null);
       } catch (e) {
         console.error("NJT train detail map failed to build:", e);
       }
@@ -6018,7 +6070,7 @@ body {
     if (!showMap || !window.L) return;
     setTimeout(function () {
       try {
-        renderOperatorRouteMap(row.stations, "#" + (row.color || "6a6a6a"), PENN_LIRR_STOP_ID, hasVehicle ? row.vehicle : null);
+        renderOperatorRouteMap(row.stations, "#" + standardizeLineColor("lirr", row.color || "6a6a6a"), PENN_LIRR_STOP_ID, hasVehicle ? row.vehicle : null);
       } catch (e) {
         console.error("LIRR train detail map failed to build:", e);
       }
