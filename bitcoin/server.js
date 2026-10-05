@@ -5447,22 +5447,21 @@ body {
   // down: it's a timeliness indicator, not a brand color), so this small
   // fixed set stands in for "Amtrak's line color" instead. Used as the
   // row's full-width background, same as NJT/LIRR's own real line colors.
-  // Keystone is LIRR's own Hempstead Branch yellow directly (not run
-  // through standardizeLineColor below — its hue sits outside both the
-  // blue and green bands that function buckets, so this is its own fixed
-  // assignment onto the LIRR palette instead).
+  // Keystone and Acela are LIRR's own Hempstead Branch yellow and Montauk
+  // Branch teal directly (not run through standardizeLineColor below —
+  // both hues sit outside the blue/green bands that function buckets, so
+  // these are their own fixed assignments onto the LIRR palette instead).
   var SERVICE_COLORS = {
-    acela:    "#19ebfa",
+    acela:    "#00b2a9",
     regional: "#1959fa",
     keystone: "#ce8e00",
     empire:   "#0f942c",
     longdist: "#d93636",
   };
-  // Paired text color per service color above — several of them (acela's
-  // cyan, keystone's gold) are too light for white text to read on.
-  // Keystone's text color matches LIRR's own Hempstead Branch pairing.
+  // Paired text color per service color above. Acela's and Keystone's
+  // text colors match LIRR's own Montauk/Hempstead Branch pairings.
   var SERVICE_TEXT = {
-    acela:    "#06212b",
+    acela:    "#121212",
     regional: "#ffffff",
     keystone: "#121212",
     empire:   "#ffffff",
