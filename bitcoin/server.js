@@ -5094,14 +5094,13 @@ setInterval(load, 60000);
 // A standalone page — its own template literal, no PIN gate (train
 // schedules aren't the sensitive personal-finance data the main ticker
 // hides). Three separate departures/arrivals boards, one each for Amtrak,
-// LIRR and NJT, stacked on one screen (each anchored to Penn Station,
-// except Amtrak's which can switch to Philadelphia/Washington via its own
-// station picker) — styled after the physical Solari board at Penn
-// Station. Each board has its own Departures/Arrivals tab, since showing
-// both directions for all three systems at once would never fit. Tapping
-// any row opens a detail sheet with the train's full route and a map;
-// which map-building function runs depends on which board the row came
-// from (renderAmtrakDetail/renderNjtDetail/renderLirrDetail).
+// LIRR and NJT, stacked on one screen, all anchored to Penn Station.
+// Departures/Arrivals is one switch for all three at once (next to the
+// page title), since a per-board tab for each was both wasted space and
+// confusing paired with a title that already said which direction you
+// were looking at. Tapping any row opens a detail sheet with the train's
+// full route and a map; which map-building function runs depends on which
+// board the row came from (renderAmtrakDetail/renderNjtDetail/renderLirrDetail).
 // These logo files have been swapped out several times in place (same
 // filename, new bytes each time) while the look was being worked out — the
 // route below sends them with a 24h cache header, so without a cache-
@@ -5113,18 +5112,22 @@ function logoVersion(filename) {
   try { return Math.round(fs.statSync(path.join(__dirname, filename)).mtimeMs); } catch { return 0; }
 }
 
-// One board-card's static shell (brand banner, Departures/Arrivals tabs,
-// column header, empty body) — called once per railroad below rather than
-// hand-duplicating the same markup three times with different ids.
-function boardCardHTML(key, logoSrc, alt) {
+// One board-card's static shell (link to that railroad's own solo page,
+// brand logo overlapping the top of the card, empty body) — called once
+// per railroad below rather than hand-duplicating the same markup three
+// times with different ids. No column header row anymore — the first
+// train row sits right under the logo.
+function boardCardHTML(key, logoSrc, alt, href, label) {
   const versionedSrc = logoSrc + "?v=" + logoVersion(logoSrc.slice(1));
   return `
-  <div class="board-card">
-    <div class="board-banner">
+  <div class="board-wrap">
+    <div class="board-logo-row">
+      <a class="board-link" href="${href}">${label}</a>
       <img class="board-logo" src="${versionedSrc}" alt="${alt}">
     </div>
-    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">Train</span><span class="c-to" id="${key}ToLabel">To</span><span class="c-status">Status</span></div>
-    <div class="board-body" id="${key}Body"><div class="board-empty">Loading&hellip;</div></div>
+    <div class="board-card">
+      <div class="board-body" id="${key}Body"><div class="board-empty">Loading&hellip;</div></div>
+    </div>
   </div>`;
 }
 
@@ -5153,7 +5156,7 @@ const trainsPage = `<!DOCTYPE html>
   --red: #ef4444;
   --yellow: #f5c518;
 }
-html, body { background: var(--bg); color: var(--text1); height: 100%; }
+html, body { background: var(--bg); color: var(--text1); height: 100%; overflow-x: hidden; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -5162,46 +5165,46 @@ body {
 }
 #app { max-width: 480px; margin: 0 auto; padding: 14px 14px 32px; }
 
-.tp-topbar { display: flex; align-items: center; gap: 10px; padding: 4px 2px 16px; }
-.tp-back {
-  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
-  border: 1px solid var(--border); background: var(--panel2); color: var(--text1);
-  display: flex; align-items: center; justify-content: center; font-size: 16px; text-decoration: none;
-}
-.tp-back:active { background: var(--panel); }
-.tp-brand { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--text2); text-transform: uppercase; }
-.tp-station-select {
-  background: var(--panel2); color: var(--text1); border: 1px solid var(--border);
-  border-radius: 8px; padding: 5px 8px; font-size: 12px; font-weight: 700;
-}
-.tp-navrow { display: flex; gap: 8px; padding: 0 2px 14px; flex-wrap: wrap; align-items: center; }
-.tp-nav-link {
+/* The only thing at the top of the page now: the title (which flips to
+   "NY PENN ARRIVALS") and the one button that flips it. */
+.tp-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 10px; }
+.tp-brand { font-size: 13px; font-weight: 800; letter-spacing: 1.5px; color: var(--text1); text-transform: uppercase; }
+.tp-arr-btn {
   background: var(--panel2); color: var(--yellow); border: 1px solid var(--border);
-  border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 800; text-decoration: none;
+  border-radius: 6px; padding: 5px 10px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px;
   font-family: inherit; cursor: pointer;
 }
-.tp-nav-link:active { background: var(--panel); }
-.tp-clock { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--text2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tp-arr-btn:active { background: var(--panel); }
 
 /* ── three separate departures/arrivals boards, one per railroad —
    styled after the physical Solari board at Penn Station: a wide brand
-   logo up top instead of per-row logos, a Departures/Arrivals tab pair
-   instead of two stacked boards, then solid colored rows, dark gaps. */
-.board-card {
-  background: #050914; border: 1px solid var(--border); border-radius: 14px;
-  overflow: hidden; margin-bottom: 14px;
+   logo overlapping the top of the card instead of a boxed-in banner row,
+   then solid colored rows, dark gaps, no column header. */
+.board-wrap { position: relative; margin-bottom: 14px; }
+/* The logo row sits in normal flow, then a negative bottom margin pulls
+   the card up underneath it so the logo's own bottom edge overlaps the
+   first train row by a few px — "atop" the board, not boxed above it.
+   z-index keeps that overlapping sliver painted over the card, not under
+   it (the two would otherwise paint in DOM order, card on top). The logo
+   itself is right-aligned and oversized enough, with a negative right
+   margin, that its edge actually bleeds past the viewport's own right
+   edge (hence overflow-x:hidden on body above, so that bleed doesn't turn
+   into a horizontal scrollbar). */
+/* pointer-events:none on the row itself (re-enabled just on .board-link)
+   so the sliver of this row that overlaps the first train row below never
+   steals that row's tap — nothing up here but artwork and one real link. */
+.board-logo-row { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; margin-bottom: -14px; pointer-events: none; }
+.board-link {
+  background: #142a5c; color: #fff; border-radius: 6px; padding: 4px 10px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.4px; text-decoration: none;
+  flex-shrink: 0; pointer-events: auto;
 }
-/* No label text anymore — the real train photo/render is identifiable on
-   its own — just the logo artwork spanning almost the full card width,
-   centered, with next to no padding around it. The PNGs are already
-   cropped tight to the train and have a transparent background, so they
-   sit directly on the banner's own dark background. */
-.board-banner { display: flex; align-items: center; justify-content: center; padding: 4px 0; background: #050914; }
-.board-logo { display: block; width: 80%; height: auto; }
-.board-cols {
-  background: #dde2ee; display: flex; align-items: center; gap: 6px;
-  padding: 3px 10px; font-size: 8px; font-weight: 800; letter-spacing: 0.5px;
-  text-transform: uppercase; color: #5a6685;
+.board-link:active { background: #1e3a7a; }
+.board-logo { width: 88%; height: auto; flex-shrink: 0; margin-left: 8px; margin-right: -32px; }
+.board-card {
+  position: relative; z-index: 0;
+  background: #050914; border: 1px solid var(--border); border-radius: 14px;
+  overflow: hidden;
 }
 .board-body { display: flex; flex-direction: column; }
 /* Each row is colored full-width by its own real line color (via
@@ -5239,20 +5242,18 @@ body {
 .c-status.gone { opacity: 0.75; font-style: italic; }
 .c-status.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 16px 0; font-size: 11px; font-style: italic; }
-/* The Departures/Arrivals toggle used to be its own tab bar above the
-   column header — its own full row just for a two-way switch read as a
-   lot of space spent on something this small, so it now shares the one
-   footer row with "More" instead (one or both, depending on whether this
-   board has enough rows to need "More" at all). */
+/* Departures/Arrivals is now a single switch for all three boards at once
+   (the button up top by the page title), not a per-board control — so
+   the only thing left in a board's own footer is "More", and only when
+   there are more rows than the collapsed view shows. */
 .board-foot { display: flex; }
-.board-toggle-btn, .board-more {
+.board-more {
   flex: 1; display: block; text-align: center;
   background: #142a5c; color: #fff; border: none; border-top: 2px solid #050914;
-  padding: 7px 14px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px;
+  padding: 5px 14px; font-size: 10px; font-weight: 800; letter-spacing: 0.4px;
   font-family: inherit; cursor: pointer;
 }
-.board-toggle-btn { border-right: 2px solid #050914; }
-.board-toggle-btn:active, .board-more:active { background: #1e3a7a; }
+.board-more:active { background: #1e3a7a; }
 
 /* ── the detail sheet (same slide-up pattern as the hotel/flight sheets
    on the main page — a fresh copy, this is a standalone template) ── */
@@ -5331,25 +5332,14 @@ body {
 <body>
 <div id="app">
 
-  <div class="tp-topbar">
-    <a class="tp-back" href="/" aria-label="Back to BTC ticker">&larr;</a>
-    <span class="tp-brand">Penn Station</span>
-    <span class="tp-clock" id="sharedClock">&mdash;</span>
-  </div>
-  <div class="tp-navrow">
-    <select class="tp-station-select" id="stationSelect" aria-label="Amtrak reference station">
-      ${Object.entries(AMTRAK_BOARD_STATIONS).map(([code, name]) =>
-        `<option value="${code}"${code === AMTRAK_DEFAULT_STATION ? " selected" : ""}>${name}</option>`
-      ).join("")}
-    </select>
-    <a class="tp-nav-link" href="/amtrak-nec-map">NEC Map</a>
-    <a class="tp-nav-link" href="/lirr-board">LIRR</a>
-    <a class="tp-nav-link" href="/njt-board">NJ Transit</a>
+  <div class="tp-head">
+    <span class="tp-brand" id="boardTitle">NY Penn Departures</span>
+    <button class="tp-arr-btn" id="globalViewToggle">Arrivals</button>
   </div>
 
-  ${boardCardHTML("amtrak", "/amtraklogowide.png", "Amtrak")}
-  ${boardCardHTML("lirr", "/lirrlogowide.png", "LIRR")}
-  ${boardCardHTML("njt", "/njtlogowide.png", "NJ Transit")}
+  ${boardCardHTML("amtrak", "/amtraklogowide.png", "Amtrak", "/amtrak-nec-map", "Amtrak")}
+  ${boardCardHTML("lirr", "/lirrlogowide.png", "LIRR", "/lirr-board", "LIRR")}
+  ${boardCardHTML("njt", "/njtlogowide.png", "NJ Transit", "/njt-board", "NJT")}
 
 </div>
 
@@ -5495,18 +5485,15 @@ body {
 
   var BOARD_COLLAPSED_ROWS = 6;
 
-  // The Departures/Arrivals switch is a single button labeled with
-  // whichever direction is currently showing, sharing the one footer row
-  // with "More" instead of its own tab bar above the column header — that
-  // was a whole extra row of space spent on a two-way switch.
-  function boardFootHTML(key, kind, rows, expanded) {
-    var toggleHtml = '<button class="board-toggle-btn" data-toggle-board="' + key + '">' +
-      (kind === "dep" ? "Departures" : "Arrivals") + '</button>';
+  // Departures/Arrivals is a single switch for all three boards at once
+  // now (see setGlobalView), so a board's own footer is just "More",
+  // rendered only when this board actually has rows past the fold.
+  function boardFootHTML(key, rows, expanded) {
     var moreHtml = rows.length > BOARD_COLLAPSED_ROWS
       ? '<button class="board-more" data-more-board="' + key + '">' +
         (expanded ? "Show fewer" : "More (" + (rows.length - BOARD_COLLAPSED_ROWS) + ")") + '</button>'
       : "";
-    return '<div class="board-foot">' + toggleHtml + moreHtml + '</div>';
+    return '<div class="board-foot">' + moreHtml + '</div>';
   }
 
   function renderBoard(key) {
@@ -5514,8 +5501,6 @@ body {
     var kind = b.view;
     var rows = kind === "dep" ? b.departures : b.arrivals;
     var el = document.getElementById(key + "Body");
-    var toLabelEl = document.getElementById(key + "ToLabel");
-    if (toLabelEl) toLabelEl.textContent = kind === "dep" ? "To" : "From";
     if (!rows.length) {
       // Right after a (re)start the server hasn't finished its own first
       // live fetch yet — that's not the same fact as "nothing is running
@@ -5528,13 +5513,13 @@ body {
         : (key === "njt" && !b.enabled)
         ? '<div class="board-empty">NJ Transit board not configured.</div>'
         : '<div class="board-empty">No ' + (kind === "dep" ? "departures" : "arrivals") + ' in this window.</div>';
-      el.innerHTML = emptyHtml + boardFootHTML(key, kind, rows, false);
+      el.innerHTML = emptyHtml + boardFootHTML(key, rows, false);
       return;
     }
     var expanded = b.expanded[kind];
     var visible = expanded ? rows : rows.slice(0, BOARD_COLLAPSED_ROWS);
     var html = visible.map(function (r, i) { return boardRowHTML(key, r, i, kind); }).join("");
-    el.innerHTML = html + boardFootHTML(key, kind, rows, expanded);
+    el.innerHTML = html + boardFootHTML(key, rows, expanded);
   }
 
   function loadAmtrakBoard() {
@@ -5577,28 +5562,25 @@ body {
     });
   }
 
-  var stationSelectEl = document.getElementById("stationSelect");
-  stationSelectEl.value = state.station;
-  stationSelectEl.addEventListener("change", function () {
-    state.station = stationSelectEl.value;
-    BOARDS.amtrak.expanded.dep = false;
-    BOARDS.amtrak.expanded.arr = false;
-    if (openTrain && openTrain.board === "amtrak") closeTrain();
-    var url = new URL(location.href);
-    url.searchParams.set("station", state.station);
-    history.replaceState(null, "", url);
-    document.getElementById("amtrakBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
-    loadAmtrakBoard();
-  });
-
-  function tickClock() {
-    var now = new Date();
-    var t = now.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false });
-    if (t.slice(0, 3) === "24:") t = "00:" + t.slice(3);
-    document.getElementById("sharedClock").textContent = t;
+  // Departures/Arrivals is one switch for the whole page now, next to the
+  // title — not a per-board control — so it flips all three boards' view
+  // (and the title text) together in one tap.
+  var boardTitleEl = document.getElementById("boardTitle");
+  var globalViewToggleEl = document.getElementById("globalViewToggle");
+  function setGlobalView(view) {
+    BOARDS.amtrak.view = view;
+    BOARDS.lirr.view = view;
+    BOARDS.njt.view = view;
+    boardTitleEl.textContent = "NY Penn " + (view === "dep" ? "Departures" : "Arrivals");
+    globalViewToggleEl.textContent = view === "dep" ? "Arrivals" : "Departures";
+    if (openTrain) closeTrain(); // the view switch can shift/remove the open row's index
+    renderBoard("amtrak");
+    renderBoard("lirr");
+    renderBoard("njt");
   }
-  tickClock();
-  setInterval(tickClock, 1000);
+  globalViewToggleEl.addEventListener("click", function () {
+    setGlobalView(BOARDS.amtrak.view === "dep" ? "arr" : "dep");
+  });
 
   loadAmtrakBoard();
   loadLirrBoard();
@@ -6074,15 +6056,6 @@ body {
   }
 
   document.addEventListener("click", function (e) {
-    var toggle = e.target.closest("[data-toggle-board]");
-    if (toggle) {
-      var tkey = toggle.getAttribute("data-toggle-board");
-      var tb = BOARDS[tkey];
-      tb.view = tb.view === "dep" ? "arr" : "dep";
-      if (openTrain && openTrain.board === tkey) closeTrain(); // the view switch can shift/remove the open row's index
-      renderBoard(tkey);
-      return;
-    }
     var more = e.target.closest("[data-more-board]");
     if (more) {
       var mkey = more.getAttribute("data-more-board");
@@ -6110,9 +6083,7 @@ body {
     }
     // .board-body's innerHTML gets replaced wholesale on every refresh, so
     // this has to be delegated too — same reasoning as every other row
-    // list in this app. Only .board-row elements carry data-board (the tab
-    // buttons above each board also do, for their own direct listener), so
-    // matching the class first keeps this from ever misreading a tab click.
+    // list in this app.
     var row = e.target.closest(".board-row");
     if (!row) return;
     openDetail(row.getAttribute("data-board"), row.getAttribute("data-event"), +row.getAttribute("data-idx"));
