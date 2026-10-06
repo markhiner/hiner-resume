@@ -5483,6 +5483,7 @@ body {
     "ff6319": "ff6319", // LIRR Long Beach (its own distinct orange)
     "ce8e00": "ebb402", // LIRR Hempstead
     "00b2a9": "02a69e", // LIRR Montauk
+    "e66859": "f27a6b", // NJT Montclair-Boonton
   };
   // The right text color depends on how bright the *standardized* color
   // is, not the row's original one. West Hempstead's own real pairing for
@@ -5492,11 +5493,19 @@ body {
     "ebb402": "121212",
     "02a69e": "121212",
     "00a1de": "121212",
+    "f27a6b": "121212",
   };
   function standardizeLineColor(boardKey, hex) {
     hex = (hex || "").toLowerCase();
     return LINE_COLOR_OVERRIDES[hex] || hex;
   }
+
+  // NJT's own GTFS short name for the Montclair-Boonton Line ("MNBTN")
+  // renamed for display only — the API/detail sheet still key off the
+  // real route_short_name, this just swaps the label this board prints.
+  var NJT_ROUTE_LABEL_OVERRIDES = {
+    "MNBTN": "MOBO",
+  };
 
   function boardRowHTML(boardKey, row, idx, kind) {
     var status = rowStatus(row);
@@ -5514,7 +5523,9 @@ body {
       rowbg = "#" + stdHex;
       rowfg = "#" + (LINE_COLOR_TEXT[stdHex] || "ffffff");
     }
-    var routeName = boardKey === "njt" ? (row.routeShortName || row.routeName) : row.routeName;
+    var routeName = boardKey === "njt"
+      ? (NJT_ROUTE_LABEL_OVERRIDES[row.routeShortName] || row.routeShortName || row.routeName)
+      : row.routeName;
     return '<div class="board-row" data-board="' + boardKey + '" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span></span>' +
