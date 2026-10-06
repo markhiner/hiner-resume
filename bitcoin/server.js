@@ -5239,7 +5239,7 @@ body {
 .board-wrap-njt .board-logo { animation-delay: 1s; }
 .board-card {
   position: relative; z-index: 0;
-  background: #050914; border: 1px solid var(--border); border-radius: 14px;
+  background: #050914; border: 1px solid var(--border); border-radius: 6px;
   overflow: hidden;
 }
 .board-body { display: flex; flex-direction: column; }
