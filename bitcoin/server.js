@@ -5232,11 +5232,11 @@ body {
 .board-logo {
   position: relative; top: -8px; width: 97%; height: auto; flex-shrink: 0;
   margin-left: 8px; margin-right: -32px;
-  animation: logoSlideIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation: logoSlideIn 2.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 /* Staggered so the three don't all slide in in lockstep on page load. */
-.board-wrap-lirr .board-logo { animation-delay: 0.12s; }
-.board-wrap-njt .board-logo { animation-delay: 0.24s; }
+.board-wrap-lirr .board-logo { animation-delay: 0.5s; }
+.board-wrap-njt .board-logo { animation-delay: 1s; }
 .board-card {
   position: relative; z-index: 0;
   background: #050914; border: 1px solid var(--border); border-radius: 14px;
