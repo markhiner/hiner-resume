@@ -5219,8 +5219,8 @@ body {
    steals that row's tap — nothing up here but artwork and one real link. */
 .board-logo-row { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; margin-bottom: -8px; pointer-events: none; }
 .board-link {
-  background: #142a5c; color: #fff; border-radius: 6px; padding: 4px 10px;
-  font-size: 10px; font-weight: 800; letter-spacing: 0.4px; text-decoration: none;
+  background: #142a5c; color: #fff; border-radius: 7px; padding: 6px 13px;
+  font-size: 12px; font-weight: 800; letter-spacing: 0.4px; text-decoration: none;
   flex-shrink: 0; pointer-events: auto;
 }
 .board-link:active { background: #1e3a7a; }
@@ -5389,7 +5389,7 @@ body {
     <button class="tp-arr-btn" id="globalViewToggle">Arrivals</button>
   </div>
 
-  ${boardCardHTML("amtrak", "/amtraklogowide.png", "Amtrak", "/amtrak-nec-map", "Amtrak")}
+  ${boardCardHTML("amtrak", "/amtraklogowide.png", "Amtrak", "/amtrak-nec-map", "AMTK")}
   ${boardCardHTML("lirr", "/lirrlogowide.png", "LIRR", "/lirr-board", "LIRR")}
   ${boardCardHTML("njt", "/njtlogowide.png", "NJ Transit", "/njt-board", "NJT")}
 
