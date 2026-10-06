@@ -5273,10 +5273,13 @@ body {
    shared space and the train column less, so it starts earlier. */
 .board-row[data-board="njt"] .c-train { flex: 0.85; }
 .board-row[data-board="njt"] .c-to { flex: 1.45; }
-/* LIRR's plane badge + track number used to sit flush against the left
-   edge of this column, right up against the destination text — centered
-   instead, so the badge lands in its own clear column further right. */
-.board-row[data-board="lirr"] .c-to { justify-content: center; }
+/* Centering the badge+track as one group (previous fix) still let the
+   badge drift left/right depending on how wide the track number next to
+   it was — flush right instead (badge last, so it's always the
+   rightmost item), which lands it at the exact same x position as NJT's
+   own badges below, since both columns butt up against the same
+   fixed-width status column right after them. */
+.board-row[data-board="lirr"] .c-to { justify-content: flex-end; }
 /* A transfer-point icon (plane for an airport stop, circled S for
    Secaucus) sitting right next to the destination it applies to —
    flex-shrink:0 so it's never the thing that gets squeezed when the
@@ -5630,10 +5633,12 @@ body {
       // Train number is back (dropped earlier since the branch name
       // duplicated the destination — the number itself never did), paired
       // with the destination instead of the route name. The plane badge
-      // moved into the track column, which is a fixed-width slot, so the
-      // icon lines up in its own consistent column down the board.
+      // comes after the track number (not before) and the column is
+      // right-aligned, so the badge itself is always the rightmost thing
+      // here — a fixed position regardless of whether a track number (or
+      // how wide one) precedes it.
       trainCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(shortStopName(row.other)) + '</span>';
-      toCol = stationBadgesHTML(boardKey, row) + (row.track ? esc(row.track) : "");
+      toCol = (row.track ? esc(row.track) : "") + stationBadgesHTML(boardKey, row);
     } else {
       trainCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span>';
       toCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
