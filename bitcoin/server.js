@@ -5273,6 +5273,10 @@ body {
    shared space and the train column less, so it starts earlier. */
 .board-row[data-board="njt"] .c-train { flex: 0.85; }
 .board-row[data-board="njt"] .c-to { flex: 1.45; }
+/* LIRR's plane badge + track number used to sit flush against the left
+   edge of this column, right up against the destination text — centered
+   instead, so the badge lands in its own clear column further right. */
+.board-row[data-board="lirr"] .c-to { justify-content: center; }
 /* A transfer-point icon (plane for an airport stop, circled S for
    Secaucus) sitting right next to the destination it applies to —
    flex-shrink:0 so it's never the thing that gets squeezed when the
