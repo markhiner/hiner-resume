@@ -5250,7 +5250,7 @@ body {
 .board-badge {
   display: inline-flex; align-items: center; justify-content: center;
   width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0;
-  background: rgba(0,0,0,0.4); font-size: 8px; font-weight: 800; line-height: 1;
+  background: rgba(0,0,0,0.4); color: #fff; font-size: 8px; font-weight: 800; line-height: 1;
   position: relative; top: 1px;
 }
 .c-status { width: 56px; flex-shrink: 0; font-size: 9.5px; text-align: right; }
