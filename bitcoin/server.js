@@ -5120,7 +5120,7 @@ function logoVersion(filename) {
 function boardCardHTML(key, logoSrc, alt, href, label) {
   const versionedSrc = logoSrc + "?v=" + logoVersion(logoSrc.slice(1));
   return `
-  <div class="board-wrap">
+  <div class="board-wrap board-wrap-${key}">
     <div class="board-logo-row">
       <a class="board-link" href="${href}">${label}</a>
       <img class="board-logo" src="${versionedSrc}" alt="${alt}">
@@ -5200,7 +5200,18 @@ body {
   flex-shrink: 0; pointer-events: auto;
 }
 .board-link:active { background: #1e3a7a; }
-.board-logo { position: relative; top: -4px; width: 97%; height: auto; flex-shrink: 0; margin-left: 8px; margin-right: -32px; }
+@keyframes logoSlideIn {
+  from { transform: translateX(160%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.board-logo {
+  position: relative; top: -8px; width: 97%; height: auto; flex-shrink: 0;
+  margin-left: 8px; margin-right: -32px;
+  animation: logoSlideIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+/* Staggered so the three don't all slide in in lockstep on page load. */
+.board-wrap-lirr .board-logo { animation-delay: 0.12s; }
+.board-wrap-njt .board-logo { animation-delay: 0.24s; }
 .board-card {
   position: relative; z-index: 0;
   background: #050914; border: 1px solid var(--border); border-radius: 14px;
