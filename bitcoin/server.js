@@ -5296,7 +5296,7 @@ body {
    rightmost item), which lands it at the exact same x position as NJT's
    own badges below, since both columns butt up against the same
    fixed-width status column right after them. */
-.board-row[data-board="lirr"] .c-to { justify-content: flex-end; }
+.board-row[data-board="lirr"] .c-to { justify-content: flex-end; gap: 8px; }
 /* A transfer-point icon (plane for an airport stop, circled S for
    Secaucus) sitting right next to the destination it applies to —
    flex-shrink:0 so it's never the thing that gets squeezed when the
