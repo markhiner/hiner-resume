@@ -5235,13 +5235,23 @@ body {
 .board-row:last-child { border-bottom: none; }
 .board-row:active { filter: brightness(1.18); }
 .c-time { width: 38px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.c-train { flex: 1.3; min-width: 0; }
+.c-train { flex: 1.3; min-width: 0; display: flex; align-items: center; gap: 3px; }
 /* One line, full stop — LIRR's own route names get shortened at the
    source (lirrShortRouteName) so they actually fit instead of needing
    this as a truncation crutch; nowrap+ellipsis is just the safety net
    under that, same as NJT's board already uses for the same reason. */
-.c-train .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-.c-to { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.c-train .nm, .c-to .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; min-width: 0; flex: 1; }
+.c-to { flex: 1; min-width: 0; font-weight: 600; display: flex; align-items: center; gap: 3px; }
+/* A transfer-point icon (plane for an airport stop, circled S for
+   Secaucus) sitting right next to the destination it applies to —
+   flex-shrink:0 so it's never the thing that gets squeezed when the
+   station name is long. */
+.c-badges { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }
+.board-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(0,0,0,0.4); font-size: 8px; font-weight: 800; line-height: 1;
+}
 .c-status { width: 56px; flex-shrink: 0; font-size: 9.5px; text-align: right; }
 /* A row can now be any line's real color, some of them close to this same
    yellow — a dark pill behind the text keeps a delay legible regardless of
@@ -5518,6 +5528,38 @@ body {
     "MNBTN": "MOBO",
   };
 
+  // Transfer-point badges: a small icon next to the row's destination (or,
+  // for LIRR, next to the destination that now lives in the train column —
+  // see trainCol below) flagging that THIS train happens to stop somewhere
+  // worth knowing about, same idea as the standalone LIRR/NJT boards' own
+  // Jamaica/SEC/EWR notes. Each operator uses its own station-code system
+  // (LIRR's stops carry "stopId", NJT and Amtrak carry "code"), so each
+  // check reads off whichever field that operator's row.stations actually
+  // has.
+  var LIRR_JAMAICA_STOP_ID = "102"; // JFK AirTrain transfer
+  var NJT_SEC_STOP_CODE = "145"; // Secaucus Junction
+  var NJT_EWR_STOP_CODE = "110"; // Newark Airport
+  var AMTRAK_EWR_STOP_CODE = "EWR"; // Newark Airport, Amtrak's own code for it
+  var BADGE_PLANE_SVG = '<svg width="9" height="9" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2.5 1.5V22l4-1 4 1v-1.5L13 19v-5.5z"/></svg>';
+  function stationBadgesHTML(boardKey, row) {
+    if (!row.stations || !row.stations.length) return "";
+    var html = "";
+    if (boardKey === "lirr") {
+      var hasJamaica = row.stations.some(function (s) { return s.stopId === LIRR_JAMAICA_STOP_ID; });
+      if (hasJamaica) html += '<span class="board-badge" title="Stops at Jamaica (JFK AirTrain)">' + BADGE_PLANE_SVG + '</span>';
+    } else if (boardKey === "njt") {
+      var hasSec = row.stations.some(function (s) { return s.code === NJT_SEC_STOP_CODE; });
+      var hasEwr = row.stations.some(function (s) { return s.code === NJT_EWR_STOP_CODE; });
+      if (hasSec) html += '<span class="board-badge" title="Stops at Secaucus Junction">S</span>';
+      if (hasEwr) html += '<span class="board-badge" title="Stops at Newark Airport">' + BADGE_PLANE_SVG + '</span>';
+    } else if (boardKey === "amtrak") {
+      var hasEwrA = row.stations.some(function (s) { return s.code === AMTRAK_EWR_STOP_CODE; });
+      if (hasEwrA) html += '<span class="board-badge" title="Stops at Newark Airport">' + BADGE_PLANE_SVG + '</span>';
+    }
+    return html ? '<span class="c-badges">' + html + '</span>' : "";
+  }
+
   function boardRowHTML(boardKey, row, idx, kind) {
     var status = rowStatus(row);
     var rowbg, rowfg;
@@ -5548,11 +5590,11 @@ body {
     // station name.
     var trainCol, toCol;
     if (boardKey === "lirr") {
-      trainCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>';
+      trainCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
       toCol = row.track ? esc(row.track) : "—";
     } else {
       trainCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span>';
-      toCol = esc(shortStopName(row.other));
+      toCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
     }
     return '<div class="board-row" data-board="' + boardKey + '" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
