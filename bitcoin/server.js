@@ -5217,14 +5217,21 @@ body {
 /* pointer-events:none on the row itself (re-enabled just on .board-link)
    so the sliver of this row that overlaps the first train row below never
    steals that row's tap — nothing up here but artwork and one real link. */
-.board-logo-row { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; margin-bottom: -8px; pointer-events: none; }
+.board-logo-row { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: -8px; pointer-events: none; }
 .board-link {
-  background: #142a5c; color: #fff; border-radius: 7px; padding: 6px 13px;
+  background: linear-gradient(180deg, #2a4a8f, #142a5c 65%, #0d1d42);
+  color: #fff; border-radius: 7px; padding: 6px 13px;
   font-size: 12px; font-weight: 800; letter-spacing: 0.4px; text-decoration: none;
   flex-shrink: 0; pointer-events: auto;
   position: relative; top: -5px;
+  border: 1px solid #06112b; border-bottom-width: 3px;
+  box-shadow: 0 2px 0 #050914, inset 0 1px 0 rgba(255,255,255,0.3);
 }
-.board-link:active { background: #1e3a7a; }
+.board-link:active {
+  background: linear-gradient(180deg, #1e3a7a, #0d1d42);
+  border-bottom-width: 1px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+  transform: translateY(2px);
+}
 @keyframes logoSlideIn {
   from { transform: translateX(160%); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
