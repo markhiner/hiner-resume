@@ -3100,7 +3100,7 @@ const AMTRAK_CITY_OVERRIDES = {
   // NYP's GTFS name ("Ny Moynihan Train Hall At Penn Station") only ever
   // needed shortening because it can now show up as a to/from city too,
   // once a board is pointed at Philadelphia or DC instead of Penn itself.
-  NYP: "New York",
+  NYP: "NY Penn",
   // "30th Street" doesn't match any of the generic suffix rules below, and
   // it's the only Amtrak station these boards ever point at in the city.
   PHL: "Philadelphia",
@@ -3326,7 +3326,7 @@ function amtrakScheduleEntries(now, stationCode) {
       const stations = sts.map((s) => {
         const coords = amtrakStationCoords.get(s.stop_id);
         return {
-          code: s.stop_id, name: amtrakModel.stopNameById.get(s.stop_id) || s.stop_id,
+          code: s.stop_id, name: amtrakCityName(s.stop_id, amtrakModel.stopNameById.get(s.stop_id) || s.stop_id),
           lat: coords ? coords.lat : null, lon: coords ? coords.lon : null,
           schedArrMs: gtfsTimeToMs(parts, s.arrival_time), schedDepMs: gtfsTimeToMs(parts, s.departure_time),
           arrMs: null, depMs: null, status: null, track: null,
