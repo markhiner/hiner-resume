@@ -5447,71 +5447,47 @@ body {
   // down: it's a timeliness indicator, not a brand color), so this small
   // fixed set stands in for "Amtrak's line color" instead. Used as the
   // row's full-width background, same as NJT/LIRR's own real line colors.
-  // Keystone and Acela are LIRR's own Hempstead Branch yellow and Montauk
-  // Branch teal directly (not run through standardizeLineColor below —
-  // both hues sit outside the blue/green bands that function buckets, so
-  // these are their own fixed assignments onto the LIRR palette instead).
+  // These four are pinned to exact standardized hex values directly (see
+  // LINE_COLOR_OVERRIDES below for the NJT/LIRR side of the same palette)
+  // rather than left as each operator's own native shade.
   var SERVICE_COLORS = {
-    acela:    "#00b2a9",
-    regional: "#1959fa",
+    acela:    "#15b7ed",
+    regional: "#2249e6",
     keystone: "#ce8e00",
-    empire:   "#0f942c",
-    longdist: "#d93636",
+    empire:   "#00985f",
+    longdist: "#d12e2e",
   };
-  // Paired text color per service color above. Acela's and Keystone's
-  // text colors match LIRR's own Montauk/Hempstead Branch pairings.
+  // Paired text color per service color above.
   var SERVICE_TEXT = {
-    acela:    "#121212",
+    acela:    "#ffffff",
     regional: "#ffffff",
     keystone: "#121212",
     empire:   "#ffffff",
     longdist: "#ffffff",
   };
 
-  // Across three railroads' own real line colors (plus Amtrak's stand-in
-  // palette above), "blue" and "green" each show up as several different
-  // exact shades — NJT's Northeast Corridor blue isn't the same blue as
-  // Amtrak's Regional, LIRR's Port Jefferson, or NJT's own Coast Line.
-  // Rather than leave riders to learn which shade means what per operator,
-  // every color on this page gets bucketed by hue into a blue family and a
-  // green family, each collapsed to one LIRR-branded shade: Port
-  // Jefferson's blue (that's the "Huntington train" to LIRR riders, since
-  // most Port Jeff-branch trains terminate there) and Babylon's green.
-  // LIRR's own Oyster Bay branch is the one exception — its green stays
-  // its own shade rather than collapsing into Babylon's, since this is
-  // LIRR's own palette being used as the standard, not erased by it.
-  // Anything outside those two hue bands (red, orange, yellow, purple,
-  // teal, brown, or anything too desaturated to read as a color at all)
-  // is left exactly as that operator's own feed has it.
-  var HUNTINGTON_BLUE = "006ec7";
-  var BABYLON_GREEN = "00985f";
-  var LIRR_OYSTER_BAY_GREEN = "00af3f";
-  function hexHueSat(hex) {
-    var r = parseInt(hex.slice(0, 2), 16) / 255;
-    var g = parseInt(hex.slice(2, 4), 16) / 255;
-    var b = parseInt(hex.slice(4, 6), 16) / 255;
-    var max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
-    var h = 0;
-    if (d !== 0) {
-      if (max === r) h = ((g - b) / d) % 6;
-      else if (max === g) h = (b - r) / d + 2;
-      else h = (r - g) / d + 4;
-      h *= 60;
-      if (h < 0) h += 360;
-    }
-    var l = (max + min) / 2;
-    var s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
-    return { h: h, s: s };
-  }
+  // NJT/LIRR's own real per-route colors, collapsed onto that same small
+  // standardized palette above — keyed by each operator's actual GTFS
+  // route_color (lowercase, no "#"). A hue-bucketing pass used to do this
+  // generically; this round of feedback pinned exact target hex values per
+  // named route instead (navy vs. sky blue are now two different standard
+  // colors, not one), so direct lookup is both simpler and exact. Routes
+  // not listed here — LIRR's Oyster Bay green, Hempstead's own gold, NJT's
+  // Pascack purple, etc. — are left exactly as that operator's feed has
+  // them; nothing here is a blanket "every blue/every green" rule anymore.
+  var LINE_COLOR_OVERRIDES = {
+    "00985f": "00985f", // LIRR Babylon (the green standard itself)
+    "08a652": "00985f", // NJT Morris & Essex (Dover)
+    "a4c9aa": "00985f", // NJT Gladstone Branch
+    "006ec7": "2249e6", // LIRR Port Jefferson (Huntington)
+    "075aaa": "2249e6", // NJT Atlantic City Rail Line
+    "03a3df": "15b7ed", // NJT North Jersey Coast Line
+    "00a1de": "15b7ed", // LIRR West Hempstead
+    "dd3439": "d12e2e", // NJT Northeast Corridor
+  };
   function standardizeLineColor(boardKey, hex) {
     hex = (hex || "").toLowerCase();
-    if (!/^[0-9a-f]{6}$/.test(hex)) return hex;
-    if (boardKey === "lirr" && hex === LIRR_OYSTER_BAY_GREEN) return hex;
-    var hs = hexHueSat(hex);
-    if (hs.s < 0.2) return hex;
-    if (hs.h >= 196 && hs.h <= 245) return HUNTINGTON_BLUE;
-    if (hs.h >= 95 && hs.h <= 175) return BABYLON_GREEN;
-    return hex;
+    return LINE_COLOR_OVERRIDES[hex] || hex;
   }
 
   function boardRowHTML(boardKey, row, idx, kind) {
