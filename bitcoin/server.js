@@ -4917,6 +4917,11 @@ const server = http.createServer((req, res) => {
     res.end(trainsPage);
     return;
   }
+  if (url.pathname === "/amtrak-board") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(amtrakBoardPage);
+    return;
+  }
   // The operator logos shown on the Penn Station page's boards — the wide
   // ones at the top of each board card; the square ones are no longer used
   // on this page (each board now has one big logo instead of one per row)
@@ -5401,10 +5406,13 @@ body {
 
   <div class="tp-head">
     <span class="tp-brand" id="boardTitle">NY Penn Departures</span>
-    <button class="tp-arr-btn" id="globalViewToggle">Arrivals</button>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <a class="tp-arr-btn" id="necMapLink" href="/amtrak-nec-map" style="text-decoration:none;">NEC Map</a>
+      <button class="tp-arr-btn" id="globalViewToggle">Arrivals</button>
+    </div>
   </div>
 
-  ${boardCardHTML("amtrak", "/amtraklogowide.png", "Amtrak", "/amtrak-nec-map", "AMTK")}
+  ${boardCardHTML("amtrak", "/amtraklogowide.png", "Amtrak", "/amtrak-board", "AMTK")}
   ${boardCardHTML("lirr", "/lirrlogowide.png", "LIRR", "/lirr-board", "LIRR")}
   ${boardCardHTML("njt", "/njtlogowide.png", "NJ Transit", "/njt-board", "NJT")}
 
@@ -6262,6 +6270,606 @@ body {
     var row = e.target.closest(".board-row");
     if (!row) return;
     openDetail(row.getAttribute("data-board"), row.getAttribute("data-event"), +row.getAttribute("data-idx"));
+  });
+})();
+</script>
+</body>
+</html>`;
+
+// Standalone Amtrak-only departures/arrivals board — same two-stacked-
+// cards shell as njtBoardPage below, but wired to /api/penn-board and
+// carrying over the combined /trains page's Amtrak-specific rendering
+// (SERVICE_COLORS row tinting, circular transfer badges, and the full
+// live-GPS wide->medium->tight detail-sheet map). The station dropdown
+// is real here (Philadelphia/Washington/NY Penn) — on the combined page
+// it's day-to-day always Penn, so that page never grew a UI control for it.
+const amtrakBoardPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<title>Amtrak Departures</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
+  --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --green: #22c55e; --yellow: #f5c518;
+}
+html, body { background: var(--bg); color: var(--text1); height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  min-height: 100%;
+}
+#app { max-width: 480px; margin: 0 auto; padding: 14px 14px 32px; }
+
+.tp-topbar { display: flex; align-items: center; gap: 10px; padding: 4px 2px 16px; }
+.tp-back {
+  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text1);
+  display: flex; align-items: center; justify-content: center; font-size: 16px; text-decoration: none;
+}
+.tp-back:active { background: var(--panel); }
+.tp-brand { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--text2); text-transform: uppercase; }
+.tp-station-select {
+  margin-left: auto; background: var(--panel2); color: var(--text1); border: 1px solid var(--border);
+  border-radius: 8px; padding: 5px 8px; font-size: 12px; font-weight: 700;
+}
+.tp-navrow { display: flex; gap: 8px; padding: 0 2px 14px; }
+.tp-nav-link {
+  background: var(--panel2); color: var(--yellow); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 800; text-decoration: none;
+}
+.tp-nav-link:active { background: var(--panel); }
+
+.board-card {
+  background: #050914; border: 1px solid var(--border); border-radius: 14px;
+  overflow: hidden; margin-bottom: 14px;
+}
+.board-hdr { background: #eef1f8; display: flex; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px; }
+.board-title { font-size: 19px; font-weight: 900; color: #14265c; letter-spacing: -0.3px; }
+.board-clock { font-size: 13px; font-weight: 700; color: #14265c; font-variant-numeric: tabular-nums; }
+.board-cols {
+  background: #dde2ee; display: flex; align-items: center; gap: 8px;
+  padding: 4px 14px 4px 22px; font-size: 8.5px; font-weight: 800; letter-spacing: 0.6px;
+  text-transform: uppercase; color: #5a6685;
+}
+.board-body { display: flex; flex-direction: column; }
+/* Amtrak's own color field is a timeliness indicator, not a brand color
+   (see the AMTRAK_LINE_COLOR note further down) — rows are tinted by the
+   small fixed SERVICE_COLORS palette (service type) instead of a per-route
+   GTFS color, same approach the combined /trains page already uses. */
+.board-row {
+  display: flex; align-items: center; gap: 8px; position: relative;
+  background: var(--rowbg, #273670); color: var(--rowfg, #fff); padding: 9px 14px;
+  border-bottom: 3px solid #050914; font-weight: 700; font-size: 12.5px;
+  text-align: left;
+}
+.board-row:last-child { border-bottom: none; }
+.board-row:active { filter: brightness(1.18); }
+.c-time { width: 50px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.c-time .trk { display: block; font-size: 8.5px; color: var(--text3); font-weight: 700; margin-top: 1px; white-space: nowrap; }
+.c-train { flex: 1; min-width: 0; }
+.c-train .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.c-to { flex: 1.2; min-width: 0; font-weight: 600; }
+.c-to-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.c-to-badges { white-space: nowrap; display: block; margin-top: 3px; }
+/* Circular badge, matching the combined /trains page's own style (not
+   NJT's square pill) — this page shares its CSS/JS lineage with that one. */
+.board-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: rgba(0,0,0,0.4); color: #fff; font-size: 8.5px; font-weight: 800; line-height: 1;
+  position: relative; top: 2px;
+}
+.c-status { width: 96px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
+.c-status.delayed {
+  color: var(--yellow); font-weight: 800; display: inline-block;
+  background: rgba(0,0,0,0.5); border-radius: 6px; padding: 3px 6px; line-height: 1.25;
+}
+.c-status.gone { opacity: 0.75; font-style: italic; }
+.c-status.scheduled { opacity: 0.75; font-style: italic; }
+.board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
+.board-ftr { background: #dde2ee; color: #5a6685; text-align: right; padding: 6px 14px; font-size: 10px; letter-spacing: 0.4px; }
+.board-more {
+  display: block; width: 100%; text-align: center;
+  background: #142a5c; color: #fff; border: none; border-top: 3px solid #050914;
+  padding: 9px 14px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+}
+.board-more:active { background: #1e3a7a; }
+
+.tt-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
+.tt-sheet.on { display: block; }
+.tt-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
+.tt-panel {
+  position: absolute; left: 0; right: 0; bottom: 0; top: 60px;
+  background: var(--bg); border-top: 1px solid var(--border);
+  border-radius: 18px 18px 0 0; overflow: hidden; overflow-y: auto;
+  animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+@keyframes ttUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
+.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 8px auto 0; }
+.tt-close {
+  position: absolute; top: 8px; right: 10px; z-index: 2;
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
+  font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.tt-close:active { background: var(--panel); color: var(--text1); }
+.tt-body { padding: 14px 16px 28px; }
+.tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; }
+.tt-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.tt-position {
+  margin-top: 12px; background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--text1);
+}
+#ttMap { height: 260px; border-radius: 12px; margin-top: 12px; background: var(--panel2); }
+.tt-map-label {
+  background: rgba(11,11,13,0.85); color: #fff; border: none; border-radius: 4px;
+  padding: 1px 5px; font-size: 9px; font-weight: 700; box-shadow: none;
+}
+.tt-map-label::before { display: none; }
+.tt-stops { margin-top: 14px; border-top: 1px solid var(--border); }
+.tt-stop {
+  display: flex; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer;
+  border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.tt-stop.here { background: rgba(245,197,24,0.08); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+.tt-stop.past { opacity: 0.6; }
+.tt-stop.past .nm { color: var(--text2); }
+.tt-stop.next-stop {
+  background: rgba(34,197,94,0.14); margin: 0 -16px; padding-left: 16px; padding-right: 16px;
+  border-left: 3px solid var(--green); opacity: 1;
+}
+.tt-stop.next-stop .nm { color: var(--text1); font-weight: 700; }
+.tt-stop .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text1); }
+.tt-stop .tm { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text2); }
+.tt-stop .st { width: 74px; flex-shrink: 0; text-align: right; font-size: 10px; color: var(--text3); }
+.tt-stop .st.delayed { color: var(--yellow); }
+.tt-stop .st.done { color: var(--text3); font-style: italic; }
+.tt-stops-more {
+  display: block; width: 100%; text-align: center;
+  background: var(--panel2); color: var(--text2); border: none; border-bottom: 1px solid var(--border);
+  padding: 7px 14px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px;
+}
+.tt-stops-more:active { background: var(--panel); color: var(--text1); }
+.tt-empty { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 16px 0; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="tp-topbar">
+    <a class="tp-back" href="/trains" aria-label="Back to the train board">&larr;</a>
+    <span class="tp-brand">Amtrak &middot; Departures &amp; Arrivals</span>
+    <select class="tp-station-select" id="stationSelect" aria-label="Reference station">
+      ${Object.keys(AMTRAK_BOARD_STATIONS).map((code) =>
+        `<option value="${code}"${code === AMTRAK_DEFAULT_STATION ? " selected" : ""}>${AMTRAK_BOARD_STATIONS[code]}</option>`
+      ).join("")}
+    </select>
+  </div>
+  <div class="tp-navrow">
+    <a class="tp-nav-link" href="/lirr-board">LIRR</a>
+    <a class="tp-nav-link" href="/njt-board">NJT</a>
+    <a class="tp-nav-link" href="/amtrak-nec-map">NEC Map</a>
+  </div>
+
+  <div class="board-card">
+    <div class="board-hdr"><span class="board-title" id="depTitle">Departures</span><span class="board-clock" id="depClock">&mdash;</span></div>
+    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">To</span><span class="c-status">Status</span></div>
+    <div class="board-body" id="depBody"><div class="board-empty">Loading&hellip;</div></div>
+    <div class="board-ftr" id="depDate">&mdash;</div>
+  </div>
+
+  <div class="board-card">
+    <div class="board-hdr"><span class="board-title">Arrivals</span><span class="board-clock" id="arrClock">&mdash;</span></div>
+    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">From</span><span class="c-status">Status</span></div>
+    <div class="board-body" id="arrBody"><div class="board-empty">Loading&hellip;</div></div>
+    <div class="board-ftr" id="arrDate">&mdash;</div>
+  </div>
+
+</div>
+
+<div class="tt-sheet" id="ttSheet" role="dialog" aria-modal="true" aria-label="Train details">
+  <div class="tt-scrim" id="ttScrim"></div>
+  <div class="tt-panel">
+    <div class="tt-grip"></div>
+    <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
+    <div class="tt-body" id="ttBody"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function () {
+  function esc(v) {
+    return String(v == null ? "" : v).replace(/[&<>"\\u0027]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "\\u0027": "&#39;" }[c];
+    });
+  }
+  function fmtBoardTime(ms) {
+    if (ms == null) return "\\u2014";
+    var s = new Date(ms).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false });
+    if (s.slice(0, 3) === "24:") s = "00:" + s.slice(3);
+    return s;
+  }
+
+  // Catmull-Rom spline through the real station points, same as the
+  // combined /trains page's own smoothRoute — a real rail line eases into
+  // a curve instead of a jointed chain of straight-line segments.
+  function smoothRoute(points, segmentsPerLeg) {
+    if (points.length < 3) return points;
+    var n = points.length, out = [];
+    for (var i = 0; i < n - 1; i++) {
+      var p0 = points[i > 0 ? i - 1 : i];
+      var p1 = points[i];
+      var p2 = points[i + 1];
+      var p3 = points[i + 2 < n ? i + 2 : n - 1];
+      for (var t = 0; t < segmentsPerLeg; t++) {
+        var u = t / segmentsPerLeg, u2 = u * u, u3 = u2 * u;
+        out.push([
+          0.5 * (2 * p1[0] + (p2[0] - p0[0]) * u + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * u2 + (3 * p1[0] - p0[0] - 3 * p2[0] + p3[0]) * u3),
+          0.5 * (2 * p1[1] + (p2[1] - p0[1]) * u + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * u2 + (3 * p1[1] - p0[1] - 3 * p2[1] + p3[1]) * u3),
+        ]);
+      }
+    }
+    out.push(points[n - 1]);
+    return out;
+  }
+
+  var STATION_NAMES = ${JSON.stringify(AMTRAK_BOARD_STATIONS)};
+  var STATION_CODES = ${JSON.stringify(Object.keys(AMTRAK_BOARD_STATIONS))};
+  var urlStation = new URL(location.href).searchParams.get("station");
+  var state = {
+    departures: [], arrivals: [], warming: false,
+    station: STATION_CODES.indexOf(urlStation) !== -1 ? urlStation : "${AMTRAK_DEFAULT_STATION}",
+  };
+
+  function rowStatus(row) {
+    if (row.state === "departed") return { text: "Departed", cls: "gone" };
+    if (row.state === "arrived") return { text: "Arrived", cls: "gone" };
+    if (row.state === "delayed") return { text: fmtBoardTime(row.atMs), cls: "delayed" };
+    if (row.state === "scheduled") return { text: "On Time", cls: "scheduled" };
+    return { text: "On Time", cls: "" };
+  }
+
+  // Same palette as the NEC map's legend and the combined /trains page —
+  // Amtrak's own color field isn't a stable route color (see the
+  // AMTRAK_LINE_COLOR note further down: it's a timeliness indicator, not
+  // a brand color), so this small fixed set stands in for it instead.
+  var SERVICE_COLORS = {
+    acela:    "#02a69e",
+    regional: "#303ac2",
+    keystone: "#ebb402",
+    empire:   "#00985f",
+    longdist: "#c60c30",
+  };
+  // Text is white on every row color except yellow/gold, which gets black
+  // instead — read straight off whatever hex ends up as the background
+  // rather than a fixed per-color lookup, so it stays correct automatically.
+  function isYellowish(hex) {
+    var r = parseInt(hex.slice(0, 2), 16) / 255;
+    var g = parseInt(hex.slice(2, 4), 16) / 255;
+    var b = parseInt(hex.slice(4, 6), 16) / 255;
+    var max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    if (d === 0) return false;
+    var h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+    var l = (max + min) / 2;
+    var s = d / (1 - Math.abs(2 * l - 1));
+    return h >= 35 && h <= 65 && s > 0.6;
+  }
+
+  var AMTRAK_EWR_STOP_CODE = "EWR"; // Newark Airport, Amtrak's own code for it
+  var BADGE_PLANE_SVG = '<svg width="9" height="9" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2.5 1.5V22l4-1 4 1v-1.5L13 19v-5.5z"/></svg>';
+  function stationBadgesHTML(row) {
+    if (!row.stations || !row.stations.length) return "";
+    var hasEwr = row.stations.some(function (s) { return s.code === AMTRAK_EWR_STOP_CODE; });
+    if (!hasEwr) return "";
+    return '<span class="c-to-badges"><span class="board-badge" title="Stops at Newark Airport">' + BADGE_PLANE_SVG + '</span></span>';
+  }
+
+  function boardRowHTML(row, idx, kind) {
+    var status = rowStatus(row);
+    var rowbg = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
+    var stdHex = rowbg.replace("#", "").toLowerCase();
+    var rowfg = isYellowish(stdHex) ? "#121212" : "#ffffff";
+    return '<div class="board-row" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
+      '<span class="c-time">' + fmtBoardTime(row.schedMs) + (row.track ? '<span class="trk">Trk ' + esc(row.track) + '</span>' : '') + '</span>' +
+      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
+      '<span class="c-to"><span class="c-to-name">' + esc(row.other) + '</span>' + stationBadgesHTML(row) + '</span>' +
+      '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
+      '</div>';
+  }
+
+  var BOARD_COLLAPSED_ROWS = 5;
+  var boardExpanded = { dep: false, arr: false };
+
+  function renderBoard(bodyId, rows, kind) {
+    var el = document.getElementById(bodyId);
+    if (!rows.length) {
+      el.innerHTML = state.warming
+        ? '<div class="board-empty">Loading Amtrak schedule&hellip;</div>'
+        : '<div class="board-empty">No ' + (kind === "dep" ? "departures" : "arrivals") + ' in this window.</div>';
+      return;
+    }
+    var expanded = boardExpanded[kind];
+    var visible = expanded ? rows : rows.slice(0, BOARD_COLLAPSED_ROWS);
+    var html = visible.map(function (r, i) { return boardRowHTML(r, i, kind); }).join("");
+    if (rows.length > BOARD_COLLAPSED_ROWS) {
+      html += '<button class="board-more" data-more="' + kind + '">' +
+        (expanded ? "Show fewer" : "More (" + (rows.length - BOARD_COLLAPSED_ROWS) + ")") + '</button>';
+    }
+    el.innerHTML = html;
+  }
+
+  function loadAmtrakBoard() {
+    fetch("/api/penn-board?station=" + state.station).then(function (r) { return r.json(); }).then(function (d) {
+      // the dropdown may have changed again while this request was in
+      // flight — a late response for a station we've since navigated away
+      // from would otherwise flash back over the one the user picked.
+      if (d.station !== state.station) return;
+      state.departures = d.departures || [];
+      state.arrivals = d.arrivals || [];
+      state.warming = !!d.warming;
+      renderBoard("depBody", state.departures, "dep");
+      renderBoard("arrBody", state.arrivals, "arr");
+      if (openTrain) reopenIfStillOpen();
+    }).catch(function (e) {
+      document.getElementById("depBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
+      document.getElementById("arrBody").innerHTML = '<div class="board-empty">' + esc(e.message) + '</div>';
+    });
+  }
+
+  function updateDepTitle() {
+    document.getElementById("depTitle").textContent = (STATION_NAMES[state.station] || "") + " Departures";
+  }
+
+  var stationSelectEl = document.getElementById("stationSelect");
+  stationSelectEl.value = state.station;
+  stationSelectEl.addEventListener("change", function () {
+    state.station = stationSelectEl.value;
+    boardExpanded.dep = false;
+    boardExpanded.arr = false;
+    if (openTrain) closeTrain();
+    var url = new URL(location.href);
+    url.searchParams.set("station", state.station);
+    history.replaceState(null, "", url);
+    document.getElementById("depBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
+    document.getElementById("arrBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
+    updateDepTitle();
+    loadAmtrakBoard();
+  });
+  updateDepTitle();
+
+  function tickClocks() {
+    var now = new Date();
+    var t = now.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false });
+    if (t.slice(0, 3) === "24:") t = "00:" + t.slice(3);
+    var d = now.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    document.getElementById("depClock").textContent = t;
+    document.getElementById("arrClock").textContent = t;
+    document.getElementById("depDate").textContent = d;
+    document.getElementById("arrDate").textContent = d;
+  }
+  tickClocks();
+  setInterval(tickClocks, 1000);
+  loadAmtrakBoard();
+  setInterval(loadAmtrakBoard, 30000);
+
+  // ---------- the detail sheet (Amtrak's live-GPS wide->medium->tight
+  // zoom choreography, ported as-is from the combined /trains page) ----------
+
+  var elSheet = document.getElementById("ttSheet");
+  var elBody = document.getElementById("ttBody");
+  var openTrain = null; // { event, idx } — kept so a live poll can re-render it
+  var ttMap = null, ttMarker = null;
+  var ttMapJustOpened = false;
+  var ttLastZoom = null;
+  var ttStopsExpanded = false;
+  var TT_STOPS_COLLAPSE_KEEP = 1;
+  var lastStopsRowsHtml = null, lastStopsNextIdx = null;
+
+  function renderStopsList(rowsHtml, nextIdx) {
+    lastStopsRowsHtml = rowsHtml;
+    lastStopsNextIdx = nextIdx;
+    var stopsEl = document.getElementById("ttStops");
+    if (!stopsEl) return;
+    var visibleFrom = 0;
+    if (!ttStopsExpanded && nextIdx > TT_STOPS_COLLAPSE_KEEP) visibleFrom = nextIdx - TT_STOPS_COLLAPSE_KEEP;
+    var html = "";
+    if (visibleFrom > 0) {
+      html += '<button class="tt-stops-more" data-tt-stops-more>Show ' + visibleFrom + ' earlier stop' + (visibleFrom === 1 ? "" : "s") + '</button>';
+    }
+    html += rowsHtml.slice(visibleFrom).join("");
+    stopsEl.innerHTML = html;
+  }
+
+  function closeTrain() {
+    elSheet.classList.remove("on");
+    document.body.style.overflow = "";
+    openTrain = null;
+  }
+  document.getElementById("ttClose").addEventListener("click", closeTrain);
+  document.getElementById("ttScrim").addEventListener("click", closeTrain);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && elSheet.classList.contains("on")) closeTrain(); });
+
+  function stopStateHTML(schedMs, atMs, passedLabel) {
+    if (schedMs == null && atMs == null) return '<span class="st">\\u2014</span>';
+    var now = Date.now();
+    var use = atMs != null ? atMs : schedMs;
+    if (now >= use) {
+      return '<span class="st done">' + passedLabel + (atMs != null ? " " + fmtBoardTime(atMs) : "") + '</span>';
+    }
+    if (atMs != null && schedMs != null && atMs - schedMs > 60000) return '<span class="st delayed">Now ' + fmtBoardTime(atMs) + '</span>';
+    return '<span class="st">On Time</span>';
+  }
+
+  function stopBest(s) {
+    var arr = s.arrMs != null ? s.arrMs : s.schedArrMs;
+    var dep = s.depMs != null ? s.depMs : s.schedDepMs;
+    return { arr: arr, dep: dep };
+  }
+
+  // Amtrak's own iconColor field is a timeliness indicator (green-ish on
+  // time, orange/red the more delayed) rather than a stable route/brand
+  // color — the map uses Amtrak's own brand red instead, always; the live
+  // position is picked out in the app's existing yellow accent.
+  var AMTRAK_LINE_COLOR = "#c60c30";
+  var AMTRAK_LIVE_COLOR = "#f5c518";
+
+  function renderAmtrakDetail(row) {
+    var status = rowStatus(row);
+    var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
+    var showMap = routeStops.length >= 2 || (row.lat != null && row.lon != null);
+    var speedBit = row.velocity != null
+      ? " &middot; " + Math.round(row.velocity) + " mph" + (row.heading ? " " + esc(row.heading) : "")
+      : "";
+    elBody.innerHTML =
+      '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
+      '<div class="tt-sub">Amtrak &middot; ' + status.text + speedBit + '</div>' +
+      (showMap ? '<div id="ttMap"></div>' : '<div class="tt-position">Route map not available for this train right now.</div>') +
+      '<div class="tt-stops" id="ttStops"></div>';
+
+    var stopsEl = document.getElementById("ttStops");
+    if (!row.stations || !row.stations.length) {
+      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
+    } else {
+      var now = Date.now();
+      var nextIdx = -1;
+      for (var ni = 0; ni < row.stations.length; ni++) {
+        var best = stopBest(row.stations[ni]);
+        var ref = best.arr != null ? best.arr : best.dep;
+        if (ref == null || now < ref) { nextIdx = ni; break; }
+      }
+      var rowsHtml = row.stations.map(function (s, i) {
+        var best = stopBest(s);
+        var timeMs = best.dep != null ? best.dep : best.arr;
+        var schedMs = s.schedDepMs != null ? s.schedDepMs : s.schedArrMs;
+        var atMs = timeMs;
+        var here = s.code === state.station;
+        var isPast = nextIdx === -1 ? true : i < nextIdx;
+        var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
+        return '<div class="tt-stop' + cls + '"><span class="nm">' + esc(s.name) + '</span>' +
+          '<span class="tm">' + fmtBoardTime(schedMs != null ? schedMs : timeMs) + '</span>' +
+          stopStateHTML(schedMs, atMs, "Departed") + '</div>';
+      });
+      renderStopsList(rowsHtml, nextIdx);
+    }
+
+    if (showMap && window.L) {
+      setTimeout(function () {
+       try {
+        if (ttMap) { ttMap.remove(); ttMap = null; }
+        ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
+        var wideZoom = null;
+
+        if (routeStops.length >= 2) {
+          var latlngs = routeStops.map(function (s) { return [s.lat, s.lon]; });
+          var curvedLatlngs = (row.shape && row.shape.length >= 2) ? row.shape : smoothRoute(latlngs, 12);
+          L.polyline(curvedLatlngs, { color: "#ffffff", weight: 7, opacity: 0.95, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
+          L.polyline(curvedLatlngs, { color: AMTRAK_LINE_COLOR, weight: 4, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(ttMap);
+          var routeMarkers = routeStops.map(function (s, i) {
+            L.circleMarker([s.lat, s.lon], { radius: 6, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
+            var marker = L.circleMarker([s.lat, s.lon], { radius: 4.5, color: "#000", weight: 1.5, fillColor: AMTRAK_LINE_COLOR, fillOpacity: 1 }).addTo(ttMap);
+            return { marker: marker, name: s.name, forceLabel: i === 0 || i === routeStops.length - 1 || s.code === state.station };
+          });
+          var MIN_LABEL_PX = 46;
+          function declutterLabels() {
+            var shown = [];
+            var livePt = (row.lat != null && row.lon != null) ? ttMap.latLngToContainerPoint([row.lat, row.lon]) : null;
+            routeMarkers.forEach(function (rm) {
+              rm.marker.unbindTooltip();
+              var pt = ttMap.latLngToContainerPoint(rm.marker.getLatLng());
+              var tooCloseToTrain = livePt && Math.hypot(pt.x - livePt.x, pt.y - livePt.y) < MIN_LABEL_PX;
+              var tooClose = shown.some(function (p) { return Math.hypot(pt.x - p.x, pt.y - p.y) < MIN_LABEL_PX; });
+              if (!tooCloseToTrain && (rm.forceLabel || !tooClose)) {
+                shown.push(pt);
+                rm.marker.bindTooltip(rm.name, { permanent: true, direction: "top", className: "tt-map-label", offset: [0, -4] });
+              }
+            });
+          }
+          ttMap.on("zoomend moveend", declutterLabels);
+          ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+          wideZoom = ttMap.getZoom();
+          if (ttLastZoom != null && row.lat != null && row.lon != null) {
+            ttMap.setView([row.lat, row.lon], ttLastZoom);
+          }
+          declutterLabels();
+        } else {
+          ttMap.setView([row.lat, row.lon], ttLastZoom != null ? ttLastZoom : 8);
+        }
+
+        if (row.lat != null && row.lon != null) {
+          L.circleMarker([row.lat, row.lon], { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
+          ttMarker = L.circleMarker([row.lat, row.lon], { radius: 9, color: "#000", weight: 2.5, fillColor: AMTRAK_LIVE_COLOR, fillOpacity: 1 })
+            .bindTooltip("Live position", { direction: "top" })
+            .addTo(ttMap);
+        }
+
+        if (ttMapJustOpened) {
+          ttMapJustOpened = false;
+          if (wideZoom != null && row.lat != null && row.lon != null) {
+            var mapAtOpen = ttMap;
+            var liveLatLng = [row.lat, row.lon];
+            setTimeout(function () {
+              if (ttMap === mapAtOpen) { ttMap.flyTo(liveLatLng, wideZoom + 2, { duration: 0.8 }); ttLastZoom = wideZoom + 2; }
+            }, 1000);
+            setTimeout(function () {
+              if (ttMap === mapAtOpen) { ttMap.flyTo(liveLatLng, wideZoom + 4, { duration: 0.8 }); ttLastZoom = wideZoom + 4; }
+            }, 3400);
+          }
+        }
+       } catch (e) {
+        console.error("Train detail map failed to build:", e);
+       }
+      }, 0);
+    }
+  }
+
+  function openDetail(event, idx) {
+    openTrain = { event: event, idx: idx };
+    elSheet.classList.add("on");
+    document.body.style.overflow = "hidden";
+    ttMapJustOpened = true;
+    ttLastZoom = null;
+    ttStopsExpanded = false;
+    var list = event === "dep" ? state.departures : state.arrivals;
+    var row = list[idx];
+    if (row) renderAmtrakDetail(row);
+  }
+
+  function reopenIfStillOpen() {
+    if (!openTrain) return;
+    var list = openTrain.event === "dep" ? state.departures : state.arrivals;
+    if (openTrain.idx < list.length) renderAmtrakDetail(list[openTrain.idx]);
+    else closeTrain(); // the train aged off the board while the sheet was open
+  }
+
+  document.addEventListener("click", function (e) {
+    var more = e.target.closest("[data-more]");
+    if (more) {
+      var mkind = more.getAttribute("data-more");
+      boardExpanded[mkind] = !boardExpanded[mkind];
+      renderBoard(mkind === "dep" ? "depBody" : "arrBody", mkind === "dep" ? state.departures : state.arrivals, mkind);
+      return;
+    }
+    if (e.target.closest("[data-tt-stops-more]")) {
+      ttStopsExpanded = true;
+      if (lastStopsRowsHtml) renderStopsList(lastStopsRowsHtml, lastStopsNextIdx);
+      return;
+    }
+    var row = e.target.closest(".board-row");
+    if (!row) return;
+    openDetail(row.getAttribute("data-event"), +row.getAttribute("data-idx"));
   });
 })();
 </script>
