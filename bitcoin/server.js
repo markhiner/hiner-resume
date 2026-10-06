@@ -5479,14 +5479,6 @@ body {
     empire:   "#00985f",
     longdist: "#c60c30",
   };
-  // Paired text color per service color above.
-  var SERVICE_TEXT = {
-    acela:    "#121212",
-    regional: "#ffffff",
-    keystone: "#121212",
-    empire:   "#ffffff",
-    longdist: "#ffffff",
-  };
 
   // NJT/LIRR's own real per-route colors, collapsed onto that same small
   // standardized palette above — keyed by each operator's actual GTFS
@@ -5507,16 +5499,26 @@ body {
     "00b2a9": "02a69e", // LIRR Montauk
     "e66859": "f27a6b", // NJT Montclair-Boonton
   };
-  // The right text color depends on how bright the *standardized* color
-  // is, not the row's original one. West Hempstead's own real pairing for
-  // 00a1de is already dark text, so NJCL (now sharing that same color)
-  // needs to match it rather than default to white.
-  var LINE_COLOR_TEXT = {
-    "ebb402": "121212",
-    "02a69e": "121212",
-    "00a1de": "121212",
-    "f27a6b": "121212",
-  };
+  // Text is white on every row color except yellow/gold, which gets black
+  // instead — rather than a per-color lookup (which needed updating by
+  // hand every time a line's color changed), this reads the hue straight
+  // off whatever hex actually ends up as the background, so it stays
+  // correct automatically. Narrow hue band + a saturation floor so it
+  // only fires for true yellows (ebb402, NJT's Bergen/Main FFD411) and
+  // not look-alike-but-duller tones like NJT's tan Meadowlands line.
+  function isYellowish(hex) {
+    var r = parseInt(hex.slice(0, 2), 16) / 255;
+    var g = parseInt(hex.slice(2, 4), 16) / 255;
+    var b = parseInt(hex.slice(4, 6), 16) / 255;
+    var max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    if (d === 0) return false;
+    var h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+    var l = (max + min) / 2;
+    var s = d / (1 - Math.abs(2 * l - 1));
+    return h >= 35 && h <= 65 && s > 0.6;
+  }
   function standardizeLineColor(boardKey, hex) {
     hex = (hex || "").toLowerCase();
     return LINE_COLOR_OVERRIDES[hex] || hex;
@@ -5563,20 +5565,16 @@ body {
 
   function boardRowHTML(boardKey, row, idx, kind) {
     var status = rowStatus(row);
-    var rowbg, rowfg;
+    var rowbg;
     if (boardKey === "amtrak") {
       rowbg = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
-      rowfg = SERVICE_TEXT[row.serviceType] || SERVICE_TEXT.longdist;
     } else {
       rowbg = "#" + (row.color || "888888");
-      rowfg = "#" + (row.textColor || "ffffff");
     }
     var rawHex = rowbg.replace("#", "").toLowerCase();
     var stdHex = standardizeLineColor(boardKey, rawHex);
-    if (stdHex !== rawHex) {
-      rowbg = "#" + stdHex;
-      rowfg = "#" + (LINE_COLOR_TEXT[stdHex] || "ffffff");
-    }
+    rowbg = "#" + stdHex;
+    var rowfg = isYellowish(stdHex) ? "#121212" : "#ffffff";
     var routeName = boardKey === "njt"
       ? (NJT_ROUTE_LABEL_OVERRIDES[row.routeShortName] || row.routeShortName || row.routeName)
       : row.routeName;
