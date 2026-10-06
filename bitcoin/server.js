@@ -5447,19 +5447,19 @@ body {
   // down: it's a timeliness indicator, not a brand color), so this small
   // fixed set stands in for "Amtrak's line color" instead. Used as the
   // row's full-width background, same as NJT/LIRR's own real line colors.
-  // These four are pinned to exact standardized hex values directly (see
+  // Pinned to exact standardized hex values directly (see
   // LINE_COLOR_OVERRIDES below for the NJT/LIRR side of the same palette)
   // rather than left as each operator's own native shade.
   var SERVICE_COLORS = {
-    acela:    "#15b7ed",
-    regional: "#2249e6",
-    keystone: "#e6cd2c",
+    acela:    "#02a69e",
+    regional: "#0039a6",
+    keystone: "#ebb402",
     empire:   "#00985f",
-    longdist: "#d12e2e",
+    longdist: "#c60c30",
   };
   // Paired text color per service color above.
   var SERVICE_TEXT = {
-    acela:    "#ffffff",
+    acela:    "#121212",
     regional: "#ffffff",
     keystone: "#121212",
     empire:   "#ffffff",
@@ -5468,31 +5468,30 @@ body {
 
   // NJT/LIRR's own real per-route colors, collapsed onto that same small
   // standardized palette above — keyed by each operator's actual GTFS
-  // route_color (lowercase, no "#"). A hue-bucketing pass used to do this
-  // generically; this round of feedback pinned exact target hex values per
-  // named route instead (navy vs. sky blue are now two different standard
-  // colors, not one), so direct lookup is both simpler and exact. Routes
-  // not listed here — LIRR's Oyster Bay green, Hempstead's own gold, NJT's
-  // Pascack purple, etc. — are left exactly as that operator's feed has
-  // them; nothing here is a blanket "every blue/every green" rule anymore.
+  // route_color (lowercase, no "#"). Routes not listed here — LIRR's
+  // Ronkonkoma purple, Far Rockaway brown, NJT's Pascack purple, etc. —
+  // are left exactly as that operator's feed has them.
   var LINE_COLOR_OVERRIDES = {
-    "00985f": "00985f", // LIRR Babylon (the green standard itself)
+    "00985f": "00985f", // LIRR Babylon (green anchor)
     "08a652": "00985f", // NJT Morris & Essex (Dover)
-    "a4c9aa": "00985f", // NJT Gladstone Branch
-    "006ec7": "2249e6", // LIRR Port Jefferson (Huntington)
-    "075aaa": "2249e6", // NJT Atlantic City Rail Line
-    "03a3df": "15b7ed", // NJT North Jersey Coast Line
-    "00a1de": "15b7ed", // LIRR West Hempstead
-    "dd3439": "d12e2e", // NJT Northeast Corridor
-    "f2a537": "e6cd2c", // NJT Raritan Valley (pairs with Keystone)
-    "e66859": "cf5353", // NJT Montclair-Boonton
+    "006ec7": "0039a6", // LIRR Port Jefferson
+    "00a1de": "00a1de", // LIRR West Hempstead (blue anchor)
+    "03a3df": "00a1de", // NJT North Jersey Coast Line
+    "c60c30": "c60c30", // LIRR Port Washington (red anchor)
+    "dd3439": "c60c30", // NJT Northeast Corridor
+    "00af3f": "00af3f", // LIRR Oyster Bay (its own distinct green)
+    "ff6319": "ff6319", // LIRR Long Beach (its own distinct orange)
+    "ce8e00": "ebb402", // LIRR Hempstead
+    "00b2a9": "02a69e", // LIRR Montauk
   };
   // The right text color depends on how bright the *standardized* color
-  // is, not the row's original one — e6cd2c (Raritan Valley/Keystone's
-  // gold-yellow) is too light for white text, unlike the rest of this
-  // palette, which all read fine with white.
+  // is, not the row's original one. West Hempstead's own real pairing for
+  // 00a1de is already dark text, so NJCL (now sharing that same color)
+  // needs to match it rather than default to white.
   var LINE_COLOR_TEXT = {
-    "e6cd2c": "121212",
+    "ebb402": "121212",
+    "02a69e": "121212",
+    "00a1de": "121212",
   };
   function standardizeLineColor(boardKey, hex) {
     hex = (hex || "").toLowerCase();
