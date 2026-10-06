@@ -5191,7 +5191,7 @@ body {
 
 /* The only thing at the top of the page now: the title (which flips to
    "NY PENN ARRIVALS") and the one button that flips it. */
-.tp-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 10px; }
+.tp-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 18px; }
 .tp-brand { font-size: 13px; font-weight: 800; letter-spacing: 1.5px; color: var(--text1); text-transform: uppercase; }
 .tp-arr-btn {
   background: var(--panel2); color: var(--yellow); border: 1px solid var(--border);
@@ -5204,7 +5204,7 @@ body {
    styled after the physical Solari board at Penn Station: a wide brand
    logo overlapping the top of the card instead of a boxed-in banner row,
    then solid colored rows, dark gaps, no column header. */
-.board-wrap { position: relative; margin-bottom: 8px; }
+.board-wrap { position: relative; margin-bottom: 20px; }
 /* The logo row sits in normal flow, then a negative bottom margin pulls
    the card up underneath it so the logo's own bottom edge overlaps the
    first train row by a few px — "atop" the board, not boxed above it.
