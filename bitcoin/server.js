@@ -5242,6 +5242,12 @@ body {
    under that, same as NJT's board already uses for the same reason. */
 .c-train .nm, .c-to .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; min-width: 0; flex: 1; }
 .c-to { flex: 1; min-width: 0; font-weight: 600; display: flex; align-items: center; gap: 3px; }
+/* NJT's own row keeps the train number/route on the left and destination
+   on the right (not swapped — the route code is real information there),
+   but the destination column itself shifts left by giving it more of the
+   shared space and the train column less, so it starts earlier. */
+.board-row[data-board="njt"] .c-train { flex: 0.85; }
+.board-row[data-board="njt"] .c-to { flex: 1.45; }
 /* A transfer-point icon (plane for an airport stop, circled S for
    Secaucus) sitting right next to the destination it applies to —
    flex-shrink:0 so it's never the thing that gets squeezed when the
@@ -5594,12 +5600,6 @@ body {
     if (boardKey === "lirr") {
       trainCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
       toCol = row.track ? esc(row.track) : "—";
-    } else if (boardKey === "njt") {
-      // Destination leads (the left column), train number/route trails —
-      // confirmed against a marked-up screenshot pointing at exactly where
-      // the destination text should start.
-      trainCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
-      toCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span>';
     } else {
       trainCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span>';
       toCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
