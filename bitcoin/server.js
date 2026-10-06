@@ -5593,6 +5593,15 @@ body {
     if (boardKey === "lirr") {
       trainCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
       toCol = row.track ? esc(row.track) : "—";
+    } else if (boardKey === "njt") {
+      // Destination moved into the leading column (the more prominent
+      // read, "where is this going") with the train number/route code
+      // taking the column that used to hold it — a straight swap, not a
+      // drop, since NJT's own route code (NEC/NJCL/etc) is still useful
+      // information unlike LIRR's branch name, which the destination had
+      // already made redundant.
+      trainCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
+      toCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span>';
     } else {
       trainCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span>';
       toCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
