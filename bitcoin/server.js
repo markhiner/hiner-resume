@@ -1451,6 +1451,12 @@ let brtiState = {
   avg60Window: null,
   error: null,
   lastMsg: null,    // last frame seen, so a stuck feed can be diagnosed
+  aliveAt: null,    // last time ANY frame arrived — watchdog below uses this,
+                     // not ts, so a stall is caught even before a real value
+                     // ever comes in (and reconnects a socket that goes
+                     // silent without ever firing close/error — ws's own
+                     // ping/pong won't save you if the peer just stops
+                     // responding without tearing down the TCP connection)
 };
 
 let brtiSocket = null, brtiDelay = 1000;
@@ -1468,7 +1474,7 @@ function connectBRTI() {
 
   brtiSocket.on("open", () => {
     brtiDelay = 1000;
-    brtiState = { ...brtiState, connected: true, error: null };
+    brtiState = { ...brtiState, connected: true, error: null, aliveAt: Date.now() };
     console.log("BRTI: socket open, sending subscribe attempts");
     // The docs and the live endpoint have already disagreed once (the
     // documented URL 404s), so send both documented shapes. Whichever the
@@ -1489,6 +1495,7 @@ function connectBRTI() {
   });
 
   brtiSocket.on("message", (raw) => {
+    brtiState.aliveAt = Date.now();
     const text = raw.toString();
     let m;
     try { m = JSON.parse(text); } catch { return; }
@@ -1552,6 +1559,23 @@ function connectBRTI() {
   });
 }
 if (brtiState.enabled) connectBRTI();
+
+// Same watchdog idea as the Coinbase/Bitstamp feeds above (STALE_MS) — a
+// socket can go silently dead (peer stops responding without ever sending
+// a close frame) and ws has no built-in timeout for that, so this is the
+// only thing that notices and forces a reconnect. Matters more here than
+// for the exchange feeds: headlinePrice() shows BRTI's value with no
+// fallback once it's configured, so a zombied BRTI socket means the
+// displayed price freezes on its last print indefinitely instead of just
+// degrading to a different number.
+const BRTI_STALE_MS = 30_000;
+setInterval(() => {
+  if (!brtiState.enabled) return;
+  if (brtiState.connected && brtiState.aliveAt && Date.now() - brtiState.aliveAt > BRTI_STALE_MS) {
+    console.log("BRTI feed stale, forcing reconnect");
+    try { brtiSocket.terminate(); } catch {}
+  }
+}, BRTI_STALE_MS);
 
 // ---------- history bucketing for chart ranges ----------
 
