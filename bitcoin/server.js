@@ -5232,6 +5232,11 @@ body {
   border: 1px solid #06112b; border-bottom-width: 3px;
   box-shadow: 0 2px 0 #050914, inset 0 1px 0 rgba(255,255,255,0.3);
 }
+/* NJT's button sits at the right height at the shared -5px above; AMTK and
+   LIRR each needed their own small correction on top of that (2pt and 5pt
+   respectively) to land at that same height. */
+.board-wrap-amtrak .board-link { top: -7px; }
+.board-wrap-lirr .board-link { top: -10px; }
 .board-link:active {
   background: linear-gradient(180deg, #1e3a7a, #0d1d42);
   border-bottom-width: 1px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
@@ -7063,7 +7068,7 @@ body {
 <div id="app">
 
   <div class="tp-topbar">
-    <a class="tp-back" href="/" aria-label="Back to BTC ticker">&larr;</a>
+    <a class="tp-back" href="/trains" aria-label="Back to the train board">&larr;</a>
     <span class="tp-brand">NJ Transit &middot; Departures &amp; Arrivals</span>
     <select class="tp-station-select" id="stationSelect" aria-label="Reference station">
       ${NJT_BOARD_STATION_ORDER.map((code) =>
@@ -8723,7 +8728,7 @@ const lirrBoardPage = `<!DOCTYPE html>
   <div class="header">
     <div class="header-top">
       <div class="header-left">
-        <button class="back-btn" onclick="window.location.href='/'" title="Back">←</button>
+        <button class="back-btn" onclick="window.location.href='/trains'" title="Back">←</button>
         <span class="header-title">Long Island Rail Road</span>
       </div>
       <span class="header-clock" id="currentTime">--:--</span>
