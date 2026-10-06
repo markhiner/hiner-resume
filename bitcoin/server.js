@@ -5453,7 +5453,7 @@ body {
   var SERVICE_COLORS = {
     acela:    "#15b7ed",
     regional: "#2249e6",
-    keystone: "#ce8e00",
+    keystone: "#e6cd2c",
     empire:   "#00985f",
     longdist: "#d12e2e",
   };
@@ -5484,6 +5484,15 @@ body {
     "03a3df": "15b7ed", // NJT North Jersey Coast Line
     "00a1de": "15b7ed", // LIRR West Hempstead
     "dd3439": "d12e2e", // NJT Northeast Corridor
+    "f2a537": "e6cd2c", // NJT Raritan Valley (pairs with Keystone)
+    "e66859": "cf5353", // NJT Montclair-Boonton
+  };
+  // The right text color depends on how bright the *standardized* color
+  // is, not the row's original one — e6cd2c (Raritan Valley/Keystone's
+  // gold-yellow) is too light for white text, unlike the rest of this
+  // palette, which all read fine with white.
+  var LINE_COLOR_TEXT = {
+    "e6cd2c": "121212",
   };
   function standardizeLineColor(boardKey, hex) {
     hex = (hex || "").toLowerCase();
@@ -5504,7 +5513,7 @@ body {
     var stdHex = standardizeLineColor(boardKey, rawHex);
     if (stdHex !== rawHex) {
       rowbg = "#" + stdHex;
-      rowfg = "#ffffff";
+      rowfg = "#" + (LINE_COLOR_TEXT[stdHex] || "ffffff");
     }
     var routeName = boardKey === "njt" ? (row.routeShortName || row.routeName) : row.routeName;
     return '<div class="board-row" data-board="' + boardKey + '" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
