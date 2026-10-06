@@ -5622,11 +5622,12 @@ body {
     // station name.
     var trainCol, toCol;
     if (boardKey === "lirr") {
-      // The plane badge used to sit right after the destination name, so
-      // its x-position drifted with how long that name was — moved into
-      // the track column instead, which is a fixed-width slot, so the
+      // Train number is back (dropped earlier since the branch name
+      // duplicated the destination — the number itself never did), paired
+      // with the destination instead of the route name. The plane badge
+      // moved into the track column, which is a fixed-width slot, so the
       // icon lines up in its own consistent column down the board.
-      trainCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>';
+      trainCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(shortStopName(row.other)) + '</span>';
       toCol = stationBadgesHTML(boardKey, row) + (row.track ? esc(row.track) : "");
     } else {
       trainCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span>';
