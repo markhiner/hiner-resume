@@ -5627,7 +5627,7 @@ body {
       // the track column instead, which is a fixed-width slot, so the
       // icon lines up in its own consistent column down the board.
       trainCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>';
-      toCol = stationBadgesHTML(boardKey, row) + (row.track ? esc(row.track) : "—");
+      toCol = stationBadgesHTML(boardKey, row) + (row.track ? esc(row.track) : "");
     } else {
       trainCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span>';
       toCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
