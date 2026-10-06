@@ -5505,7 +5505,7 @@ body {
   // rather than left as each operator's own native shade.
   var SERVICE_COLORS = {
     acela:    "#02a69e",
-    regional: "#0039a6",
+    regional: "#303ac2",
     keystone: "#ebb402",
     empire:   "#00985f",
     longdist: "#c60c30",
@@ -5519,7 +5519,7 @@ body {
   var LINE_COLOR_OVERRIDES = {
     "00985f": "00985f", // LIRR Babylon (green anchor)
     "08a652": "00985f", // NJT Morris & Essex (Dover)
-    "006ec7": "0039a6", // LIRR Port Jefferson
+    "006ec7": "303ac2", // LIRR Port Jefferson
     "00a1de": "00a1de", // LIRR West Hempstead (blue anchor)
     "03a3df": "00a1de", // NJT North Jersey Coast Line
     "c60c30": "c60c30", // LIRR Port Washington (red anchor)
