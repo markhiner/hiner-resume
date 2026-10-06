@@ -5506,6 +5506,9 @@ body {
   // correct automatically. Narrow hue band + a saturation floor so it
   // only fires for true yellows (ebb402, NJT's Bergen/Main FFD411) and
   // not look-alike-but-duller tones like NJT's tan Meadowlands line.
+  // f27a6b (Montclair-Boonton/MOBO) is the one explicit exception — not
+  // yellow by hue, but still called out for black text.
+  var DARK_TEXT_COLORS = { "f27a6b": true };
   function isYellowish(hex) {
     var r = parseInt(hex.slice(0, 2), 16) / 255;
     var g = parseInt(hex.slice(2, 4), 16) / 255;
@@ -5574,7 +5577,7 @@ body {
     var rawHex = rowbg.replace("#", "").toLowerCase();
     var stdHex = standardizeLineColor(boardKey, rawHex);
     rowbg = "#" + stdHex;
-    var rowfg = isYellowish(stdHex) ? "#121212" : "#ffffff";
+    var rowfg = (isYellowish(stdHex) || DARK_TEXT_COLORS[stdHex]) ? "#121212" : "#ffffff";
     var routeName = boardKey === "njt"
       ? (NJT_ROUTE_LABEL_OVERRIDES[row.routeShortName] || row.routeShortName || row.routeName)
       : row.routeName;
