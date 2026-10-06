@@ -5526,10 +5526,27 @@ body {
     var routeName = boardKey === "njt"
       ? (NJT_ROUTE_LABEL_OVERRIDES[row.routeShortName] || row.routeShortName || row.routeName)
       : row.routeName;
+    // LIRR's own branch name is almost always the same word as the row's
+    // destination (a Babylon-branch train is going to Babylon) — Port
+    // Jefferson trains terminating at Huntington are the one common
+    // exception, and even those read fine without the branch name right
+    // next to it. So for LIRR only: train column becomes the
+    // destination/origin itself (no number, no redundant route name), and
+    // track — genuinely different information, not shown anywhere else on
+    // this row — takes over the column that used to repeat that same
+    // station name.
+    var trainCol, toCol;
+    if (boardKey === "lirr") {
+      trainCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>';
+      toCol = row.track ? esc(row.track) : "—";
+    } else {
+      trainCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span>';
+      toCol = esc(shortStopName(row.other));
+    }
     return '<div class="board-row" data-board="' + boardKey + '" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
-      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span></span>' +
-      '<span class="c-to">' + esc(shortStopName(row.other)) + '</span>' +
+      '<span class="c-train">' + trainCol + '</span>' +
+      '<span class="c-to">' + toCol + '</span>' +
       '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
       '</div>';
   }
