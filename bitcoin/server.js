@@ -5591,6 +5591,12 @@ body {
     if (boardKey === "lirr") {
       trainCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
       toCol = row.track ? esc(row.track) : "—";
+    } else if (boardKey === "njt") {
+      // Destination leads (the left column), train number/route trails —
+      // confirmed against a marked-up screenshot pointing at exactly where
+      // the destination text should start.
+      trainCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
+      toCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span>';
     } else {
       trainCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span>';
       toCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
