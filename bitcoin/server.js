@@ -5222,6 +5222,7 @@ body {
   background: #142a5c; color: #fff; border-radius: 7px; padding: 6px 13px;
   font-size: 12px; font-weight: 800; letter-spacing: 0.4px; text-decoration: none;
   flex-shrink: 0; pointer-events: auto;
+  position: relative; top: -5px;
 }
 .board-link:active { background: #1e3a7a; }
 @keyframes logoSlideIn {
