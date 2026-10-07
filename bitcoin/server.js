@@ -4931,12 +4931,13 @@ const server = http.createServer((req, res) => {
   if ([
     "/amtraklogosquare.png", "/njtlogosquare.png", "/lirrlogosquare.png",
     "/amtraklogowide.png", "/njtlogowide.png", "/lirrlogowide.png",
-    "/amtrakherotrain.png",
+    "/amtrakherotrain.png", "/amtrakskyline.jpg",
   ].includes(url.pathname)) {
     const logoPath = path.join(__dirname, url.pathname.slice(1));
+    const logoType = url.pathname.endsWith(".jpg") ? "image/jpeg" : "image/png";
     fs.readFile(logoPath, (err, data) => {
       if (err) { res.writeHead(404); res.end(); return; }
-      res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" });
+      res.writeHead(200, { "Content-Type": logoType, "Cache-Control": "public, max-age=86400" });
       res.end(data);
     });
     return;
@@ -6305,7 +6306,7 @@ const amtrakBoardPage = `<!DOCTYPE html>
   --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
   --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --green: #22c55e; --yellow: #f5c518;
 }
-html, body { background: var(--bg); color: var(--text1); height: 100%; }
+html, body { background: var(--bg); color: var(--text1); height: 100%; overflow-x: hidden; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -6330,8 +6331,22 @@ body {
   from { transform: translateX(120%) scale(0.25); opacity: 0; }
   to { transform: translateX(0) scale(1); opacity: 1; }
 }
-.tp-hero { padding: 6px 2px 10px; overflow: hidden; }
+/* The skyline is a full-bleed layer behind the train — breaks out of
+   #app's own max-width to span the whole viewport (left:50% + 100vw +
+   translateX(-50%) is the usual trick for that), tiled sideways so it
+   keeps going past both edges of the screen rather than stretching one
+   copy of the art. html/body's own overflow-x:hidden (added above) is
+   what keeps that 100vw layer, and the train's slide-in overshoot, from
+   opening a horizontal scrollbar. */
+.tp-hero { position: relative; padding: 6px 2px 10px; }
+.tp-hero-skyline {
+  position: absolute; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%);
+  background-image: url("/amtrakskyline.jpg");
+  background-repeat: repeat-x; background-position: center; background-size: auto 100%;
+  z-index: 0;
+}
 .tp-hero-img {
+  position: relative; z-index: 1;
   display: block; width: 100%; height: auto; transform-origin: right center;
   animation: heroSlideZoomIn 1.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
@@ -6497,6 +6512,7 @@ body {
     <a class="tp-back" href="/trains" aria-label="Back to the train board">&larr;</a>
   </div>
   <div class="tp-hero">
+    <div class="tp-hero-skyline" aria-hidden="true"></div>
     <img class="tp-hero-img" src="/amtrakherotrain.png?v=${logoVersion("amtrakherotrain.png")}" alt="Amtrak">
   </div>
   <div class="tp-navrow">
