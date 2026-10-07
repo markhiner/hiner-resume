@@ -6359,9 +6359,9 @@ body {
 .board-row:active { filter: brightness(1.18); }
 .c-time { width: 50px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .c-time .trk { display: block; font-size: 8.5px; color: var(--text3); font-weight: 700; margin-top: 1px; white-space: nowrap; }
-.c-train { flex: 1; min-width: 0; }
+.c-train { flex: 1.2; min-width: 0; }
 .c-train .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-.c-to { flex: 1.2; min-width: 0; font-weight: 600; }
+.c-to { flex: 1; min-width: 0; font-weight: 600; }
 .c-to-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 .c-to-badges { white-space: nowrap; display: block; margin-top: 3px; }
 /* Circular badge, matching the combined /trains page's own style (not
