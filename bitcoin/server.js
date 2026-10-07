@@ -5531,7 +5531,7 @@ body {
   // LINE_COLOR_OVERRIDES below for the NJT/LIRR side of the same palette)
   // rather than left as each operator's own native shade.
   var SERVICE_COLORS = {
-    acela:    "#0bdbcd",
+    acela:    "#2fbaba",
     regional: "#303ac2",
     keystone: "#ebb402",
     empire:   "#00985f",
@@ -5554,7 +5554,7 @@ body {
     "00af3f": "00af3f", // LIRR Oyster Bay (its own distinct green)
     "ff6319": "ff6319", // LIRR Long Beach (its own distinct orange)
     "ce8e00": "ebb402", // LIRR Hempstead
-    "00b2a9": "0bdbcd", // LIRR Montauk
+    "00b2a9": "2fbaba", // LIRR Montauk
     "e66859": "f27a6b", // NJT Montclair-Boonton
   };
   // Text is white on every row color except yellow/gold, which gets black
@@ -6548,7 +6548,7 @@ body {
   // AMTRAK_LINE_COLOR note further down: it's a timeliness indicator, not
   // a brand color), so this small fixed set stands in for it instead.
   var SERVICE_COLORS = {
-    acela:    "#0bdbcd",
+    acela:    "#2fbaba",
     regional: "#303ac2",
     keystone: "#ebb402",
     empire:   "#00985f",
