@@ -4931,6 +4931,7 @@ const server = http.createServer((req, res) => {
   if ([
     "/amtraklogosquare.png", "/njtlogosquare.png", "/lirrlogosquare.png",
     "/amtraklogowide.png", "/njtlogowide.png", "/lirrlogowide.png",
+    "/amtrakherotrain.png",
   ].includes(url.pathname)) {
     const logoPath = path.join(__dirname, url.pathname.slice(1));
     fs.readFile(logoPath, (err, data) => {
@@ -6313,17 +6314,26 @@ body {
 }
 #app { max-width: 480px; margin: 0 auto; padding: 14px 14px 32px; }
 
-.tp-topbar { display: flex; align-items: center; gap: 10px; padding: 4px 2px 16px; }
+.tp-topbar { display: flex; align-items: center; gap: 10px; padding: 4px 2px 6px; }
 .tp-back {
   width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
   border: 1px solid var(--border); background: var(--panel2); color: var(--text1);
   display: flex; align-items: center; justify-content: center; font-size: 16px; text-decoration: none;
 }
 .tp-back:active { background: var(--panel); }
-.tp-brand { font-size: 12px; font-weight: 800; letter-spacing: 2px; color: var(--text2); text-transform: uppercase; }
-.tp-station-select {
-  margin-left: auto; background: var(--panel2); color: var(--text1); border: 1px solid var(--border);
-  border-radius: 8px; padding: 5px 8px; font-size: 12px; font-weight: 700;
+/* The hero train slides in from off the right edge and grows from 25% up
+   to full size as it settles — transform-origin on the right so the zoom
+   reads as "arriving", not just scaling in place. backwards fill-mode so
+   it sits at its 0% frame (off right, tiny) for the instant before paint
+   instead of flashing full-size first. */
+@keyframes heroSlideZoomIn {
+  from { transform: translateX(120%) scale(0.25); opacity: 0; }
+  to { transform: translateX(0) scale(1); opacity: 1; }
+}
+.tp-hero { padding: 6px 2px 10px; overflow: hidden; }
+.tp-hero-img {
+  display: block; width: 100%; height: auto; transform-origin: right center;
+  animation: heroSlideZoomIn 1.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 .tp-navrow { display: flex; gap: 8px; padding: 0 2px 14px; }
 .tp-nav-link {
@@ -6332,16 +6342,50 @@ body {
 }
 .tp-nav-link:active { background: var(--panel); }
 
+/* No overflow:hidden here (unlike the other board pages) — the station
+   dropdown hanging off the Departures title needs to paint past this
+   card's own edge. The rounding it would otherwise have clipped in is
+   applied directly to the header/footer strips instead. */
 .board-card {
   background: #050914; border: 1px solid var(--border); border-radius: 14px;
-  overflow: hidden; margin-bottom: 14px;
+  margin-bottom: 14px;
 }
-.board-hdr { background: #eef1f8; display: flex; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px; }
+.board-hdr {
+  background: #eef1f8; display: flex; align-items: baseline; justify-content: space-between;
+  padding: 10px 14px 6px; border-radius: 14px 14px 0 0; position: relative;
+}
 .board-title { font-size: 19px; font-weight: 900; color: #14265c; letter-spacing: -0.3px; }
+/* The Departures title doubles as the station picker now — reset to look
+   like the plain title above, plus a caret, rather than a native control. */
+.board-title-select {
+  background: none; border: none; padding: 0; font-family: inherit; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.board-title-select .caret {
+  width: 10px; height: 10px; flex-shrink: 0; transition: transform 0.15s;
+  fill: #14265c;
+}
+.board-title-select[aria-expanded="true"] .caret { transform: rotate(180deg); }
+.station-menu {
+  position: absolute; top: 100%; left: 14px; margin-top: 4px;
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 10px;
+  min-width: 170px; overflow: hidden; z-index: 5;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.55);
+  display: none;
+}
+.station-menu.open { display: block; }
+.station-menu-item {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  border-bottom: 1px solid var(--border); color: var(--text1);
+  font-family: inherit; font-size: 13px; font-weight: 700; padding: 10px 14px; cursor: pointer;
+}
+.station-menu-item:last-child { border-bottom: none; }
+.station-menu-item:active { background: var(--panel); }
+.station-menu-item.active { color: var(--yellow); }
 .board-clock { font-size: 13px; font-weight: 700; color: #14265c; font-variant-numeric: tabular-nums; }
 .board-cols {
   background: #dde2ee; display: flex; align-items: center; gap: 8px;
-  padding: 4px 14px 4px 22px; font-size: 8.5px; font-weight: 800; letter-spacing: 0.6px;
+  padding: 3px 14px 3px 20px; font-size: 8px; font-weight: 800; letter-spacing: 0.6px;
   text-transform: uppercase; color: #5a6685;
 }
 .board-body { display: flex; flex-direction: column; }
@@ -6350,41 +6394,41 @@ body {
    small fixed SERVICE_COLORS palette (service type) instead of a per-route
    GTFS color, same approach the combined /trains page already uses. */
 .board-row {
-  display: flex; align-items: center; gap: 8px; position: relative;
-  background: var(--rowbg, #273670); color: var(--rowfg, #fff); padding: 9px 14px;
-  border-bottom: 3px solid #050914; font-weight: 700; font-size: 12.5px;
+  display: flex; align-items: center; gap: 6px; position: relative;
+  background: var(--rowbg, #273670); color: var(--rowfg, #fff); padding: 5px 14px;
+  border-bottom: 2px solid #050914; font-weight: 700; font-size: 11px;
   text-align: left;
 }
 .board-row:last-child { border-bottom: none; }
 .board-row:active { filter: brightness(1.18); }
-.c-time { width: 50px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.c-time .trk { display: block; font-size: 8.5px; color: var(--text3); font-weight: 700; margin-top: 1px; white-space: nowrap; }
+.c-time { width: 44px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.c-time .trk { display: block; font-size: 7.5px; color: var(--text3); font-weight: 700; margin-top: 1px; white-space: nowrap; }
 .c-train { flex: 1.2; min-width: 0; }
 .c-train .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 .c-to { flex: 1; min-width: 0; font-weight: 600; }
 .c-to-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-.c-to-badges { white-space: nowrap; display: block; margin-top: 3px; }
+.c-to-badges { white-space: nowrap; display: block; margin-top: 2px; }
 /* Circular badge, matching the combined /trains page's own style (not
    NJT's square pill) — this page shares its CSS/JS lineage with that one. */
 .board-badge {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 14px; height: 14px; border-radius: 50%;
-  background: rgba(0,0,0,0.4); color: #fff; font-size: 8.5px; font-weight: 800; line-height: 1;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: rgba(0,0,0,0.4); color: #fff; font-size: 7.5px; font-weight: 800; line-height: 1;
   position: relative; top: 2px;
 }
-.c-status { width: 96px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
+.c-status { width: 88px; flex-shrink: 0; font-size: 9.5px; text-align: right; }
 .c-status.delayed {
   color: var(--yellow); font-weight: 800; display: inline-block;
-  background: rgba(0,0,0,0.5); border-radius: 6px; padding: 3px 6px; line-height: 1.25;
+  background: rgba(0,0,0,0.5); border-radius: 6px; padding: 2px 5px; line-height: 1.2;
 }
 .c-status.gone { opacity: 0.75; font-style: italic; }
 .c-status.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
-.board-ftr { background: #dde2ee; color: #5a6685; text-align: right; padding: 6px 14px; font-size: 10px; letter-spacing: 0.4px; }
+.board-ftr { background: #dde2ee; color: #5a6685; text-align: right; padding: 5px 14px; font-size: 10px; letter-spacing: 0.4px; border-radius: 0 0 14px 14px; }
 .board-more {
   display: block; width: 100%; text-align: center;
-  background: #142a5c; color: #fff; border: none; border-top: 3px solid #050914;
-  padding: 9px 14px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+  background: #142a5c; color: #fff; border: none; border-top: 2px solid #050914;
+  padding: 7px 14px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.5px;
 }
 .board-more:active { background: #1e3a7a; }
 
@@ -6451,21 +6495,27 @@ body {
 
   <div class="tp-topbar">
     <a class="tp-back" href="/trains" aria-label="Back to the train board">&larr;</a>
-    <span class="tp-brand">Amtrak &middot; Departures &amp; Arrivals</span>
-    <select class="tp-station-select" id="stationSelect" aria-label="Reference station">
-      ${Object.keys(AMTRAK_BOARD_STATIONS).map((code) =>
-        `<option value="${code}"${code === AMTRAK_DEFAULT_STATION ? " selected" : ""}>${AMTRAK_BOARD_STATIONS[code]}</option>`
-      ).join("")}
-    </select>
+  </div>
+  <div class="tp-hero">
+    <img class="tp-hero-img" src="/amtrakherotrain.png?v=${logoVersion("amtrakherotrain.png")}" alt="Amtrak">
   </div>
   <div class="tp-navrow">
-    <a class="tp-nav-link" href="/lirr-board">LIRR</a>
-    <a class="tp-nav-link" href="/njt-board">NJT</a>
     <a class="tp-nav-link" href="/amtrak-nec-map">NEC Map</a>
   </div>
 
   <div class="board-card">
-    <div class="board-hdr"><span class="board-title" id="depTitle">Departures</span><span class="board-clock" id="depClock">&mdash;</span></div>
+    <div class="board-hdr">
+      <button class="board-title board-title-select" id="depTitleBtn" aria-haspopup="listbox" aria-expanded="false">
+        <span id="depTitleText">Departures</span>
+        <svg class="caret" viewBox="0 0 16 16"><path d="M3 5l5 6 5-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <span class="board-clock" id="depClock">&mdash;</span>
+      <div class="station-menu" id="stationMenu" role="listbox" aria-label="Reference station">
+        ${Object.keys(AMTRAK_BOARD_STATIONS).map((code) =>
+          `<button type="button" class="station-menu-item" role="option" data-station="${code}">${AMTRAK_BOARD_STATIONS[code]}</button>`
+        ).join("")}
+      </div>
+    </div>
     <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">To</span><span class="c-status">Status</span></div>
     <div class="board-body" id="depBody"><div class="board-empty">Loading&hellip;</div></div>
     <div class="board-ftr" id="depDate">&mdash;</div>
@@ -6594,7 +6644,7 @@ body {
       '</div>';
   }
 
-  var BOARD_COLLAPSED_ROWS = 5;
+  var BOARD_COLLAPSED_ROWS = 8;
   var boardExpanded = { dep: false, arr: false };
 
   function renderBoard(bodyId, rows, kind) {
@@ -6634,13 +6684,31 @@ body {
   }
 
   function updateDepTitle() {
-    document.getElementById("depTitle").textContent = (STATION_NAMES[state.station] || "") + " Departures";
+    document.getElementById("depTitleText").textContent = (STATION_NAMES[state.station] || "") + " Departures";
   }
 
-  var stationSelectEl = document.getElementById("stationSelect");
-  stationSelectEl.value = state.station;
-  stationSelectEl.addEventListener("change", function () {
-    state.station = stationSelectEl.value;
+  // The station picker is the Departures title itself now (a button) with
+  // a dropdown of the other reference stations, rather than a native
+  // <select> in the topbar — see the station-menu CSS note on why
+  // .board-card lost its overflow:hidden to let this hang below the card.
+  var depTitleBtn = document.getElementById("depTitleBtn");
+  var stationMenuEl = document.getElementById("stationMenu");
+  function closeStationMenu() {
+    stationMenuEl.classList.remove("open");
+    depTitleBtn.setAttribute("aria-expanded", "false");
+  }
+  function openStationMenu() {
+    stationMenuEl.classList.add("open");
+    depTitleBtn.setAttribute("aria-expanded", "true");
+  }
+  function markActiveStation() {
+    stationMenuEl.querySelectorAll(".station-menu-item").forEach(function (btn) {
+      btn.classList.toggle("active", btn.getAttribute("data-station") === state.station);
+    });
+  }
+  function selectStation(code) {
+    if (code === state.station) { closeStationMenu(); return; }
+    state.station = code;
     boardExpanded.dep = false;
     boardExpanded.arr = false;
     if (openTrain) closeTrain();
@@ -6650,8 +6718,22 @@ body {
     document.getElementById("depBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
     document.getElementById("arrBody").innerHTML = '<div class="board-empty">Loading&hellip;</div>';
     updateDepTitle();
+    markActiveStation();
+    closeStationMenu();
     loadAmtrakBoard();
+  }
+  depTitleBtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    if (stationMenuEl.classList.contains("open")) closeStationMenu(); else openStationMenu();
   });
+  stationMenuEl.addEventListener("click", function (e) {
+    var item = e.target.closest(".station-menu-item");
+    if (item) selectStation(item.getAttribute("data-station"));
+  });
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest(".board-title-select") && !e.target.closest(".station-menu")) closeStationMenu();
+  });
+  markActiveStation();
   updateDepTitle();
 
   function tickClocks() {
