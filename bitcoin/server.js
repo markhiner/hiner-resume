@@ -6341,7 +6341,11 @@ body {
    golden-hour/night) is showing is swapped in by the script further
    down, based on NYC's real sunrise/sunset for today; the url() here is
    just the pre-JS fallback. */
-.tp-hero { position: relative; padding: 6px 2px 10px; }
+.tp-hero { padding: 6px 2px 14px; }
+/* A dedicated frame, sized to the train art's own aspect ratio, so the
+   skyline (which fills it exactly) and the train (bottom-anchored inside
+   it, see below) have a shared height to measure "bottom" against. */
+.tp-hero-frame { position: relative; aspect-ratio: 2172 / 724; }
 .tp-hero-skyline {
   position: absolute; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%);
   background-image: url("/amtrakskyline.jpg");
@@ -6349,7 +6353,7 @@ body {
   z-index: 0;
 }
 .tp-hero-img {
-  position: relative; z-index: 1;
+  position: absolute; z-index: 1; left: 0; right: 0; bottom: -8px;
   display: block; width: 100%; height: auto; transform-origin: right center;
   animation: heroSlideZoomIn 1.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
@@ -6515,8 +6519,10 @@ body {
     <a class="tp-back" href="/trains" aria-label="Back to the train board">&larr;</a>
   </div>
   <div class="tp-hero">
-    <div class="tp-hero-skyline" id="heroSkyline" aria-hidden="true"></div>
-    <img class="tp-hero-img" src="/amtrakherotrain.png?v=${logoVersion("amtrakherotrain.png")}" alt="Amtrak">
+    <div class="tp-hero-frame">
+      <div class="tp-hero-skyline" id="heroSkyline" aria-hidden="true"></div>
+      <img class="tp-hero-img" src="/amtrakherotrain.png?v=${logoVersion("amtrakherotrain.png")}" alt="Amtrak">
+    </div>
   </div>
   <div class="tp-navrow">
     <a class="tp-nav-link" href="/amtrak-nec-map">NEC Map</a>
