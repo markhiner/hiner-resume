@@ -6322,14 +6322,12 @@ body {
   display: flex; align-items: center; justify-content: center; font-size: 16px; text-decoration: none;
 }
 .tp-back:active { background: var(--panel); }
-/* The hero train slides in from off the right edge and grows from 25% up
-   to full size as it settles — transform-origin on the right so the zoom
-   reads as "arriving", not just scaling in place. backwards fill-mode so
-   it sits at its 0% frame (off right, tiny) for the instant before paint
-   instead of flashing full-size first. */
-@keyframes heroSlideZoomIn {
-  from { transform: translateX(120%) scale(0.25); opacity: 0; }
-  to { transform: translateX(0) scale(1); opacity: 1; }
+/* The hero train slides in from off the right edge at its full size —
+   backwards fill-mode so it sits at its 0% frame (off right) for the
+   instant before paint instead of flashing into place at x=0 first. */
+@keyframes heroSlideIn {
+  from { transform: translateX(120%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
 }
 /* The skyline is a full-bleed layer behind the train — breaks out of
    #app's own max-width to span the whole viewport (left:50% + 100vw +
@@ -6354,8 +6352,8 @@ body {
 }
 .tp-hero-img {
   position: absolute; z-index: 1; left: 0; right: 0; bottom: -8px;
-  display: block; width: 100%; height: auto; transform-origin: right center;
-  animation: heroSlideZoomIn 1.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  display: block; width: 100%; height: auto;
+  animation: heroSlideIn 1.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 .tp-navrow { display: flex; gap: 8px; padding: 0 2px 14px; }
 .tp-nav-link {
