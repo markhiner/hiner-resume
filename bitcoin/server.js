@@ -6348,7 +6348,7 @@ body {
 .tp-hero-frame { position: relative; aspect-ratio: 2172 / 724; }
 .tp-hero-skyline {
   position: absolute; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%);
-  background-image: url("/amtrakskyline.jpg");
+  background-image: url("/amtrakskyline.jpg?v=${logoVersion("amtrakskyline.jpg")}");
   background-repeat: repeat-x; background-position: center; background-size: auto 100%;
   z-index: 0;
 }
@@ -6815,6 +6815,9 @@ body {
       return { sunrise: toMs(Jrise), sunset: toMs(Jset) };
     }
 
+    var SKYLINE_DAY = "/amtrakskyline.jpg?v=${logoVersion("amtrakskyline.jpg")}";
+    var SKYLINE_DUSK = "/amtrakskylinedusk.jpg?v=${logoVersion("amtrakskylinedusk.jpg")}";
+    var SKYLINE_NIGHT = "/amtrakskylinenight.jpg?v=${logoVersion("amtrakskylinenight.jpg")}";
     var heroSkylineEl = document.getElementById("heroSkyline");
     function updateHeroSkyline() {
       var now = Date.now();
@@ -6836,9 +6839,9 @@ body {
       // whichever side of it "now" falls on.
       var afterPrevGolden = prev && (now - prev.t) <= (prev.type === "sunrise" ? 60 : 10) * 60000;
       var beforeNextGolden = next && (next.t - now) <= (next.type === "sunrise" ? 60 : 90) * 60000;
-      var src = (afterPrevGolden || beforeNextGolden) ? "/amtrakskylinedusk.jpg"
-        : (prev && prev.type === "sunrise") ? "/amtrakskyline.jpg"
-        : "/amtrakskylinenight.jpg";
+      var src = (afterPrevGolden || beforeNextGolden) ? SKYLINE_DUSK
+        : (prev && prev.type === "sunrise") ? SKYLINE_DAY
+        : SKYLINE_NIGHT;
       heroSkylineEl.style.backgroundImage = "url('" + src + "')";
     }
     updateHeroSkyline();
