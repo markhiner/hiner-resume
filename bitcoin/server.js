@@ -6371,7 +6371,8 @@ body {
   margin-bottom: 14px;
 }
 .board-hdr {
-  background: #eef1f8; display: flex; align-items: baseline; justify-content: space-between;
+  background: linear-gradient(180deg, #cfcfcf, #c0c0c2);
+  display: flex; align-items: baseline; justify-content: space-between;
   padding: 10px 14px 6px; border-radius: 14px 14px 0 0; position: relative;
 }
 .board-title { font-size: 19px; font-weight: 900; color: #14265c; letter-spacing: -0.3px; }
@@ -6404,7 +6405,8 @@ body {
 .station-menu-item.active { color: var(--yellow); }
 .board-clock { font-size: 13px; font-weight: 700; color: #14265c; font-variant-numeric: tabular-nums; }
 .board-cols {
-  background: #dde2ee; display: flex; align-items: center; gap: 8px;
+  background: linear-gradient(180deg, #c0c0c2, #b8b9bc);
+  display: flex; align-items: center; gap: 8px;
   padding: 3px 14px 3px 20px; font-size: 8px; font-weight: 800; letter-spacing: 0.6px;
   text-transform: uppercase; color: #5a6685;
 }
@@ -6444,7 +6446,11 @@ body {
 .c-status.gone { opacity: 0.75; font-style: italic; }
 .c-status.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
-.board-ftr { background: #dde2ee; color: #5a6685; text-align: right; padding: 5px 14px; font-size: 10px; letter-spacing: 0.4px; border-radius: 0 0 14px 14px; }
+.board-ftr {
+  background: linear-gradient(180deg, #c0c0c2, #b6b7ba);
+  color: #5a6685; text-align: right; padding: 5px 14px; font-size: 10px; letter-spacing: 0.4px;
+  border-radius: 0 0 14px 14px;
+}
 .board-more {
   display: block; width: 100%; text-align: center;
   background: #142a5c; color: #fff; border: none; border-top: 2px solid #050914;
