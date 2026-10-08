@@ -4931,7 +4931,7 @@ const server = http.createServer((req, res) => {
   if ([
     "/amtraklogosquare.png", "/njtlogosquare.png", "/lirrlogosquare.png",
     "/amtraklogowide.png", "/njtlogowide.png", "/lirrlogowide.png",
-    "/amtrakherotrain.png", "/amtrakskyline.jpg", "/amtrakskylinedusk.jpg", "/amtrakskylinenight.jpg",
+    "/amtrakherotrain.png", "/amtrakherotrain2.png", "/amtrakskyline.jpg", "/amtrakskylinedusk.jpg", "/amtrakskylinenight.jpg",
   ].includes(url.pathname)) {
     const logoPath = path.join(__dirname, url.pathname.slice(1));
     const logoType = url.pathname.endsWith(".jpg") ? "image/jpeg" : "image/png";
@@ -6519,7 +6519,7 @@ body {
   <div class="tp-hero">
     <div class="tp-hero-frame">
       <div class="tp-hero-skyline" id="heroSkyline" aria-hidden="true"></div>
-      <img class="tp-hero-img" src="/amtrakherotrain.png?v=${logoVersion("amtrakherotrain.png")}" alt="Amtrak">
+      <img class="tp-hero-img" id="heroTrainImg" alt="Amtrak">
     </div>
   </div>
   <div class="tp-navrow">
@@ -6576,6 +6576,17 @@ body {
     if (s.slice(0, 3) === "24:") s = "00:" + s.slice(3);
     return s;
   }
+
+  // Two hero train sprites, picked once per page load by the parity of
+  // the second the page happened to load on — even gets the original,
+  // odd gets the alternate, so a refresh has a real chance of showing
+  // either one rather than always the same image.
+  (function () {
+    var HERO_TRAIN_A = "/amtrakherotrain.png?v=${logoVersion("amtrakherotrain.png")}";
+    var HERO_TRAIN_B = "/amtrakherotrain2.png?v=${logoVersion("amtrakherotrain2.png")}";
+    var heroTrainEl = document.getElementById("heroTrainImg");
+    heroTrainEl.src = (new Date().getSeconds() % 2 === 0) ? HERO_TRAIN_A : HERO_TRAIN_B;
+  })();
 
   // Catmull-Rom spline through the real station points, same as the
   // combined /trains page's own smoothRoute — a real rail line eases into
