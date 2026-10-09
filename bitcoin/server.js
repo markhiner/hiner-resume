@@ -6503,7 +6503,7 @@ body {
   margin-bottom: 14px;
 }
 .board-hdr {
-  background: linear-gradient(180deg, #cfcfcf, #c0c0c2);
+  background: linear-gradient(180deg, #e2e3e5 0%, #b8bbc0 55%, #9a9da3 100%);
   display: flex; align-items: baseline; justify-content: space-between;
   padding: 10px 14px 6px; border-radius: 14px 14px 0 0; position: relative;
 }
@@ -6537,10 +6537,10 @@ body {
 .station-menu-item.active { color: var(--yellow); }
 .board-clock { font-size: 13px; font-weight: 700; color: #14265c; font-variant-numeric: tabular-nums; }
 .board-cols {
-  background: linear-gradient(180deg, #c0c0c2, #b8b9bc);
+  background: linear-gradient(180deg, #9a9da3, #84878d);
   display: flex; align-items: center; gap: 8px;
   padding: 3px 14px 3px 20px; font-size: 8px; font-weight: 800; letter-spacing: 0.6px;
-  text-transform: uppercase; color: #5a6685;
+  text-transform: uppercase; color: #394257;
 }
 .board-body { display: flex; flex-direction: column; }
 /* Amtrak's own color field is a timeliness indicator, not a brand color
@@ -6579,8 +6579,8 @@ body {
 .c-status.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
 .board-ftr {
-  background: linear-gradient(180deg, #c0c0c2, #b6b7ba);
-  color: #5a6685; text-align: right; padding: 5px 14px; font-size: 10px; letter-spacing: 0.4px;
+  background: linear-gradient(180deg, #84878d, #686b70);
+  color: #e4e5e7; text-align: right; padding: 5px 14px; font-size: 10px; letter-spacing: 0.4px;
   border-radius: 0 0 14px 14px;
 }
 .board-more {
