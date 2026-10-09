@@ -16,3 +16,6 @@ trains/.lirr-gtfs-cache/
 bitcoin/.lirr-gtfs-cache/
 bitcoin/.amtrak-gtfs-cache/
 bitcoin/.njt-cache/
+bitcoin/.transcribe-tmp/
+bitcoin/.audio-downloads-tmp/
+bitcoin/.whisper-models/

@@ -3954,6 +3954,90 @@ async function runTranscriptionJob(id, videoUrl) {
   }
 }
 
+// ---------- YouTube audio download (best-quality MP3) ----------
+// A separate feature from the transcription job above, sharing only its
+// yt-dlp/ffmpeg binaries: pulls just the best available audio stream and
+// hands it straight to yt-dlp's own --extract-audio postprocessor (which
+// shells out to ffmpeg itself), rather than the manual yt-dlp-then-ffmpeg
+// two-step the whisper pipeline needs for its specific 16kHz mono WAV.
+// Unlike that pipeline, the output file has to survive the job finishing —
+// it's the thing being downloaded — so cleanup here is a timer (the file
+// is deleted some time after it's done, whether or not it was ever
+// fetched) instead of the transcribe job's immediate rm in `finally`.
+const AUDIO_DL_DIR = path.join(__dirname, ".audio-downloads-tmp");
+const AUDIO_DL_JOB_TTL_MS = 2 * 60 * 60 * 1000; // give a phone on a slow connection time to actually fetch it
+
+const audioDlJobs = new Map(); // id -> { status, phase, title, fileName, filePath, error, createdAt }
+const audioDlQueue = [];
+let audioDlRunning = false;
+
+function queueAudioDownload(videoUrl) {
+  const id = crypto.randomUUID();
+  audioDlJobs.set(id, { status: "queued", phase: "Queued", title: null, fileName: null, filePath: null, error: null, createdAt: Date.now() });
+  audioDlQueue.push({ id, videoUrl });
+  processAudioDlQueue();
+  return id;
+}
+
+async function processAudioDlQueue() {
+  if (audioDlRunning) return;
+  const next = audioDlQueue.shift();
+  if (!next) return;
+  audioDlRunning = true;
+  try {
+    await runAudioDownloadJob(next.id, next.videoUrl);
+  } finally {
+    audioDlRunning = false;
+    processAudioDlQueue();
+  }
+}
+
+async function runAudioDownloadJob(id, videoUrl) {
+  const job = audioDlJobs.get(id);
+  const dir = path.join(AUDIO_DL_DIR, id);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    job.status = "running";
+
+    try {
+      const meta = await runCmd(YTDLP_BIN, ["--skip-download", "--no-playlist", "--print", "%(title)s", videoUrl]);
+      job.title = meta.stdout.trim().split("\n").filter(Boolean).pop() || null;
+    } catch (e) {
+      console.warn(`Audio download ${id}: title lookup failed (continuing without one):`, e.message);
+    }
+
+    job.phase = "Downloading & converting to MP3…";
+    // --audio-quality 0 is yt-dlp's best-VBR setting (0 = best, 9 = worst),
+    // applied to whatever the best available audio stream already is.
+    await runCmd(YTDLP_BIN, [
+      "-f", "bestaudio/best", "--no-playlist",
+      "-x", "--audio-format", "mp3", "--audio-quality", "0",
+      "-o", path.join(dir, "audio.%(ext)s"),
+      videoUrl,
+    ]);
+
+    const mp3Name = fs.readdirSync(dir).find((f) => f.endsWith(".mp3"));
+    if (!mp3Name) throw new Error("yt-dlp did not produce an MP3 file");
+
+    const safeTitle = (job.title || "audio").replace(/[^a-z0-9]+/gi, "-").toLowerCase().replace(/^-+|-+$/g, "").slice(0, 60) || "audio";
+    job.fileName = safeTitle + ".mp3";
+    job.filePath = path.join(dir, mp3Name);
+    job.status = "done";
+    job.phase = "Done";
+    setTimeout(() => {
+      fs.rmSync(dir, { recursive: true, force: true });
+      audioDlJobs.delete(id);
+    }, AUDIO_DL_JOB_TTL_MS);
+  } catch (e) {
+    job.status = "error";
+    job.phase = "Failed";
+    job.error = e.message;
+    console.error(`Audio download ${id} failed:`, e.message);
+    fs.rmSync(dir, { recursive: true, force: true });
+    setTimeout(() => audioDlJobs.delete(id), TRANSCRIBE_JOB_TTL_MS);
+  }
+}
+
 // ---------- NJ Transit rail (official GTFS/GTFSRT API) ----------
 // Same static-schedule + realtime-delay-overlay shape as the LIRR board
 // above, fed by NJT's own developer API instead of the MTA's public feed.
@@ -4996,6 +5080,54 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(job
       ? { status: job.status, phase: job.phase, title: job.title, text: job.text, error: job.error }
       : { error: "not found" }));
+    return;
+  }
+  if (url.pathname === "/api/download-audio" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => {
+      body += c;
+      if (body.length > 4096) { req.destroy(); }
+    });
+    req.on("end", () => {
+      const send = (code, obj) => {
+        res.writeHead(code, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(obj));
+      };
+      let payload;
+      try { payload = JSON.parse(body || "{}"); } catch { return send(400, { error: "bad request" }); }
+      const videoUrl = String(payload.url || "").trim();
+      if (!videoUrl) return send(400, { error: "url required" });
+      let parsed;
+      try { parsed = new URL(videoUrl); } catch { return send(400, { error: "not a valid URL" }); }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return send(400, { error: "url must be http(s)" });
+      send(200, { id: queueAudioDownload(videoUrl) });
+    });
+    return;
+  }
+  if (url.pathname === "/api/download-audio-status") {
+    const id = url.searchParams.get("id");
+    const job = id && audioDlJobs.get(id);
+    res.writeHead(job ? 200 : 404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(job
+      ? { status: job.status, phase: job.phase, title: job.title, error: job.error }
+      : { error: "not found" }));
+    return;
+  }
+  if (url.pathname === "/api/download-audio-file") {
+    const id = url.searchParams.get("id");
+    const job = id && audioDlJobs.get(id);
+    if (!job || job.status !== "done" || !job.filePath || !fs.existsSync(job.filePath)) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+      return;
+    }
+    const stat = fs.statSync(job.filePath);
+    res.writeHead(200, {
+      "Content-Type": "audio/mpeg",
+      "Content-Length": stat.size,
+      "Content-Disposition": `attachment; filename="${job.fileName}"; filename*=UTF-8''${encodeURIComponent(job.fileName)}`,
+    });
+    fs.createReadStream(job.filePath).pipe(res);
     return;
   }
   if (url.pathname === "/api/portfolio") {
@@ -11402,9 +11534,13 @@ body {
 .tr-btn {
   flex: 1; padding: 10px; border-radius: 9px; border: 1px solid var(--border);
   background: var(--panel2); color: var(--text1); font-size: 12.5px; font-weight: 800;
+  text-align: center; text-decoration: none; display: block;
 }
 .tr-btn:active { background: var(--panel); }
 .tr-btn.copied { border-color: rgba(34,197,94,0.5); color: var(--green); }
+
+.tr-divider { height: 1px; background: var(--border); margin: 30px 2px 0; }
+.tr-section-title { font-size: 11px; font-weight: 800; color: var(--text2); letter-spacing: 1.2px; text-transform: uppercase; padding: 20px 2px 0; }
 
 .tr-foot { text-align: center; color: var(--text3); font-size: 10.5px; padding: 22px 4px 0; line-height: 1.5; }
 </style>
@@ -11429,6 +11565,22 @@ body {
     <div class="tr-actions">
       <button class="tr-btn" id="trCopy">Copy Text</button>
       <button class="tr-btn" id="trDownload">Download .txt</button>
+    </div>
+  </div>
+
+  <div class="tr-divider"></div>
+  <div class="tr-section-title">Download Audio (MP3)</div>
+  <div class="tr-form">
+    <input class="tr-input" id="dlUrl" type="url" inputmode="url" placeholder="Paste a YouTube link&hellip;" autocapitalize="off" autocorrect="off">
+    <button class="tr-go" id="dlGo">Get MP3</button>
+  </div>
+
+  <div class="tr-status" id="dlStatus"><span class="tr-spin"></span><span id="dlStatusText">&mdash;</span></div>
+
+  <div class="tr-result" id="dlResult">
+    <div class="tr-title" id="dlTitle"></div>
+    <div class="tr-actions">
+      <a class="tr-btn" id="dlLink" href="#">Download MP3</a>
     </div>
   </div>
 
@@ -11551,6 +11703,109 @@ body {
     a.click();
     document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  });
+
+  var resumeId = localStorage.getItem(STORE_KEY);
+  if (resumeId) {
+    setBusy(true);
+    showStatus("Resuming\\u2026", false);
+    poll(resumeId);
+  }
+})();
+
+(function () {
+  "use strict";
+  var STORE_KEY = "audioDlJobId";
+  var urlEl = document.getElementById("dlUrl");
+  var goEl = document.getElementById("dlGo");
+  var statusEl = document.getElementById("dlStatus");
+  var statusTextEl = document.getElementById("dlStatusText");
+  var resultEl = document.getElementById("dlResult");
+  var titleEl = document.getElementById("dlTitle");
+  var linkEl = document.getElementById("dlLink");
+  var pollTimer = null;
+
+  function setBusy(busy) {
+    goEl.disabled = busy;
+    urlEl.disabled = busy;
+  }
+
+  function showStatus(text, isError) {
+    statusEl.classList.add("show");
+    statusEl.classList.toggle("error", !!isError);
+    statusTextEl.textContent = text;
+  }
+
+  function hideStatus() {
+    statusEl.classList.remove("show");
+  }
+
+  function poll(id) {
+    clearTimeout(pollTimer);
+    fetch("/api/download-audio-status?id=" + encodeURIComponent(id))
+      .then(function (r) { return r.json(); })
+      .then(function (job) {
+        if (job.error && !job.status) {
+          localStorage.removeItem(STORE_KEY);
+          setBusy(false);
+          hideStatus();
+          return;
+        }
+        if (job.status === "error") {
+          showStatus(job.error || "Download failed", true);
+          setBusy(false);
+          localStorage.removeItem(STORE_KEY);
+          return;
+        }
+        if (job.status === "done") {
+          hideStatus();
+          setBusy(false);
+          titleEl.textContent = job.title || "";
+          linkEl.href = "/api/download-audio-file?id=" + encodeURIComponent(id);
+          resultEl.classList.add("show");
+          localStorage.removeItem(STORE_KEY);
+          return;
+        }
+        showStatus(job.phase || "Working\\u2026", false);
+        pollTimer = setTimeout(function () { poll(id); }, 1500);
+      })
+      .catch(function () {
+        pollTimer = setTimeout(function () { poll(id); }, 3000);
+      });
+  }
+
+  function start(videoUrl) {
+    resultEl.classList.remove("show");
+    setBusy(true);
+    showStatus("Starting\\u2026", false);
+    fetch("/api/download-audio", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: videoUrl }),
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          showStatus(res.body.error || "Could not start download", true);
+          setBusy(false);
+          return;
+        }
+        localStorage.setItem(STORE_KEY, res.body.id);
+        poll(res.body.id);
+      })
+      .catch(function () {
+        showStatus("Could not reach the server", true);
+        setBusy(false);
+      });
+  }
+
+  goEl.addEventListener("click", function () {
+    var v = urlEl.value.trim();
+    if (!v) return;
+    start(v);
+  });
+  urlEl.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") goEl.click();
   });
 
   var resumeId = localStorage.getItem(STORE_KEY);
