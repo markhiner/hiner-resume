@@ -6847,7 +6847,7 @@ body {
     if (moreBtn) {
       if (rows.length > BOARD_COLLAPSED_ROWS) {
         moreBtn.style.display = "inline-block";
-        moreBtn.textContent = expanded ? "Show fewer" : "More (" + (rows.length - BOARD_COLLAPSED_ROWS) + ")";
+        moreBtn.textContent = expanded ? "Show fewer" : "More";
       } else {
         moreBtn.style.display = "none";
       }
