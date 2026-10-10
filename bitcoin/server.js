@@ -5016,6 +5016,7 @@ const server = http.createServer((req, res) => {
     "/amtraklogosquare.png", "/njtlogosquare.png", "/lirrlogosquare.png",
     "/amtraklogowide.png", "/njtlogowide.png", "/lirrlogowide.png",
     "/amtrakherotrain.png", "/amtrakherotrain2.png", "/amtrakskyline.jpg", "/amtrakskylinedusk.jpg", "/amtrakskylinenight.jpg",
+    "/lirrherotrain.png",
   ].includes(url.pathname)) {
     const logoPath = path.join(__dirname, url.pathname.slice(1));
     const logoType = url.pathname.endsWith(".jpg") ? "image/jpeg" : "image/png";
@@ -8984,8 +8985,34 @@ const lirrBoardPage = `<!DOCTYPE html>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; height: 100%; background: #000; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow-x: hidden; }
   body { font-family: Helvetica, Arial, sans-serif; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+
+  /* Hero train + full-bleed skyline, same pattern as the Amtrak board page:
+     a dedicated frame sized to the train art's own aspect ratio, the
+     skyline breaking out past #app's width to the real viewport edges
+     (left:50% + 100vw + translateX(-50%)), and the train slides in from
+     off the right edge on load. Which of the three skylines (day/
+     golden-hour/night) shows is picked by the script further down, based
+     on NYC's real sunrise/sunset for today — same images the Amtrak page
+     uses, not separate art. */
+  @keyframes heroSlideIn {
+    from { transform: translateX(120%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  .tp-hero { padding: 6px 14px 10px; background: #000; }
+  .tp-hero-frame { position: relative; aspect-ratio: 2172 / 724; }
+  .tp-hero-skyline {
+    position: absolute; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%);
+    background-image: url("/amtrakskyline.jpg");
+    background-repeat: repeat-x; background-position: center; background-size: auto 100%;
+    z-index: 0;
+  }
+  .tp-hero-img {
+    position: absolute; z-index: 1; left: 0; right: 0; bottom: -8px;
+    display: block; width: 100%; height: auto;
+    animation: heroSlideIn 1.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
 
   .header { background: #000; color: white; padding: 10px 14px 8px; border-bottom: 1px solid #333; }
   .header-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
@@ -9073,6 +9100,13 @@ const lirrBoardPage = `<!DOCTYPE html>
     </div>
   </div>
 
+  <div class="tp-hero">
+    <div class="tp-hero-frame">
+      <div class="tp-hero-skyline" id="heroSkyline" aria-hidden="true"></div>
+      <img class="tp-hero-img" src="/lirrherotrain.png?v=${logoVersion("lirrherotrain.png")}" alt="LIRR">
+    </div>
+  </div>
+
   <div class="col-headers">
     <div>Time</div>
     <div>Destination</div>
@@ -9092,6 +9126,69 @@ const lirrBoardPage = `<!DOCTYPE html>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script>
+    // ---------- hero skyline: day / golden-hour / night, by NYC's real
+    // sunrise & sunset — same solar math and the same three skyline images
+    // as the Amtrak board page, just the train sprite differs. ----------
+    (function () {
+      var NYC_LAT = 40.7128, NYC_LON = -74.0060;
+      var rad = Math.PI / 180;
+      var dayMs = 1000 * 60 * 60 * 24;
+      var J1970 = 2440588, J2000 = 2451545;
+      var e = rad * 23.4397;
+      function toDays(date) { return date.valueOf() / dayMs - 0.5 + J1970 - J2000; }
+      function solarMeanAnomaly(d) { return rad * (357.5291 + 0.98560028 * d); }
+      function eclipticLongitude(M) {
+        var C = rad * (1.9148 * Math.sin(M) + 0.0200 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
+        var P = rad * 102.9372;
+        return M + C + P + Math.PI;
+      }
+      function declination(l) { return Math.asin(Math.sin(l) * Math.sin(e)); }
+      function julianCycle(d, lw) { return Math.round(d - 0.0009 - lw / (2 * Math.PI)); }
+      function approxTransit(Ht, lw, n) { return 0.0009 + (Ht + lw) / (2 * Math.PI) + n; }
+      function solarTransitJ(ds, M, L) { return J2000 + ds + 0.0053 * Math.sin(M) - 0.0069 * Math.sin(2 * L); }
+      function hourAngle(h, phi, d) { return Math.acos((Math.sin(h) - Math.sin(phi) * Math.sin(d)) / (Math.cos(phi) * Math.cos(d))); }
+      function getSunTimes(date, lat, lng) {
+        var lw = rad * -lng, phi = rad * lat, d = toDays(date);
+        var n = julianCycle(d, lw), ds = approxTransit(0, lw, n);
+        var M = solarMeanAnomaly(ds), L = eclipticLongitude(M), dec = declination(L);
+        var Jnoon = solarTransitJ(ds, M, L);
+        var h0 = -0.833 * rad;
+        var w = hourAngle(h0, phi, dec);
+        var Jset = solarTransitJ(approxTransit(w, lw, n), M, L);
+        var Jrise = Jnoon - (Jset - Jnoon);
+        var toMs = function (j) { return (j + 0.5 - J1970) * dayMs; };
+        return { sunrise: toMs(Jrise), sunset: toMs(Jset) };
+      }
+
+      var SKYLINE_DAY = "/amtrakskyline.jpg?v=${logoVersion("amtrakskyline.jpg")}";
+      var SKYLINE_DUSK = "/amtrakskylinedusk.jpg?v=${logoVersion("amtrakskylinedusk.jpg")}";
+      var SKYLINE_NIGHT = "/amtrakskylinenight.jpg?v=${logoVersion("amtrakskylinenight.jpg")}";
+      var heroSkylineEl = document.getElementById("heroSkyline");
+      function updateHeroSkyline() {
+        var now = Date.now();
+        var events = [];
+        [-1, 0, 1].forEach(function (dayOffset) {
+          var t = getSunTimes(new Date(now + dayOffset * dayMs), NYC_LAT, NYC_LON);
+          events.push({ t: t.sunrise, type: "sunrise" });
+          events.push({ t: t.sunset, type: "sunset" });
+        });
+        events.sort(function (a, b) { return a.t - b.t; });
+        var prev = null, next = null;
+        events.forEach(function (ev) {
+          if (ev.t <= now) prev = ev;
+          if (ev.t > now && !next) next = ev;
+        });
+        var afterPrevGolden = prev && (now - prev.t) <= (prev.type === "sunrise" ? 60 : 10) * 60000;
+        var beforeNextGolden = next && (next.t - now) <= (next.type === "sunrise" ? 60 : 90) * 60000;
+        var src = (afterPrevGolden || beforeNextGolden) ? SKYLINE_DUSK
+          : (prev && prev.type === "sunrise") ? SKYLINE_DAY
+          : SKYLINE_NIGHT;
+        heroSkylineEl.style.backgroundImage = "url('" + src + "')";
+      }
+      updateHeroSkyline();
+      setInterval(updateHeroSkyline, 60000);
+    })();
+
     let allStations = [];
     let currentStation = "Penn Station";
 
@@ -9203,8 +9300,15 @@ const lirrBoardPage = `<!DOCTYPE html>
         } else {
           board.innerHTML = rows.map(row => {
             const route = row.route || {};
-            const bg = route.color || "666666";
-            const fg = route.textColor || "ffffff";
+            // Same branch can end at either Manhattan terminal depending on
+            // the specific trip, so the branch's own line color doesn't
+            // actually say which one a given row is headed to — Penn and
+            // GCT rows get a flat gray instead, with the terminal itself
+            // called out by the text color (red/green) rather than the bar.
+            let bg = route.color || "666666";
+            let fg = route.textColor || "ffffff";
+            if (row.destName === "Penn Station") { bg = "58585c"; fg = "ff3b30"; }
+            else if (row.destName === "Grand Central") { bg = "58585c"; fg = "34c759"; }
             const track = row.track ? esc(row.track) : "";
             let note = "";
             if (row.skipsJamaica) note = '<div class="dep-note">Will <b>not</b> stop at Jamaica</div>';
