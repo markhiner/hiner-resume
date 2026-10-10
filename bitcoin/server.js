@@ -5016,7 +5016,7 @@ const server = http.createServer((req, res) => {
     "/amtraklogosquare.png", "/njtlogosquare.png", "/lirrlogosquare.png",
     "/amtraklogowide.png", "/njtlogowide.png", "/lirrlogowide.png",
     "/amtrakherotrain.png", "/amtrakherotrain2.png", "/amtrakskyline.jpg", "/amtrakskylinedusk.jpg", "/amtrakskylinenight.jpg",
-    "/lirrherotrain.png",
+    "/lirrherotrain.png", "/njtherotrain.png",
   ].includes(url.pathname)) {
     const logoPath = path.join(__dirname, url.pathname.slice(1));
     const logoType = url.pathname.endsWith(".jpg") ? "image/jpeg" : "image/png";
@@ -7250,7 +7250,7 @@ const njtBoardPage = `<!DOCTYPE html>
   --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
   --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --green: #22c55e; --yellow: #f5c518;
 }
-html, body { background: var(--bg); color: var(--text1); height: 100%; }
+html, body { background: var(--bg); color: var(--text1); height: 100%; overflow-x: hidden; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -7270,6 +7270,35 @@ body {
 .tp-station-select {
   margin-left: auto; background: var(--panel2); color: var(--text1); border: 1px solid var(--border);
   border-radius: 8px; padding: 5px 8px; font-size: 12px; font-weight: 700;
+}
+/* Hero train + full-bleed skyline, same pattern as the Amtrak/LIRR board
+   pages: a dedicated frame sized to the train art's own aspect ratio, the
+   skyline breaking out past #app's own max-width to the real viewport
+   edges (left:50% + 100vw + translateX(-50%)), and the train sliding in
+   from off the right edge — only once it's actually finished loading
+   (see the script further down), not on a fixed clock from page parse,
+   so a slow connection never shows it jumping into view partway through.
+   Same three skyline images (day/golden-hour/night) as those other two
+   pages, picked by the same NYC sunrise/sunset calculation. */
+@keyframes heroSlideIn {
+  from { transform: translateX(120%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.tp-hero { padding: 6px 2px 14px; }
+.tp-hero-frame { position: relative; aspect-ratio: 2172 / 724; }
+.tp-hero-skyline {
+  position: absolute; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%);
+  background-image: url("/amtrakskyline.jpg");
+  background-repeat: repeat-x; background-position: center; background-size: auto 100%;
+  z-index: 0;
+}
+.tp-hero-img {
+  position: absolute; z-index: 1; left: 0; right: 0; bottom: -8px;
+  display: block; width: 100%; height: auto;
+  opacity: 0; transform: translateX(120%);
+}
+.tp-hero-img.hero-ready {
+  animation: heroSlideIn 1.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 .tp-navrow { display: flex; gap: 8px; padding: 0 2px 14px; }
 .tp-nav-link {
@@ -7424,6 +7453,14 @@ body {
       ).join("")}
     </select>
   </div>
+
+  <div class="tp-hero">
+    <div class="tp-hero-frame">
+      <div class="tp-hero-skyline" id="heroSkyline" aria-hidden="true"></div>
+      <img class="tp-hero-img" id="heroTrainImg" src="/njtherotrain.png?v=${logoVersion("njtherotrain.png")}" alt="NJ Transit">
+    </div>
+  </div>
+
   <div class="tp-navrow">
     <a class="tp-nav-link" href="/trains">Amtrak</a>
     <a class="tp-nav-link" href="/lirr-board">LIRR</a>
@@ -7469,6 +7506,76 @@ body {
     if (s.slice(0, 3) === "24:") s = "00:" + s.slice(3);
     return s;
   }
+
+  // ---------- hero skyline: day / golden-hour / night, by NYC's real
+  // sunrise & sunset — same solar math and the same three skyline images
+  // as the Amtrak/LIRR board pages, just the train sprite differs. ----------
+  (function () {
+    var NYC_LAT = 40.7128, NYC_LON = -74.0060;
+    var rad = Math.PI / 180;
+    var dayMs = 1000 * 60 * 60 * 24;
+    var J1970 = 2440588, J2000 = 2451545;
+    var e = rad * 23.4397;
+    function toDays(date) { return date.valueOf() / dayMs - 0.5 + J1970 - J2000; }
+    function solarMeanAnomaly(d) { return rad * (357.5291 + 0.98560028 * d); }
+    function eclipticLongitude(M) {
+      var C = rad * (1.9148 * Math.sin(M) + 0.0200 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
+      var P = rad * 102.9372;
+      return M + C + P + Math.PI;
+    }
+    function declination(l) { return Math.asin(Math.sin(l) * Math.sin(e)); }
+    function julianCycle(d, lw) { return Math.round(d - 0.0009 - lw / (2 * Math.PI)); }
+    function approxTransit(Ht, lw, n) { return 0.0009 + (Ht + lw) / (2 * Math.PI) + n; }
+    function solarTransitJ(ds, M, L) { return J2000 + ds + 0.0053 * Math.sin(M) - 0.0069 * Math.sin(2 * L); }
+    function hourAngle(h, phi, d) { return Math.acos((Math.sin(h) - Math.sin(phi) * Math.sin(d)) / (Math.cos(phi) * Math.cos(d))); }
+    function getSunTimes(date, lat, lng) {
+      var lw = rad * -lng, phi = rad * lat, d = toDays(date);
+      var n = julianCycle(d, lw), ds = approxTransit(0, lw, n);
+      var M = solarMeanAnomaly(ds), L = eclipticLongitude(M), dec = declination(L);
+      var Jnoon = solarTransitJ(ds, M, L);
+      var h0 = -0.833 * rad;
+      var w = hourAngle(h0, phi, dec);
+      var Jset = solarTransitJ(approxTransit(w, lw, n), M, L);
+      var Jrise = Jnoon - (Jset - Jnoon);
+      var toMs = function (j) { return (j + 0.5 - J1970) * dayMs; };
+      return { sunrise: toMs(Jrise), sunset: toMs(Jset) };
+    }
+
+    var SKYLINE_DAY = "/amtrakskyline.jpg?v=${logoVersion("amtrakskyline.jpg")}";
+    var SKYLINE_DUSK = "/amtrakskylinedusk.jpg?v=${logoVersion("amtrakskylinedusk.jpg")}";
+    var SKYLINE_NIGHT = "/amtrakskylinenight.jpg?v=${logoVersion("amtrakskylinenight.jpg")}";
+    var heroSkylineEl = document.getElementById("heroSkyline");
+    function updateHeroSkyline() {
+      var now = Date.now();
+      var events = [];
+      [-1, 0, 1].forEach(function (dayOffset) {
+        var t = getSunTimes(new Date(now + dayOffset * dayMs), NYC_LAT, NYC_LON);
+        events.push({ t: t.sunrise, type: "sunrise" });
+        events.push({ t: t.sunset, type: "sunset" });
+      });
+      events.sort(function (a, b) { return a.t - b.t; });
+      var prev = null, next = null;
+      events.forEach(function (ev) {
+        if (ev.t <= now) prev = ev;
+        if (ev.t > now && !next) next = ev;
+      });
+      var afterPrevGolden = prev && (now - prev.t) <= (prev.type === "sunrise" ? 60 : 10) * 60000;
+      var beforeNextGolden = next && (next.t - now) <= (next.type === "sunrise" ? 60 : 90) * 60000;
+      var src = (afterPrevGolden || beforeNextGolden) ? SKYLINE_DUSK
+        : (prev && prev.type === "sunrise") ? SKYLINE_DAY
+        : SKYLINE_NIGHT;
+      heroSkylineEl.style.backgroundImage = "url('" + src + "')";
+    }
+    updateHeroSkyline();
+    setInterval(updateHeroSkyline, 60000);
+  })();
+
+  (function () {
+    var heroTrainEl = document.getElementById("heroTrainImg");
+    function playHeroAnim() { heroTrainEl.classList.add("hero-ready"); }
+    if (heroTrainEl.complete && heroTrainEl.naturalWidth > 0) playHeroAnim();
+    else heroTrainEl.addEventListener("load", playHeroAnim);
+  })();
 
   // ---------- NJ Transit Departures / Arrivals ----------
 
