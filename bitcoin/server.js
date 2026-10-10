@@ -6504,7 +6504,7 @@ body {
   margin-bottom: 14px;
 }
 .board-hdr {
-  background: linear-gradient(180deg, #e2e3e5 0%, #b8bbc0 55%, #9a9da3 100%);
+  background: linear-gradient(180deg, #d4d5d7 0%, #b0b3b8 55%, #989ba1 100%);
   display: flex; align-items: baseline; justify-content: space-between;
   padding: 10px 14px 6px; border-radius: 14px 14px 0 0; position: relative;
 }
@@ -6538,7 +6538,7 @@ body {
 .station-menu-item.active { color: var(--yellow); }
 .board-clock { font-size: 13px; font-weight: 700; color: #14265c; font-variant-numeric: tabular-nums; }
 .board-cols {
-  background: linear-gradient(180deg, #9a9da3, #84878d);
+  background: linear-gradient(180deg, #989ba1, #868991);
   display: flex; align-items: center; gap: 8px;
   padding: 3px 14px 3px 20px; font-size: 8px; font-weight: 800; letter-spacing: 0.6px;
   text-transform: uppercase; color: #394257;
@@ -6586,7 +6586,7 @@ body {
 .c-status .status-text.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
 .board-ftr {
-  background: linear-gradient(180deg, #84878d, #686b70);
+  background: linear-gradient(180deg, #868991, #767a7f);
   color: #e4e5e7; text-align: right; padding: 5px 14px; font-size: 10px; letter-spacing: 0.4px;
   border-radius: 0 0 14px 14px;
 }
