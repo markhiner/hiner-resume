@@ -6587,15 +6587,18 @@ body {
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
 .board-ftr {
   background: linear-gradient(180deg, #868991, #767a7f);
-  color: #e4e5e7; text-align: right; padding: 5px 14px; font-size: 10px; letter-spacing: 0.4px;
+  color: #e4e5e7; display: flex; align-items: center; justify-content: space-between;
+  padding: 5px 14px; font-size: 10px; letter-spacing: 0.4px;
   border-radius: 0 0 14px 14px;
 }
+/* Lives in the footer now, bottom-left, rather than as its own full-width
+   navy bar under the rows. */
 .board-more {
-  display: block; width: 100%; text-align: center;
-  background: #142a5c; color: #fff; border: none; border-top: 2px solid #050914;
-  padding: 7px 14px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.5px;
+  background: rgba(0,0,0,0.3); color: #fff; border: none; border-radius: 6px;
+  padding: 4px 10px; font-size: 9.5px; font-weight: 800; letter-spacing: 0.4px;
+  display: none;
 }
-.board-more:active { background: #1e3a7a; }
+.board-more:active { background: rgba(0,0,0,0.45); }
 
 .tt-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
 .tt-sheet.on { display: block; }
@@ -6686,14 +6689,20 @@ body {
     </div>
     <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">To</span><span class="c-status">Status</span></div>
     <div class="board-body" id="depBody"><div class="board-empty">Loading&hellip;</div></div>
-    <div class="board-ftr" id="depDate">&mdash;</div>
+    <div class="board-ftr">
+      <button class="board-more" data-more="dep">More</button>
+      <span id="depDate">&mdash;</span>
+    </div>
   </div>
 
   <div class="board-card">
     <div class="board-hdr"><span class="board-title">Arrivals</span><span class="board-clock" id="arrClock">&mdash;</span></div>
     <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">From</span><span class="c-status">Status</span></div>
     <div class="board-body" id="arrBody"><div class="board-empty">Loading&hellip;</div></div>
-    <div class="board-ftr" id="arrDate">&mdash;</div>
+    <div class="board-ftr">
+      <button class="board-more" data-more="arr">More</button>
+      <span id="arrDate">&mdash;</span>
+    </div>
   </div>
 
 </div>
@@ -6831,20 +6840,25 @@ body {
 
   function renderBoard(bodyId, rows, kind) {
     var el = document.getElementById(bodyId);
+    var moreBtn = document.querySelector('.board-more[data-more="' + kind + '"]');
     if (!rows.length) {
       el.innerHTML = state.warming
         ? '<div class="board-empty">Loading Amtrak schedule&hellip;</div>'
         : '<div class="board-empty">No ' + (kind === "dep" ? "departures" : "arrivals") + ' in this window.</div>';
+      if (moreBtn) moreBtn.style.display = "none";
       return;
     }
     var expanded = boardExpanded[kind];
     var visible = expanded ? rows : rows.slice(0, BOARD_COLLAPSED_ROWS);
-    var html = visible.map(function (r, i) { return boardRowHTML(r, i, kind); }).join("");
-    if (rows.length > BOARD_COLLAPSED_ROWS) {
-      html += '<button class="board-more" data-more="' + kind + '">' +
-        (expanded ? "Show fewer" : "More (" + (rows.length - BOARD_COLLAPSED_ROWS) + ")") + '</button>';
+    el.innerHTML = visible.map(function (r, i) { return boardRowHTML(r, i, kind); }).join("");
+    if (moreBtn) {
+      if (rows.length > BOARD_COLLAPSED_ROWS) {
+        moreBtn.style.display = "inline-block";
+        moreBtn.textContent = expanded ? "Show fewer" : "More (" + (rows.length - BOARD_COLLAPSED_ROWS) + ")";
+      } else {
+        moreBtn.style.display = "none";
+      }
     }
-    el.innerHTML = html;
   }
 
   function loadAmtrakBoard() {
