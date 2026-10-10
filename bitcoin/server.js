@@ -7446,7 +7446,6 @@ body {
 
   <div class="tp-topbar">
     <a class="tp-back" href="/trains" aria-label="Back to the train board">&larr;</a>
-    <span class="tp-brand">NJ Transit &middot; Departures &amp; Arrivals</span>
     <select class="tp-station-select" id="stationSelect" aria-label="Reference station">
       ${NJT_BOARD_STATION_ORDER.map((code) =>
         `<option value="${code}"${code === NJT_DEFAULT_STATION ? " selected" : ""}>${NJT_BOARD_STATIONS[code]}</option>`
