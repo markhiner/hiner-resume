@@ -6557,7 +6557,6 @@ body {
 .board-row:last-child { border-bottom: none; }
 .board-row:active { filter: brightness(1.18); }
 .c-time { width: 44px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.c-time .trk { display: block; font-size: 7.5px; color: var(--text3); font-weight: 700; margin-top: 1px; white-space: nowrap; }
 .c-train { flex: 1.2; min-width: 0; }
 .c-train .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 .c-to { flex: 1; min-width: 0; font-weight: 600; }
@@ -6571,13 +6570,20 @@ body {
   background: rgba(0,0,0,0.4); color: #fff; font-size: 7.5px; font-weight: 800; line-height: 1;
   position: relative; top: 2px;
 }
-.c-status { width: 88px; flex-shrink: 0; font-size: 9.5px; text-align: right; }
-.c-status.delayed {
+/* Track used to ride along under the time (like NJT's board still does),
+   but a real line color behind it meant the muted gray only ever read
+   well against navy — never against Keystone's yellow or a delayed row's
+   dark pill. The status column has the room to spare and stays legible
+   regardless of row color, so track moved there instead, left of the
+   right-aligned status text rather than competing with it. */
+.c-status { width: 88px; flex-shrink: 0; font-size: 9.5px; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.c-status .trk { font-weight: 800; color: #fff; white-space: nowrap; flex-shrink: 0; }
+.c-status .status-text.delayed {
   color: var(--yellow); font-weight: 800; display: inline-block;
   background: rgba(0,0,0,0.5); border-radius: 6px; padding: 2px 5px; line-height: 1.2;
 }
-.c-status.gone { opacity: 0.75; font-style: italic; }
-.c-status.scheduled { opacity: 0.75; font-style: italic; }
+.c-status .status-text.gone { opacity: 0.75; font-style: italic; }
+.c-status .status-text.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
 .board-ftr {
   background: linear-gradient(180deg, #84878d, #686b70);
@@ -6810,10 +6816,13 @@ body {
     var stdHex = rowbg.replace("#", "").toLowerCase();
     var rowfg = isYellowish(stdHex) ? "#121212" : "#ffffff";
     return '<div class="board-row" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
-      '<span class="c-time">' + fmtBoardTime(row.schedMs) + (row.track ? '<span class="trk">Trk ' + esc(row.track) + '</span>' : '') + '</span>' +
+      '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
       '<span class="c-to"><span class="c-to-name">' + esc(row.other) + '</span>' + stationBadgesHTML(row) + '</span>' +
-      '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
+      '<span class="c-status">' +
+        (row.track ? '<span class="trk">Trk ' + esc(row.track) + '</span>' : '') +
+        '<span class="status-text ' + status.cls + '">' + status.text + '</span>' +
+      '</span>' +
       '</div>';
   }
 
