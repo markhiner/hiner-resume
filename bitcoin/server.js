@@ -6731,16 +6731,9 @@ body {
     return s;
   }
 
-  // Two hero train sprites, picked once per page load by the parity of
-  // the second the page happened to load on — even gets the original,
-  // odd gets the alternate, so a refresh has a real chance of showing
-  // either one rather than always the same image.
-  (function () {
-    var HERO_TRAIN_A = "/amtrakherotrain.png?v=${logoVersion("amtrakherotrain.png")}";
-    var HERO_TRAIN_B = "/amtrakherotrain2.png?v=${logoVersion("amtrakherotrain2.png")}";
-    var heroTrainEl = document.getElementById("heroTrainImg");
-    heroTrainEl.src = (new Date().getSeconds() % 2 === 0) ? HERO_TRAIN_A : HERO_TRAIN_B;
-  })();
+  // Back to just the original hero sprite, always — the alternate didn't
+  // stick.
+  document.getElementById("heroTrainImg").src = "/amtrakherotrain.png?v=${logoVersion("amtrakherotrain.png")}";
 
   // Catmull-Rom spline through the real station points, same as the
   // combined /trains page's own smoothRoute — a real rail line eases into
