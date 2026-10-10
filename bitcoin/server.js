@@ -6559,9 +6559,13 @@ body {
 .c-time { width: 44px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .c-train { flex: 1.2; min-width: 0; }
 .c-train .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+/* Its own fixed-width slot between train and destination, always present
+   (empty when a row has no badge) — living inline inside .c-to used to
+   force a second line under the destination any time a badge showed up,
+   making that one row taller than every other row around it. */
+.c-badge-col { width: 16px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
 .c-to { flex: 1; min-width: 0; font-weight: 600; }
 .c-to-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-.c-to-badges { white-space: nowrap; display: block; margin-top: 2px; }
 /* Circular badge, matching the combined /trains page's own style (not
    NJT's square pill) — this page shares its CSS/JS lineage with that one. */
 .board-badge {
@@ -6687,7 +6691,7 @@ body {
         ).join("")}
       </div>
     </div>
-    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">To</span><span class="c-status">Status</span></div>
+    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-badge-col"></span><span class="c-to">To</span><span class="c-status">Status</span></div>
     <div class="board-body" id="depBody"><div class="board-empty">Loading&hellip;</div></div>
     <div class="board-ftr">
       <button class="board-more" data-more="dep">More</button>
@@ -6697,7 +6701,7 @@ body {
 
   <div class="board-card">
     <div class="board-hdr"><span class="board-title">Arrivals</span><span class="board-clock" id="arrClock">&mdash;</span></div>
-    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">From</span><span class="c-status">Status</span></div>
+    <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-badge-col"></span><span class="c-to">From</span><span class="c-status">Status</span></div>
     <div class="board-body" id="arrBody"><div class="board-empty">Loading&hellip;</div></div>
     <div class="board-ftr">
       <button class="board-more" data-more="arr">More</button>
@@ -6809,7 +6813,7 @@ body {
     if (!row.stations || !row.stations.length) return "";
     var hasEwr = row.stations.some(function (s) { return s.code === AMTRAK_EWR_STOP_CODE; });
     if (!hasEwr) return "";
-    return '<span class="c-to-badges"><span class="board-badge" title="Stops at Newark Airport">' + BADGE_PLANE_SVG + '</span></span>';
+    return '<span class="board-badge" title="Stops at Newark Airport">' + BADGE_PLANE_SVG + '</span>';
   }
 
   function boardRowHTML(row, idx, kind) {
@@ -6820,7 +6824,8 @@ body {
     return '<div class="board-row" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
-      '<span class="c-to"><span class="c-to-name">' + esc(row.other) + '</span>' + stationBadgesHTML(row) + '</span>' +
+      '<span class="c-badge-col">' + stationBadgesHTML(row) + '</span>' +
+      '<span class="c-to"><span class="c-to-name">' + esc(row.other) + '</span></span>' +
       '<span class="c-status">' +
         (row.track ? '<span class="trk">Trk ' + esc(row.track) + '</span>' : '') +
         '<span class="status-text ' + status.cls + '">' + status.text + '</span>' +
