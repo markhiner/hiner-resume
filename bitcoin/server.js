@@ -9029,10 +9029,20 @@ const lirrBoardPage = `<!DOCTYPE html>
     background-repeat: repeat-x; background-position: center; background-size: auto 100%;
     z-index: 0;
   }
+  /* The animation only starts once the image has actually decoded (see the
+     script below) rather than on a fixed clock from page parse — a plain
+     CSS animation would run on schedule regardless of whether the (fairly
+     large) PNG has any pixels ready to paint yet, and on a slow connection
+     that reads as the train jumping into view partway through its slide
+     instead of a clean entrance from off-screen. Held at the "from" frame
+     (fully off-screen, invisible) as its own resting style until then. */
   .tp-hero-img {
     position: absolute; z-index: 1; left: 0; right: 0; bottom: -8px;
     display: block; width: 100%; height: auto;
-    animation: heroSlideIn 1.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    opacity: 0; transform: translateX(120%);
+  }
+  .tp-hero-img.hero-ready {
+    animation: heroSlideIn 1.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
   .header { background: #000; color: white; padding: 10px 14px 8px; border-bottom: 1px solid #333; }
@@ -9124,7 +9134,7 @@ const lirrBoardPage = `<!DOCTYPE html>
   <div class="tp-hero">
     <div class="tp-hero-frame">
       <div class="tp-hero-skyline" id="heroSkyline" aria-hidden="true"></div>
-      <img class="tp-hero-img" src="/lirrherotrain.png?v=${logoVersion("lirrherotrain.png")}" alt="LIRR">
+      <img class="tp-hero-img" id="heroTrainImg" src="/lirrherotrain.png?v=${logoVersion("lirrherotrain.png")}" alt="LIRR">
     </div>
   </div>
 
@@ -9208,6 +9218,13 @@ const lirrBoardPage = `<!DOCTYPE html>
       }
       updateHeroSkyline();
       setInterval(updateHeroSkyline, 60000);
+    })();
+
+    (function () {
+      var heroTrainEl = document.getElementById("heroTrainImg");
+      function playHeroAnim() { heroTrainEl.classList.add("hero-ready"); }
+      if (heroTrainEl.complete && heroTrainEl.naturalWidth > 0) playHeroAnim();
+      else heroTrainEl.addEventListener("load", playHeroAnim);
     })();
 
     let allStations = [];
