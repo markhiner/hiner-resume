@@ -7311,13 +7311,17 @@ body {
   background: #050914; border: 1px solid var(--border); border-radius: 14px;
   overflow: hidden; margin-bottom: 14px;
 }
-.board-hdr { background: #eef1f8; display: flex; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px; }
+.board-hdr {
+  background: linear-gradient(180deg, #d4d5d7 0%, #b0b3b8 55%, #989ba1 100%);
+  display: flex; align-items: baseline; justify-content: space-between; padding: 10px 14px 6px;
+}
 .board-title { font-size: 19px; font-weight: 900; color: #14265c; letter-spacing: -0.3px; }
 .board-clock { font-size: 13px; font-weight: 700; color: #14265c; font-variant-numeric: tabular-nums; }
 .board-cols {
-  background: #dde2ee; display: flex; align-items: center; gap: 8px;
-  padding: 4px 14px 4px 22px; font-size: 8.5px; font-weight: 800; letter-spacing: 0.6px;
-  text-transform: uppercase; color: #5a6685;
+  background: linear-gradient(180deg, #989ba1, #868991);
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 14px 3px 20px; font-size: 8px; font-weight: 800; letter-spacing: 0.6px;
+  text-transform: uppercase; color: #394257;
 }
 .board-body { display: flex; flex-direction: column; }
 /* Unlike the Amtrak board's fixed navy rows with a small left accent bar,
@@ -7325,59 +7329,67 @@ body {
    matching NJ Transit's own app, where the whole departure row is tinted
    by line (Montclair-Boonton red, Morris & Essex green, etc). */
 .board-row {
-  display: flex; align-items: center; gap: 8px; position: relative;
-  background: var(--rowbg, #273670); color: var(--rowfg, #fff); padding: 9px 14px;
-  border-bottom: 3px solid #050914; font-weight: 700; font-size: 12.5px;
+  display: flex; align-items: center; gap: 6px; position: relative;
+  background: var(--rowbg, #273670); color: var(--rowfg, #fff); padding: 5px 14px;
+  border-bottom: 2px solid #050914; font-weight: 700; font-size: 11px;
   text-align: left;
 }
 .board-row:last-child { border-bottom: none; }
 .board-row:active { filter: brightness(1.18); }
-.c-time { width: 50px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.c-time .trk { display: block; font-size: 8.5px; color: var(--text3); font-weight: 700; margin-top: 1px; white-space: nowrap; }
+.c-time { width: 44px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 /* There isn't enough combined width for "6925 Morris & Essex" and "Long
    Branch" to both fit on one line at any flex split between these two
    columns — shifting the ratio back and forth just moves the truncation
    from one column to the other. Fixed at the source instead: the route
    name now falls back to NJT's own short code (see shortRouteName) for
    anything not already spelled out, so this column's real content is
-   always a few characters, and 1:1.2 comfortably fits both sides. */
-.c-train { flex: 1; min-width: 0; }
-.c-train .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-.c-to { flex: 1.2; min-width: 0; font-weight: 600; }
+   always a few characters. */
+.c-train { flex: 1.5; min-width: 0; display: flex; align-items: center; gap: 4px; }
+.c-train .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; min-width: 0; flex: 1; }
+/* SEC/plane badges sit right after the train number+route now, in their
+   own gap-separated slot, rather than tacked onto the destination — living
+   under the destination used to force that one row onto a second line any
+   time a badge showed up, since the station name already fills that
+   column on its own. */
+.c-badges { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }
+.c-to { flex: 1; min-width: 0; font-weight: 600; }
 /* The station name itself must never wrap, even at a word boundary — it's
-   its own line, hard-truncated with an ellipsis as a last resort rather
-   than breaking onto a second line. The SEC/plane badges are a second,
-   separate line below it so they never fight the name for space — and
-   nowrap on their own wrapper keeps them from splitting apart from each
-   other if both are present. */
+   hard-truncated with an ellipsis as a last resort rather than breaking
+   onto a second line. */
 .c-to-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-.c-to-badges { white-space: nowrap; display: block; margin-top: 3px; }
 .board-badge {
-  display: inline-flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.35); border-radius: 4px; padding: 1px 5px; margin-right: 5px;
-  font-size: 9px; font-weight: 800; letter-spacing: 0.3px; vertical-align: middle;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: rgba(0,0,0,0.4); color: #fff; font-size: 8px; font-weight: 800; line-height: 1;
 }
-.board-badge:last-child { margin-right: 0; }
-.board-badge.ewr { padding: 2px 4px; }
-.c-status { width: 96px; flex-shrink: 0; font-size: 10.5px; text-align: right; }
-/* The adjusted time on a delayed row is yellow text sitting directly on
-   whatever color that line happens to be — unreadable on a similarly warm
-   row (salmon Montclair-Boonton, orange-ish rows, etc). A dark pill behind
-   just this text keeps it legible against any line color. */
-.c-status.delayed {
+/* Track used to ride along under the time, but a real line color behind
+   it meant the muted gray only ever read well against navy — never
+   against a bright line color or a delayed row's dark pill. The status
+   column has the room to spare and stays legible regardless of row color,
+   same fix the Amtrak board already needed, left of the right-aligned
+   status text rather than competing with it. */
+.c-status { width: 100px; flex-shrink: 0; font-size: 9.5px; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.c-status .trk { font-weight: 800; color: #fff; white-space: nowrap; flex-shrink: 0; }
+.c-status .status-text.delayed {
   color: var(--yellow); font-weight: 800; display: inline-block;
-  background: rgba(0,0,0,0.5); border-radius: 6px; padding: 3px 6px; line-height: 1.25;
+  background: rgba(0,0,0,0.5); border-radius: 6px; padding: 2px 5px; line-height: 1.2;
 }
-.c-status.gone { opacity: 0.75; font-style: italic; }
-.c-status.scheduled { opacity: 0.75; font-style: italic; }
+.c-status .status-text.gone { opacity: 0.75; font-style: italic; }
+.c-status .status-text.scheduled { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 22px 0; font-size: 12px; font-style: italic; }
-.board-ftr { background: #dde2ee; color: #5a6685; text-align: right; padding: 6px 14px; font-size: 10px; letter-spacing: 0.4px; }
-.board-more {
-  display: block; width: 100%; text-align: center;
-  background: #142a5c; color: #fff; border: none; border-top: 3px solid #050914;
-  padding: 9px 14px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+.board-ftr {
+  background: linear-gradient(180deg, #868991, #767a7f);
+  color: #e4e5e7; display: flex; align-items: center; justify-content: space-between;
+  padding: 5px 14px; font-size: 10px; letter-spacing: 0.4px;
 }
-.board-more:active { background: #1e3a7a; }
+/* Lives in the footer now, bottom-left, rather than as its own full-width
+   navy bar under the rows. */
+.board-more {
+  background: rgba(0,0,0,0.3); color: #fff; border: none; border-radius: 6px;
+  padding: 4px 10px; font-size: 9.5px; font-weight: 800; letter-spacing: 0.4px;
+  display: none;
+}
+.board-more:active { background: rgba(0,0,0,0.45); }
 
 .tt-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
 .tt-sheet.on { display: block; }
@@ -7470,14 +7482,20 @@ body {
     <div class="board-hdr"><span class="board-title" id="depTitle">Departures</span><span class="board-clock" id="depClock">&mdash;</span></div>
     <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">To</span><span class="c-status">Status</span></div>
     <div class="board-body" id="depBody"><div class="board-empty">Loading&hellip;</div></div>
-    <div class="board-ftr" id="depDate">&mdash;</div>
+    <div class="board-ftr">
+      <button class="board-more" data-more="dep">More</button>
+      <span id="depDate">&mdash;</span>
+    </div>
   </div>
 
   <div class="board-card">
     <div class="board-hdr"><span class="board-title">Arrivals</span><span class="board-clock" id="arrClock">&mdash;</span></div>
     <div class="board-cols"><span class="c-time">Time</span><span class="c-train">No. Train</span><span class="c-to">From</span><span class="c-status">Status</span></div>
     <div class="board-body" id="arrBody"><div class="board-empty">Loading&hellip;</div></div>
-    <div class="board-ftr" id="arrDate">&mdash;</div>
+    <div class="board-ftr">
+      <button class="board-more" data-more="arr">More</button>
+      <span id="arrDate">&mdash;</span>
+    </div>
   </div>
 
 </div>
@@ -7586,13 +7604,6 @@ body {
     station: STATION_CODES.indexOf(urlStation) !== -1 ? urlStation : "${NJT_DEFAULT_STATION}",
   };
 
-  function minutesUntilLabel(ms) {
-    if (ms == null) return null;
-    var diffMin = Math.round((ms - Date.now()) / 60000);
-    if (diffMin <= 0) return "now";
-    return "in " + diffMin + "m";
-  }
-
   // Real NJT route names run long enough that even after stripping a
   // trailing " Line" ("Morris & Essex", "Montclair-Boonton", "Atlantic City
   // Rail") the train/line column and the To column can't both fit on one
@@ -7620,6 +7631,8 @@ body {
     "Montclair State University": "MSU",
     "Philadelphia 30th St.": "Philadelphia",
     "Atlantic City Terminal": "Atlantic City",
+    "Penn Station New York": "NY Penn",
+    "Hoboken Terminal": "Hoboken",
   };
   function shortStopName(name) {
     if (!name) return name;
@@ -7627,13 +7640,14 @@ body {
     return name.replace(/ Station$/, "");
   }
 
+  // NJT's own "X · in Nm" delay format ran noticeably wider than the time
+  // Amtrak's equivalent board shows, which was the real reason the status
+  // column needed a second line — same fix as the Amtrak board: just the
+  // adjusted time, no separate countdown.
   function njtStatus(row) {
     if (row.state === "departed") return { text: "Departed", cls: "gone" };
     if (row.state === "arrived") return { text: "Arrived", cls: "gone" };
-    if (row.state === "delayed") {
-      var mins = minutesUntilLabel(row.atMs);
-      return { text: fmtBoardTime(row.atMs) + (mins ? " \\u00b7 " + mins : ""), cls: "delayed" };
-    }
+    if (row.state === "delayed") return { text: fmtBoardTime(row.atMs), cls: "delayed" };
     if (row.state === "scheduled") return { text: "On Time", cls: "scheduled" };
     return { text: "On Time", cls: "" };
   }
@@ -7641,10 +7655,13 @@ body {
   // Real NJT station codes (from stops.txt, same ones NJT_BOARD_STATIONS
   // uses) — not every train that leaves a given station touches these, so a
   // small badge next to the destination flags "this one does" the same way
-  // the LIRR board flags a train that runs via Jamaica for JFK.
+  // the LIRR board flags a train that runs via Jamaica for JFK. Small
+  // circular icons (a plane, a circled "S") rather than text pills — both
+  // narrower (so they fit beside the train number without crowding out the
+  // route name) and what was actually asked for.
   var SEC_STOP_CODE = "145";
   var EWR_STOP_CODE = "110";
-  var EWR_PLANE_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">' +
+  var EWR_PLANE_SVG = '<svg width="8" height="8" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">' +
     '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2.5 1.5V22l4-1 4 1v-1.5L13 19v-5.5z"/></svg>';
 
   function stationBadgesHTML(row) {
@@ -7655,11 +7672,11 @@ body {
     // Redundant (and a little silly) to flag "stops at Secaucus" on a board
     // you're already viewing from Secaucus, so skip a badge for whichever
     // station is the board's current reference point.
-    if (hasSec && state.station !== SEC_STOP_CODE) html += '<span class="board-badge sec">SEC</span>';
+    if (hasSec && state.station !== SEC_STOP_CODE) html += '<span class="board-badge sec" title="Stops at Secaucus">S</span>';
     if (hasEwr && state.station !== EWR_STOP_CODE) html += '<span class="board-badge ewr" title="Stops at Newark Airport">' + EWR_PLANE_SVG + '</span>';
-    // Grouped in one nowrap wrapper so SEC and the plane icon can never land
-    // on different lines from each other — the pair moves as a unit.
-    return html ? '<span class="c-to-badges">' + html + '</span>' : '';
+    // Grouped in one nowrap wrapper so the two icons can never land on
+    // different lines from each other — the pair moves as a unit.
+    return html ? '<span class="c-badges">' + html + '</span>' : '';
   }
 
   function boardRowHTML(row, idx, kind) {
@@ -7671,10 +7688,13 @@ body {
     var rowbg = "#" + (row.color || "0039a6");
     var rowfg = "#" + (row.textColor || "ffffff");
     return '<div class="board-row" data-kind="njt" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
-      '<span class="c-time">' + fmtBoardTime(row.schedMs) + (row.track ? '<span class="trk">Trk ' + esc(row.track) + '</span>' : '') + '</span>' +
-      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(shortRouteName(row.routeName, row.routeShortName)) + '</span></span>' +
-      '<span class="c-to"><span class="c-to-name">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(row) + '</span>' +
-      '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
+      '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
+      '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(shortRouteName(row.routeName, row.routeShortName)) + '</span>' + stationBadgesHTML(row) + '</span>' +
+      '<span class="c-to"><span class="c-to-name">' + esc(shortStopName(row.other)) + '</span></span>' +
+      '<span class="c-status">' +
+        (row.track ? '<span class="trk">Trk ' + esc(row.track) + '</span>' : '') +
+        '<span class="status-text ' + status.cls + '">' + status.text + '</span>' +
+      '</span>' +
       '</div>';
   }
 
@@ -7683,24 +7703,30 @@ body {
 
   function renderBoard(bodyId, rows, kind) {
     var el = document.getElementById(bodyId);
+    var moreBtn = document.querySelector('.board-more[data-more="' + kind + '"]');
     if (!state.enabled) {
       el.innerHTML = '<div class="board-empty">NJ Transit API not configured yet.</div>';
+      if (moreBtn) moreBtn.style.display = "none";
       return;
     }
     if (!rows.length) {
       el.innerHTML = state.warming
         ? '<div class="board-empty">Loading NJ Transit schedule&hellip;</div>'
         : '<div class="board-empty">No ' + (kind === "dep" ? "departures" : "arrivals") + ' from NJ Transit in this window.</div>';
+      if (moreBtn) moreBtn.style.display = "none";
       return;
     }
     var expanded = boardExpanded[kind];
     var visible = expanded ? rows : rows.slice(0, BOARD_COLLAPSED_ROWS);
-    var html = visible.map(function (r, i) { return boardRowHTML(r, i, kind); }).join("");
-    if (rows.length > BOARD_COLLAPSED_ROWS) {
-      html += '<button class="board-more" data-more="' + kind + '">' +
-        (expanded ? "Show fewer" : "More (" + (rows.length - BOARD_COLLAPSED_ROWS) + ")") + '</button>';
+    el.innerHTML = visible.map(function (r, i) { return boardRowHTML(r, i, kind); }).join("");
+    if (moreBtn) {
+      if (rows.length > BOARD_COLLAPSED_ROWS) {
+        moreBtn.style.display = "inline-block";
+        moreBtn.textContent = expanded ? "Show fewer" : "More";
+      } else {
+        moreBtn.style.display = "none";
+      }
     }
-    el.innerHTML = html;
   }
 
   function loadNjtBoard() {
