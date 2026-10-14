@@ -3441,6 +3441,7 @@ function amtrakBoardRow(entry, nowMs) {
     other: entry.other, schedMs: entry.schedMs, atMs: entry.atMs, track: entry.track,
     state, stations: entry.stations, shape: entry.shape || null,
     serviceType: amtrakServiceType(entry.routeName),
+    direction: amtrakRowDirection(entry.stations),
   };
 }
 
@@ -3605,6 +3606,19 @@ function amtrakServiceType(routeName) {
   if (name.includes("san joaquin")) return "sanjoaquin";
   if (name.includes("heartland flyer")) return "heartlandflyer";
   return "longdist";
+}
+
+// Northbound/southbound for a board row, used to invert Northeast Regional's
+// row color (see the board pages' SERVICE_COLORS note). The NEC runs
+// roughly south-to-north (DC/Virginia up through Boston), so a trip's own
+// origin-to-destination latitude change already says which way it's
+// running — no live heading needed, so this works for a schedule-only row
+// exactly as well as a live-tracked one.
+function amtrakRowDirection(stations) {
+  if (!Array.isArray(stations) || stations.length < 2) return null;
+  const first = stations[0], last = stations[stations.length - 1];
+  if (first.lat == null || last.lat == null || last.lat === first.lat) return null;
+  return last.lat > first.lat ? "north" : "south";
 }
 
 // Shortens a couple of Amtrak's own route names for display everywhere a
@@ -5771,6 +5785,15 @@ body {
     var stdHex = standardizeLineColor(boardKey, rawHex);
     rowbg = "#" + stdHex;
     var rowfg = (isYellowish(stdHex) || DARK_TEXT_COLORS[stdHex]) ? "#121212" : "#ffffff";
+    // Northbound Northeast Regional gets the inverse of its usual look —
+    // white background, the line's own blue as the text — so the two
+    // directions read apart from each other at a glance. Southbound stays
+    // exactly as every other line already renders (blue background, white
+    // text).
+    if (boardKey === "amtrak" && row.serviceType === "regional" && row.direction === "north") {
+      rowfg = rowbg;
+      rowbg = "#ffffff";
+    }
     var routeName = boardKey === "njt"
       ? (NJT_ROUTE_LABEL_OVERRIDES[row.routeShortName] || row.routeShortName || row.routeName)
       : row.routeName;
@@ -6821,6 +6844,14 @@ body {
     var rowbg = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
     var stdHex = rowbg.replace("#", "").toLowerCase();
     var rowfg = isYellowish(stdHex) ? "#121212" : "#ffffff";
+    // Northbound Northeast Regional gets the inverse of its usual look —
+    // white background, the line's own blue as the text — so the two
+    // directions read apart from each other at a glance. Southbound stays
+    // exactly as before (blue background, white text).
+    if (row.serviceType === "regional" && row.direction === "north") {
+      rowfg = rowbg;
+      rowbg = "#ffffff";
+    }
     return '<div class="board-row" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
