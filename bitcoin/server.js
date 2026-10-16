@@ -2857,6 +2857,13 @@ async function refreshLirrRealtime() {
   }
 }
 
+// Same "stays on the board a little past its own moment" window every other
+// board (Amtrak, NJT) already uses, now shared by LIRR's two per-station
+// functions below too.
+const LIRR_DEP_GRACE_MS = 4 * 60 * 1000; // stays listed as "Departed" this long, then drops off
+const LIRR_ARR_GRACE_MS = 6 * 60 * 1000; // stays listed as "Arrived" this long if this is the train's final stop, then drops off
+const LIRR_DELAY_THRESHOLD_MS = 60 * 1000; // how far off schedule counts as "delayed" rather than noise
+
 // Real per-station departure board: unlike computeLirrBoard() (which answers
 // "what's the next train from Penn to destination X", one row per
 // destination), this answers "what actually leaves from station X next",
@@ -2870,7 +2877,7 @@ function computeStationDepartures(candidates, model, stationId, nowMs, realtimeB
   const out = [];
   for (const c of candidates) {
     const stop = c.stops.find((s) => s.stopId === stationId);
-    if (!stop || stop.depMs == null || stop.depMs < nowMs) continue;
+    if (!stop || stop.depMs == null) continue;
     const later = c.stops.filter((s) => s.seq > stop.seq);
     if (!later.length) continue; // train terminates here — not a departure
     const finalStop = later.reduce((a, b) => (b.seq > a.seq ? b : a));
@@ -2884,6 +2891,9 @@ function computeStationDepartures(candidates, model, stationId, nowMs, realtimeB
       const t = rt.tracks.get(stationId);
       if (t) track = t;
     }
+    const passed = nowMs >= depMs;
+    if (passed && nowMs - depMs > LIRR_DEP_GRACE_MS) continue;
+    const state = passed ? "departed" : !rt ? "scheduled" : delayMs > LIRR_DELAY_THRESHOLD_MS ? "delayed" : "on-time";
     // Jamaica is the transfer point for JFK AirTrain — every branch except
     // Port Washington stops there, so whether THIS trip does is what tells
     // a rider "you can reach JFK from this train" vs "this one skips it".
@@ -2910,6 +2920,7 @@ function computeStationDepartures(candidates, model, stationId, nowMs, realtimeB
       depMs,
       schedDepMs: stop.depMs,
       delayMs,
+      state,
       destName: stopInfoById.get(finalStop.stopId)?.name || finalStop.stopId,
       route: route ? { name: route.route_long_name, color: route.route_color, textColor: route.route_text_color } : null,
       track,
@@ -2938,20 +2949,40 @@ function computeStationArrivals(candidates, model, stationId, nowMs, realtimeByT
   const out = [];
   for (const c of candidates) {
     const stop = c.stops.find((s) => s.stopId === stationId);
-    if (!stop || stop.arrMs == null || stop.arrMs < nowMs) continue;
+    if (!stop || stop.arrMs == null) continue;
     const earlier = c.stops.filter((s) => s.seq < stop.seq);
     if (!earlier.length) continue; // train originates here — not an arrival
+    // Whether this trip has any stop after this one — i.e. whether it's
+    // actually departing again from the SAME physical stop (a real
+    // intermediate stop's stop_times row always carries both an arrival
+    // and a departure), vs. this being the train's true final stop.
+    const later = c.stops.filter((s) => s.seq > stop.seq);
     const originStop = earlier.reduce((a, b) => (b.seq < a.seq ? b : a));
     const route = model.routeById.get(c.routeId);
     const rt = realtimeByTrip.get(c.tripId);
     let arrMs = stop.arrMs;
+    let depMs = stop.depMs;
     let track = null;
     let delayMs = 0;
     if (rt) {
-      if (rt.delaySec) { arrMs += rt.delaySec * 1000; delayMs = rt.delaySec * 1000; }
+      if (rt.delaySec) {
+        arrMs += rt.delaySec * 1000;
+        if (depMs != null) depMs += rt.delaySec * 1000;
+        delayMs = rt.delaySec * 1000;
+      }
       const t = rt.tracks.get(stationId);
       if (t) track = t;
     }
+    const passed = nowMs >= arrMs;
+    if (later.length) {
+      // Not this train's final stop — it boards again from this same
+      // platform, so it keeps reading "Arrived" for as long as that takes,
+      // not a fixed window, and drops only once it's actually left.
+      if (passed && depMs != null && nowMs >= depMs) continue;
+    } else if (passed && nowMs - arrMs > LIRR_ARR_GRACE_MS) {
+      continue;
+    }
+    const state = passed ? "arrived" : !rt ? "scheduled" : delayMs > LIRR_DELAY_THRESHOLD_MS ? "delayed" : "on-time";
     const rideStops = c.stops.map((s) => {
       const info = stopInfoById.get(s.stopId) || {};
       return {
@@ -2968,6 +2999,7 @@ function computeStationArrivals(candidates, model, stationId, nowMs, realtimeByT
       arrMs,
       schedArrMs: stop.arrMs,
       delayMs,
+      state,
       originName: stopInfoById.get(originStop.stopId)?.name || originStop.stopId,
       route: route ? { name: route.route_long_name, color: route.route_color, textColor: route.route_text_color } : null,
       track,
@@ -3057,8 +3089,8 @@ const AMTRAK_BOARD_STATIONS = { NYP: "New York", PHL: "Philadelphia", WAS: "Wash
 // only there.
 const AMTRAK_BOARD_STATION_TITLES = { NYP: "New York Penn", PHL: "Philadelphia", WAS: "Washington Union" };
 const AMTRAK_DEFAULT_STATION = "NYP";
-const AMTRAK_DEP_GRACE_MS = 3 * 60 * 1000; // stays listed as "Departed" this long, then drops off
-const AMTRAK_ARR_GRACE_MS = 5 * 60 * 1000; // stays listed as "Arrived" this long, then drops off
+const AMTRAK_DEP_GRACE_MS = 4 * 60 * 1000; // stays listed as "Departed" this long, then drops off
+const AMTRAK_ARR_GRACE_MS = 6 * 60 * 1000; // stays listed as "Arrived" this long if this is the train's final stop, then drops off
 const AMTRAK_DELAY_THRESHOLD_MS = 60 * 1000; // how far off schedule counts as "delayed" rather than noise
 const AMTRAK_BOARD_MIN_ROWS = 5; // the schedule fallback exists specifically to guarantee this
 const AMTRAK_BOARD_MAX_ROWS = 20; // a physical board doesn't scroll two days out
@@ -3425,11 +3457,19 @@ function amtrakMergedEntries(now, stationCode) {
 // evaluated fresh against "now" — the departed/arrived grace windows are a
 // function of the current instant, not of whenever the feed last refreshed,
 // so this runs at request time rather than being baked into the fetch cache.
-function amtrakBoardRow(entry, nowMs) {
+function amtrakBoardRow(entry, nowMs, companionDep) {
   if (entry.schedMs == null || entry.atMs == null) return null;
-  const graceMs = entry.event === "dep" ? AMTRAK_DEP_GRACE_MS : AMTRAK_ARR_GRACE_MS;
   const passed = nowMs >= entry.atMs;
-  if (passed && nowMs - entry.atMs > graceMs) return null;
+  if (entry.event === "dep") {
+    if (passed && nowMs - entry.atMs > AMTRAK_DEP_GRACE_MS) return null;
+  } else if (companionDep && companionDep.atMs != null) {
+    // Not this train's final stop — it's scheduled to leave again from the
+    // same station, so it keeps reading "Arrived" for as long as that
+    // takes, not a fixed window, and drops only once it's actually left.
+    if (passed && nowMs >= companionDep.atMs) return null;
+  } else if (passed && nowMs - entry.atMs > AMTRAK_ARR_GRACE_MS) {
+    return null;
+  }
   let state;
   if (passed) state = entry.event === "dep" ? "departed" : "arrived";
   else if (entry.live === false) state = "scheduled"; // on the printed timetable, not live-tracked yet
@@ -3465,9 +3505,16 @@ async function refreshAmtrakBoard() {
 function amtrakBoard(stationCode) {
   const now = new Date();
   const nowMs = now.getTime();
+  const entries = amtrakMergedEntries(now, stationCode);
+  // One trainNum can have both an "arr" and a "dep" entry for this same
+  // reference station (it arrives, then continues on) — the arrival row
+  // needs to know whether its companion departure exists, and if so
+  // whether it's happened yet, to decide how long to keep saying "Arrived".
+  const depByTrain = new Map();
+  for (const e of entries) if (e.event === "dep") depByTrain.set(e.trainNum, e);
   const departures = [], arrivals = [];
-  for (const entry of amtrakMergedEntries(now, stationCode)) {
-    const row = amtrakBoardRow(entry, nowMs);
+  for (const entry of entries) {
+    const row = amtrakBoardRow(entry, nowMs, entry.event === "arr" ? depByTrain.get(entry.trainNum) : null);
     if (!row) continue;
     (entry.event === "dep" ? departures : arrivals).push(row);
   }
@@ -3527,15 +3574,14 @@ function lirrShortRouteName(name) {
 // directions get normalized into the same shape Amtrak/NJT's board rows
 // already use: { trainNum, routeName, color, textColor, other, schedMs,
 // atMs, state, track, stations, vehicle }. computeStationDepartures/
-// computeStationArrivals only ever return trains that haven't
-// departed/arrived yet (nowMs filtered at the source), so "state" here is
-// never departed/arrived/scheduled — just delayed-or-not.
+// computeStationArrivals already classify state themselves (including the
+// departed/arrived grace windows), so these just carry it through.
 function lirrPennDepartureRow(row) {
   return {
     trainNum: lirrTrainNum(row.tripId), routeName: lirrShortRouteName(row.route && row.route.name),
     color: (row.route && row.route.color) || "6a6a6a", textColor: (row.route && row.route.textColor) || "ffffff",
     other: row.destName, schedMs: row.schedDepMs, atMs: row.depMs,
-    state: row.delayMs > NJT_DELAY_THRESHOLD_MS ? "delayed" : "on-time",
+    state: row.state,
     track: row.track, stations: row.stops, vehicle: row.vehicle,
   };
 }
@@ -3544,7 +3590,7 @@ function lirrPennArrivalRow(row) {
     trainNum: lirrTrainNum(row.tripId), routeName: lirrShortRouteName(row.route && row.route.name),
     color: (row.route && row.route.color) || "6a6a6a", textColor: (row.route && row.route.textColor) || "ffffff",
     other: row.originName, schedMs: row.schedArrMs, atMs: row.arrMs,
-    state: row.delayMs > NJT_DELAY_THRESHOLD_MS ? "delayed" : "on-time",
+    state: row.state,
     track: row.track, stations: row.stops, vehicle: row.vehicle,
   };
 }
@@ -4082,8 +4128,8 @@ const NJT_BOARD_STATIONS = {
 // actually iterates, kept separate from the lookup object above.
 const NJT_BOARD_STATION_ORDER = ["109", "145", "110", "9", "126"];
 const NJT_DEFAULT_STATION = "109";
-const NJT_DEP_GRACE_MS = 3 * 60 * 1000; // stays listed as "Departed" this long, then drops off
-const NJT_ARR_GRACE_MS = 5 * 60 * 1000; // stays listed as "Arrived" this long, then drops off
+const NJT_DEP_GRACE_MS = 4 * 60 * 1000; // stays listed as "Departed" this long, then drops off
+const NJT_ARR_GRACE_MS = 6 * 60 * 1000; // stays listed as "Arrived" this long if this is the train's final stop, then drops off
 const NJT_DELAY_THRESHOLD_MS = 60 * 1000; // how far off schedule counts as "delayed" rather than noise
 const NJT_BOARD_MAX_ROWS = 20;
 
@@ -4590,11 +4636,19 @@ function njtMergedEntries(now, stationId) {
   return [...merged.values()];
 }
 
-function njtBoardRow(entry, nowMs, stationId) {
+function njtBoardRow(entry, nowMs, stationId, companionDep) {
   if (entry.schedMs == null || entry.atMs == null) return null;
-  const graceMs = entry.event === "dep" ? NJT_DEP_GRACE_MS : NJT_ARR_GRACE_MS;
   const passed = nowMs >= entry.atMs;
-  if (passed && nowMs - entry.atMs > graceMs) return null;
+  if (entry.event === "dep") {
+    if (passed && nowMs - entry.atMs > NJT_DEP_GRACE_MS) return null;
+  } else if (companionDep && companionDep.atMs != null) {
+    // Not this train's final stop — it's scheduled to leave again from the
+    // same station, so it keeps reading "Arrived" for as long as that
+    // takes, not a fixed window, and drops only once it's actually left.
+    if (passed && nowMs >= companionDep.atMs) return null;
+  } else if (passed && nowMs - entry.atMs > NJT_ARR_GRACE_MS) {
+    return null;
+  }
   let state;
   if (passed) state = entry.event === "dep" ? "departed" : "arrived";
   else if (!entry.live) state = "scheduled";
@@ -4612,9 +4666,16 @@ let njtWarmedUp = false;
 function njtBoard(stationId) {
   const now = new Date();
   const nowMs = now.getTime();
+  const entries = njtMergedEntries(now, stationId);
+  // One tripId can have both an "arr" and a "dep" entry for this same
+  // reference station (it arrives, then continues on) — the arrival row
+  // needs to know whether its companion departure exists, and if so
+  // whether it's happened yet, to decide how long to keep saying "Arrived".
+  const depByTrip = new Map();
+  for (const e of entries) if (e.event === "dep") depByTrip.set(e.tripId, e);
   const departures = [], arrivals = [];
-  for (const entry of njtMergedEntries(now, stationId)) {
-    const row = njtBoardRow(entry, nowMs, stationId);
+  for (const entry of entries) {
+    const row = njtBoardRow(entry, nowMs, stationId, entry.event === "arr" ? depByTrip.get(entry.tripId) : null);
     if (!row) continue;
     (entry.event === "dep" ? departures : arrivals).push(row);
   }
@@ -9238,6 +9299,12 @@ const lirrBoardPage = `<!DOCTYPE html>
   .dep-time { font-size: 22px; font-weight: bold; font-variant-numeric: tabular-nums; }
   .dep-dest { font-size: 20px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dep-track { font-size: 20px; font-weight: bold; text-align: right; }
+  /* A departed train stays on the board a few minutes past its own time
+     (same grace window Amtrak/NJT already use) — dimmed, with "Departed"
+     taking over the track slot, so it still reads as "gone" at a glance
+     rather than looking like a live upcoming row. */
+  .dep.departed { opacity: 0.55; }
+  .dep-gone { font-size: 11px; font-style: italic; font-weight: bold; white-space: nowrap; }
   .dep-note-row { padding: 3px 14px 8px; background: #000; }
   .dep-note { font-size: 12px; color: #ccc; }
   .dep-note b { color: white; }
@@ -9492,7 +9559,11 @@ const lirrBoardPage = `<!DOCTYPE html>
       try {
         const res = await fetch("/api/lirr-board?station=" + encodeURIComponent(currentStation));
         const data = await res.json();
-        const rows = (data.rows || []).filter(r => r.depMs != null && r.depMs > Date.now());
+        // The server now keeps a departed train listed for a few minutes
+        // past its own departure (same grace window as the Amtrak/NJT
+        // boards), so this only needs to drop rows the server never sent
+        // (no depMs at all), not re-filter by time itself.
+        const rows = (data.rows || []).filter(r => r.depMs != null);
         currentDepartures = rows;
 
         const board = document.getElementById("board");
@@ -9510,11 +9581,12 @@ const lirrBoardPage = `<!DOCTYPE html>
             let fg = route.textColor || "ffffff";
             if (row.destName === "Penn Station") { bg = "58585c"; fg = "ff3b30"; }
             else if (row.destName === "Grand Central") { bg = "58585c"; fg = "34c759"; }
-            const track = row.track ? esc(row.track) : "";
+            const departed = row.state === "departed";
+            const track = departed ? '<span class="dep-gone">Departed</span>' : (row.track ? esc(row.track) : "");
             let note = "";
             if (row.skipsJamaica) note = '<div class="dep-note">Will <b>not</b> stop at Jamaica</div>';
             else if (row.viaJamaica) note = '<span class="dep-badge">JFK &#9992;</span>';
-            return '<div class="dep" data-trip-id="' + esc(row.tripId) + '">' +
+            return '<div class="dep' + (departed ? ' departed' : '') + '" data-trip-id="' + esc(row.tripId) + '">' +
               '<div class="dep-bar" style="background:#' + bg + '; color:#' + fg + ';">' +
               '<div class="dep-time">' + formatTime(row.depMs) + '</div>' +
               '<div class="dep-dest">' + esc(row.destName) + '</div>' +
