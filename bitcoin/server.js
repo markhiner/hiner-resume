@@ -6047,13 +6047,28 @@ body {
   // zoom on each of those would yank the map out from under someone still
   // looking at it.
   var ttMapJustOpened = false;
-  // The zoom level the wide->medium->tight animation last reached. A board
-  // refresh rebuilds #ttMap's whole DOM (elBody.innerHTML), so the Leaflet
-  // instance itself can't just be left alone — but the resulting view still
-  // starts wide again unless something puts it back where the user left it,
-  // which read as the map snapping back out every refresh. Reset to null on
-  // a fresh open so each newly-opened train still gets the full animation.
-  var ttLastZoom = null;
+  // The tight bounds (train + nearest few stations) the 3-second zoom-in
+  // last settled on. A board refresh rebuilds #ttMap's whole DOM
+  // (elBody.innerHTML), so the Leaflet instance can't just be left alone —
+  // but the resulting view still starts wide again unless something puts
+  // it back where the rider left it, which read as the map snapping back
+  // out to the full route every refresh. Reset to null on a fresh open so
+  // each newly-opened train still gets the full wide-then-tight sequence.
+  var ttTightBounds = null;
+  // Full route in, then the train's own neighborhood — same few-stations
+  // window every operator's map now zooms into 3 seconds after opening.
+  // centerIdx is the index (within stops, not the raw station list some
+  // callers filter it down from) of the stop nearest the train right now;
+  // null/-1 falls back to the last stop (trip essentially finished).
+  function tightBoundsAround(stops, centerIdx, livePt) {
+    if (!stops.length) return null;
+    var idx = centerIdx == null || centerIdx < 0 ? stops.length - 1 : Math.min(centerIdx, stops.length - 1);
+    var lo = Math.max(0, idx - 2), hi = Math.min(stops.length - 1, idx + 2);
+    var pts = [];
+    for (var i = lo; i <= hi; i++) pts.push([stops[i].lat, stops[i].lon]);
+    if (livePt) pts.push(livePt);
+    return L.latLngBounds(pts);
+  }
   // A long run's already-departed stops piling up above the current one
   // pushed it halfway down the screen and read as a wall of empty, washed-
   // out rows rather than useful context — collapsed behind a toggle by
@@ -6176,7 +6191,15 @@ body {
         if (ttMap) { ttMap.remove(); ttMap = null; }
         ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
-        var wideZoom = null;
+        var livePt = (row.lat != null && row.lon != null) ? [row.lat, row.lon] : null;
+        // nextIdx (set above, if the stop list rendered) indexes row.stations;
+        // the map draws routeStops, a lat/lon-having subset of the same list
+        // in the same order — matched back up by station code rather than
+        // assumed to line up position-for-position.
+        var routeNextIdx = (typeof nextIdx !== "undefined" && nextIdx !== -1 && row.stations[nextIdx])
+          ? routeStops.findIndex(function (s) { return s.code === row.stations[nextIdx].code; })
+          : -1;
+        var tightBounds = routeStops.length ? tightBoundsAround(routeStops, routeNextIdx, livePt) : null;
 
         if (routeStops.length >= 2) {
           var latlngs = routeStops.map(function (s) { return [s.lat, s.lon]; });
@@ -6224,48 +6247,44 @@ body {
             });
           }
           ttMap.on("zoomend moveend", declutterLabels);
-          ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
-          wideZoom = ttMap.getZoom();
           // Recreated on every refresh, so without this it would land back on
-          // the wide fit above every time — jump straight to wherever the
-          // wide->medium->tight animation last left off instead, recentered
-          // on the train's current live position.
-          if (ttLastZoom != null && row.lat != null && row.lon != null) {
-            ttMap.setView([row.lat, row.lon], ttLastZoom);
+          // the wide fit above every time — jump straight to the tight
+          // framing the 3-second zoom already settled on instead.
+          if (ttTightBounds) {
+            ttMap.fitBounds(ttTightBounds, { padding: [32, 32] });
+          } else {
+            ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
           }
           declutterLabels();
-        } else {
-          ttMap.setView([row.lat, row.lon], ttLastZoom != null ? ttLastZoom : 8);
+        } else if (livePt) {
+          ttMap.setView(livePt, 8);
         }
 
         // the train's own live GPS — bigger and higher-contrast than the
         // fixed route dots, so it reads as "the one that moves" at a glance
-        if (row.lat != null && row.lon != null) {
-          L.circleMarker([row.lat, row.lon], { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
-          ttMarker = L.circleMarker([row.lat, row.lon], { radius: 9, color: "#000", weight: 2.5, fillColor: AMTRAK_LIVE_COLOR, fillOpacity: 1 })
+        if (livePt) {
+          L.circleMarker(livePt, { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
+          ttMarker = L.circleMarker(livePt, { radius: 9, color: "#000", weight: 2.5, fillColor: AMTRAK_LIVE_COLOR, fillOpacity: 1 })
             .bindTooltip("Live position", { direction: "top" })
             .addTo(ttMap);
         }
 
         // Whole route first, so it reads as a map before it reads as a
-        // train — then in, in two holds rather than one long pull, so the
-        // eye can actually follow wide -> medium -> tight instead of losing
-        // the route partway through a single big zoom. Only on the tap that
-        // opened the sheet: a periodic re-render of an already-open sheet
-        // must never yank the view out from under someone still looking at it.
+        // train — then, after a real 3-second hold (not just a moment),
+        // one pull into the train's own neighborhood: its current position
+        // plus the nearest few stations. Only on the tap that opened the
+        // sheet: a periodic re-render of an already-open sheet must never
+        // yank the view out from under someone still looking at it.
         if (ttMapJustOpened) {
           ttMapJustOpened = false;
-          if (wideZoom != null && row.lat != null && row.lon != null) {
+          if (tightBounds) {
             var mapAtOpen = ttMap;
-            var liveLatLng = [row.lat, row.lon];
             setTimeout(function () {
-              if (ttMap === mapAtOpen) { ttMap.flyTo(liveLatLng, wideZoom + 2, { duration: 0.8 }); ttLastZoom = wideZoom + 2; }
-            }, 1000);
-            // A real hold at the medium zoom before the final pull in, not
-            // just enough time for the previous flyTo's animation to finish.
-            setTimeout(function () {
-              if (ttMap === mapAtOpen) { ttMap.flyTo(liveLatLng, wideZoom + 4, { duration: 0.8 }); ttLastZoom = wideZoom + 4; }
-            }, 3400);
+              if (ttMap === mapAtOpen) {
+                ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
+                ttTightBounds = tightBounds;
+              }
+            }, 3000);
           }
         }
        } catch (e) {
@@ -6317,8 +6336,11 @@ body {
   // Builds the route map + stop markers shared by renderNjtDetail and
   // renderLirrDetail — "here" tags the row whose index should always keep
   // its label (the board's own reference station for NJT, or the Penn stop
-  // for LIRR), "vehicle" is the train's live GPS when there is one.
-  function renderOperatorRouteMap(stations, routeColor, hereCode, vehicle) {
+  // for LIRR), "vehicle" is the train's live GPS when there is one, and
+  // "centerIdx" (index into stations, same as nextIdx in the callers'
+  // own stop lists) is the stop nearest the train right now — used for the
+  // same full-route -> (3s) -> train's-neighborhood zoom Amtrak's map does.
+  function renderOperatorRouteMap(stations, routeColor, hereCode, vehicle, centerIdx) {
     ttRouteColor = routeColor;
     if (ttMap) { ttMap.remove(); ttMap = null; }
     ttStopMarkers = {};
@@ -6353,19 +6375,49 @@ body {
         }
       });
     }
+    var livePt = vehicle ? [vehicle.lat, vehicle.lon] : null;
+    // centerIdx indexes the unfiltered stations array — matched back up
+    // to its position in routeStops (the lat/lon-having subset actually
+    // drawn) by station identity rather than assumed position-for-position.
+    var centerStation = (centerIdx != null && centerIdx >= 0) ? stations[centerIdx] : null;
+    var routeCenterIdx = centerStation
+      ? routeStops.findIndex(function (s) { return (s.code != null && s.code === centerStation.code) || (s.stopId != null && s.stopId === centerStation.stopId); })
+      : -1;
+    var tightBounds = routeStops.length ? tightBoundsAround(routeStops, routeCenterIdx, livePt) : null;
     if (latlngs.length >= 2) {
       ttMap.on("zoomend moveend", declutterLabels);
-      ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+      if (ttTightBounds) {
+        ttMap.fitBounds(ttTightBounds, { padding: [32, 32] });
+      } else {
+        ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+      }
       declutterLabels();
-    } else if (vehicle) {
-      ttMap.setView([vehicle.lat, vehicle.lon], 11);
+    } else if (livePt) {
+      ttMap.setView(livePt, 11);
     }
     if (vehicle) {
-      L.circleMarker([vehicle.lat, vehicle.lon], { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
-      L.circleMarker([vehicle.lat, vehicle.lon], { radius: 9, color: "#000", weight: 2.5, fillColor: "#f5c518", fillOpacity: 1 })
+      L.circleMarker(livePt, { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
+      L.circleMarker(livePt, { radius: 9, color: "#000", weight: 2.5, fillColor: "#f5c518", fillOpacity: 1 })
         .bindTooltip("Live position", { direction: "top" }).addTo(ttMap);
     }
     setTimeout(function () { if (ttMap) ttMap.invalidateSize(); }, 60);
+
+    // Same choreography as Amtrak's own map: whole route first, then after
+    // a real 3-second hold, one pull into the train's own neighborhood.
+    // Only on the tap that opened the sheet — a periodic board refresh
+    // re-rendering an already-open sheet must never yank the view.
+    if (ttMapJustOpened) {
+      ttMapJustOpened = false;
+      if (tightBounds) {
+        var mapAtOpen = ttMap;
+        setTimeout(function () {
+          if (ttMap === mapAtOpen) {
+            ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
+            ttTightBounds = tightBounds;
+          }
+        }, 3000);
+      }
+    }
   }
 
   function renderNjtDetail(row) {
@@ -6407,7 +6459,7 @@ body {
     if (!showMap || !window.L) return;
     setTimeout(function () {
       try {
-        renderOperatorRouteMap(row.stations, "#" + standardizeLineColor("njt", row.color || "0039a6"), "${NJT_DEFAULT_STATION}", hasVehicle ? row.vehicle : null);
+        renderOperatorRouteMap(row.stations, "#" + standardizeLineColor("njt", row.color || "0039a6"), "${NJT_DEFAULT_STATION}", hasVehicle ? row.vehicle : null, nextIdx);
       } catch (e) {
         console.error("NJT train detail map failed to build:", e);
       }
@@ -6454,18 +6506,18 @@ body {
     if (!showMap || !window.L) return;
     setTimeout(function () {
       try {
-        renderOperatorRouteMap(row.stations, "#" + standardizeLineColor("lirr", row.color || "6a6a6a"), PENN_LIRR_STOP_ID, hasVehicle ? row.vehicle : null);
+        renderOperatorRouteMap(row.stations, "#" + standardizeLineColor("lirr", row.color || "6a6a6a"), PENN_LIRR_STOP_ID, hasVehicle ? row.vehicle : null, nextIdx);
       } catch (e) {
         console.error("LIRR train detail map failed to build:", e);
       }
     }, 0);
   }
 
-  // Which detail renderer a row needs — only Amtrak gets the live-GPS
-  // wide->medium->tight zoom choreography (ttMapJustOpened/ttLastZoom);
-  // NJT/LIRR's simpler maps ignore those two entirely. Dispatched by which
-  // board the row came from now, not a per-row operator field — each
-  // board only ever holds rows from its own one system.
+  // Which detail renderer a row needs — all three now get the same full
+  // route -> (3s) -> train's neighborhood zoom choreography
+  // (ttMapJustOpened/ttTightBounds). Dispatched by which board the row
+  // came from, not a per-row operator field — each board only ever holds
+  // rows from its own one system.
   function renderDetailForBoard(board, row) {
     var accent = rowAccentColors(board, row);
     document.getElementById("ttHead").style.setProperty("--tt-accent", accent.bg);
@@ -6480,7 +6532,7 @@ body {
     elSheet.classList.add("on");
     document.body.style.overflow = "hidden";
     ttMapJustOpened = true;
-    ttLastZoom = null;
+    ttTightBounds = null;
     ttStopsExpanded = false;
     var list = event === "dep" ? BOARDS[board].departures : BOARDS[board].arrivals;
     var row = list[idx];
@@ -7169,7 +7221,20 @@ body {
   var openTrain = null; // { event, idx } — kept so a live poll can re-render it
   var ttMap = null, ttMarker = null;
   var ttMapJustOpened = false;
-  var ttLastZoom = null;
+  var ttTightBounds = null;
+  // Full route in, then the train's own neighborhood — same window every
+  // operator's map zooms into 3 seconds after opening. centerIdx is the
+  // index (within stops) of the stop nearest the train right now;
+  // null/-1 falls back to the last stop (trip essentially finished).
+  function tightBoundsAround(stops, centerIdx, livePt) {
+    if (!stops.length) return null;
+    var idx = centerIdx == null || centerIdx < 0 ? stops.length - 1 : Math.min(centerIdx, stops.length - 1);
+    var lo = Math.max(0, idx - 2), hi = Math.min(stops.length - 1, idx + 2);
+    var pts = [];
+    for (var i = lo; i <= hi; i++) pts.push([stops[i].lat, stops[i].lon]);
+    if (livePt) pts.push(livePt);
+    return L.latLngBounds(pts);
+  }
   var ttStopsExpanded = false;
   var TT_STOPS_COLLAPSE_KEEP = 1;
   var lastStopsRowsHtml = null, lastStopsNextIdx = null;
@@ -7274,7 +7339,15 @@ body {
         if (ttMap) { ttMap.remove(); ttMap = null; }
         ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
-        var wideZoom = null;
+        var livePt = (row.lat != null && row.lon != null) ? [row.lat, row.lon] : null;
+        // nextIdx (set above, if the stop list rendered) indexes row.stations;
+        // the map draws routeStops, a lat/lon-having subset of the same list
+        // in the same order — matched back up by station code rather than
+        // assumed to line up position-for-position.
+        var routeNextIdx = (typeof nextIdx !== "undefined" && nextIdx !== -1 && row.stations[nextIdx])
+          ? routeStops.findIndex(function (s) { return s.code === row.stations[nextIdx].code; })
+          : -1;
+        var tightBounds = routeStops.length ? tightBoundsAround(routeStops, routeNextIdx, livePt) : null;
 
         if (routeStops.length >= 2) {
           var latlngs = routeStops.map(function (s) { return [s.lat, s.lon]; });
@@ -7302,34 +7375,33 @@ body {
             });
           }
           ttMap.on("zoomend moveend", declutterLabels);
-          ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
-          wideZoom = ttMap.getZoom();
-          if (ttLastZoom != null && row.lat != null && row.lon != null) {
-            ttMap.setView([row.lat, row.lon], ttLastZoom);
+          if (ttTightBounds) {
+            ttMap.fitBounds(ttTightBounds, { padding: [32, 32] });
+          } else {
+            ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
           }
           declutterLabels();
-        } else {
-          ttMap.setView([row.lat, row.lon], ttLastZoom != null ? ttLastZoom : 8);
+        } else if (livePt) {
+          ttMap.setView(livePt, 8);
         }
 
-        if (row.lat != null && row.lon != null) {
-          L.circleMarker([row.lat, row.lon], { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
-          ttMarker = L.circleMarker([row.lat, row.lon], { radius: 9, color: "#000", weight: 2.5, fillColor: AMTRAK_LIVE_COLOR, fillOpacity: 1 })
+        if (livePt) {
+          L.circleMarker(livePt, { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
+          ttMarker = L.circleMarker(livePt, { radius: 9, color: "#000", weight: 2.5, fillColor: AMTRAK_LIVE_COLOR, fillOpacity: 1 })
             .bindTooltip("Live position", { direction: "top" })
             .addTo(ttMap);
         }
 
         if (ttMapJustOpened) {
           ttMapJustOpened = false;
-          if (wideZoom != null && row.lat != null && row.lon != null) {
+          if (tightBounds) {
             var mapAtOpen = ttMap;
-            var liveLatLng = [row.lat, row.lon];
             setTimeout(function () {
-              if (ttMap === mapAtOpen) { ttMap.flyTo(liveLatLng, wideZoom + 2, { duration: 0.8 }); ttLastZoom = wideZoom + 2; }
-            }, 1000);
-            setTimeout(function () {
-              if (ttMap === mapAtOpen) { ttMap.flyTo(liveLatLng, wideZoom + 4, { duration: 0.8 }); ttLastZoom = wideZoom + 4; }
-            }, 3400);
+              if (ttMap === mapAtOpen) {
+                ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
+                ttTightBounds = tightBounds;
+              }
+            }, 3000);
           }
         }
        } catch (e) {
@@ -7344,7 +7416,7 @@ body {
     elSheet.classList.add("on");
     document.body.style.overflow = "hidden";
     ttMapJustOpened = true;
-    ttLastZoom = null;
+    ttTightBounds = null;
     ttStopsExpanded = false;
     var list = event === "dep" ? state.departures : state.arrivals;
     var row = list[idx];
@@ -7967,6 +8039,22 @@ body {
   var ttMap = null;
   var ttStopMarkers = {}; // station index (into row.stations) -> { marker, name }
   var ttRouteColor = "#0039a6";
+  // true only for the render that follows a fresh tap — see openDetail.
+  var ttMapJustOpened = false;
+  // The tight bounds (train + nearest few stations) the 3-second zoom-in
+  // last settled on; re-applied on a board-refresh re-render instead of
+  // resetting back out to the wide route view. Reset to null on a fresh
+  // open so each newly-opened train gets the full wide-then-tight sequence.
+  var ttTightBounds = null;
+  function tightBoundsAround(stops, centerIdx, livePt) {
+    if (!stops.length) return null;
+    var idx = centerIdx == null || centerIdx < 0 ? stops.length - 1 : Math.min(centerIdx, stops.length - 1);
+    var lo = Math.max(0, idx - 2), hi = Math.min(stops.length - 1, idx + 2);
+    var pts = [];
+    for (var i = lo; i <= hi; i++) pts.push([stops[i].lat, stops[i].lon]);
+    if (livePt) pts.push(livePt);
+    return L.latLngBounds(pts);
+  }
   var ttStopsExpanded = false;
   var TT_STOPS_COLLAPSE_KEEP = 1;
   var lastStopsRowsHtml = null, lastStopsNextIdx = null;
@@ -8122,24 +8210,52 @@ body {
             }
           });
         }
+        var livePt = hasVehicle ? [row.vehicle.lat, row.vehicle.lon] : null;
+        // nextIdx indexes row.stations; routeStops is its lat/lon-having
+        // subset in the same order — matched back up by station code
+        // rather than assumed to line up position-for-position.
+        var routeNextIdx = (nextIdx !== -1 && row.stations[nextIdx])
+          ? routeStops.findIndex(function (s) { return s.code === row.stations[nextIdx].code; })
+          : -1;
+        var tightBounds = routeStops.length ? tightBoundsAround(routeStops, routeNextIdx, livePt) : null;
         if (latlngs.length >= 2) {
           ttMap.on("zoomend moveend", declutterLabels);
-          ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+          if (ttTightBounds) {
+            ttMap.fitBounds(ttTightBounds, { padding: [32, 32] });
+          } else {
+            ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+          }
           declutterLabels();
-        } else if (hasVehicle) {
-          ttMap.setView([row.vehicle.lat, row.vehicle.lon], 11);
+        } else if (livePt) {
+          ttMap.setView(livePt, 11);
         }
         // The train's actual live GPS, when NJT's realtime feed has one for
         // this trip — bigger and higher-contrast than the fixed stop dots (a
         // white halo under a bright yellow dot), same convention the Amtrak
         // board and LIRR map use for "the one that moves".
         if (hasVehicle) {
-          L.circleMarker([row.vehicle.lat, row.vehicle.lon], { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
-          L.circleMarker([row.vehicle.lat, row.vehicle.lon], { radius: 9, color: "#000", weight: 2.5, fillColor: "#f5c518", fillOpacity: 1 })
+          L.circleMarker(livePt, { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
+          L.circleMarker(livePt, { radius: 9, color: "#000", weight: 2.5, fillColor: "#f5c518", fillOpacity: 1 })
             .bindTooltip("Live position", { direction: "top" })
             .addTo(ttMap);
         }
         setTimeout(function () { if (ttMap) ttMap.invalidateSize(); }, 60);
+
+        // Whole route first, then after a real 3-second hold, one pull into
+        // the train's own neighborhood — same choreography as the Amtrak
+        // board's map. Only on the tap that opened the sheet.
+        if (ttMapJustOpened) {
+          ttMapJustOpened = false;
+          if (tightBounds) {
+            var mapAtOpen = ttMap;
+            setTimeout(function () {
+              if (ttMap === mapAtOpen) {
+                ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
+                ttTightBounds = tightBounds;
+              }
+            }, 3000);
+          }
+        }
       } catch (e) {
         console.error("NJT train detail map failed to build:", e);
       }
@@ -8150,6 +8266,8 @@ body {
     openTrain = { event: event, idx: idx };
     elSheet.classList.add("on");
     document.body.style.overflow = "hidden";
+    ttMapJustOpened = true;
+    ttTightBounds = null;
     ttStopsExpanded = false;
     var row = (event === "dep" ? state.departures : state.arrivals)[idx];
     if (row) renderNjtDetail(row);
@@ -9637,6 +9755,24 @@ const lirrBoardPage = `<!DOCTYPE html>
     let currentBoardIdx = -1;
     let currentRouteColor = "#888888";
     let stopMarkers = [];
+    // Same full-route -> (3s) -> train's-neighborhood zoom every other
+    // board's detail map does now. mapJustOpened is true only for the
+    // render that follows a fresh tap (loadBoard()'s 30s refresh also
+    // calls renderDetail() for an already-open sheet, which must never
+    // re-trigger or yank the zoom); tightBoundsCache is the bounds that
+    // 3-second zoom last settled on, re-applied on such a refresh instead
+    // of resetting back out to the wide route view.
+    let mapJustOpened = false;
+    let tightBoundsCache = null;
+    function tightBoundsAround(stops, centerIdx, livePt) {
+      if (!stops.length) return null;
+      const idx = centerIdx == null || centerIdx < 0 ? stops.length - 1 : Math.min(centerIdx, stops.length - 1);
+      const lo = Math.max(0, idx - 2), hi = Math.min(stops.length - 1, idx + 2);
+      const pts = [];
+      for (let i = lo; i <= hi; i++) pts.push([stops[i].lat, stops[i].lon]);
+      if (livePt) pts.push(livePt);
+      return L.latLngBounds(pts);
+    }
 
     async function loadBoard() {
       try {
@@ -9704,6 +9840,8 @@ const lirrBoardPage = `<!DOCTYPE html>
       const row = currentDepartures.find(r => r.tripId === tripId);
       if (!row) return;
       openTripId = tripId;
+      mapJustOpened = true;
+      tightBoundsCache = null;
       document.getElementById("detailOverlay").classList.add("show");
       renderDetail(row);
     }
@@ -9810,7 +9948,13 @@ const lirrBoardPage = `<!DOCTYPE html>
       detailMapInstance = L.map("detailMap", { zoomControl: false, attributionControl: false });
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(detailMapInstance);
 
+      const hasVehicle = row.vehicle && row.vehicle.lat != null && row.vehicle.lon != null;
+      const livePt = hasVehicle ? [row.vehicle.lat, row.vehicle.lon] : null;
       const pts = stops.filter(s => s.lat != null && s.lon != null).map(s => [s.lat, s.lon]);
+      // No live GPS for this trip right now (common off-peak) — the
+      // boarding station is still the one place on this route a rider
+      // actually cares about, so it stands in as the zoom's center.
+      const tightBounds = pts.length ? tightBoundsAround(pts.map((p, i) => ({ lat: p[0], lon: p[1] })), boardIdx, livePt) : null;
       if (pts.length) {
         L.polyline(pts, { color: currentRouteColor, weight: 4 }).addTo(detailMapInstance);
         stops.forEach((s, i) => {
@@ -9821,7 +9965,11 @@ const lirrBoardPage = `<!DOCTYPE html>
           marker.on("click", () => focusStop(i));
           stopMarkers[i] = marker;
         });
-        detailMapInstance.fitBounds(L.latLngBounds(pts), { padding: [24, 24] });
+        if (tightBoundsCache) {
+          detailMapInstance.fitBounds(tightBoundsCache, { padding: [32, 32] });
+        } else {
+          detailMapInstance.fitBounds(L.latLngBounds(pts), { padding: [24, 24] });
+        }
       } else {
         detailMapInstance.setView([40.75, -73.5], 9);
       }
@@ -9829,14 +9977,29 @@ const lirrBoardPage = `<!DOCTYPE html>
       // trip — bigger and higher-contrast than the fixed stop dots (a white
       // halo under a bright yellow dot) so it reads as "the one that moves"
       // at a glance, same convention the NEC map uses for its live marker.
-      if (row.vehicle && row.vehicle.lat != null && row.vehicle.lon != null) {
-        const vLatLng = [row.vehicle.lat, row.vehicle.lon];
-        L.circleMarker(vLatLng, { radius: 13, color: "#fff", weight: 0, fillColor: "#fff", fillOpacity: 1 }).addTo(detailMapInstance);
-        L.circleMarker(vLatLng, { radius: 9, color: "#000", weight: 2.5, fillColor: "#f5c518", fillOpacity: 1 })
+      if (hasVehicle) {
+        L.circleMarker(livePt, { radius: 13, color: "#fff", weight: 0, fillColor: "#fff", fillOpacity: 1 }).addTo(detailMapInstance);
+        L.circleMarker(livePt, { radius: 9, color: "#000", weight: 2.5, fillColor: "#f5c518", fillOpacity: 1 })
           .bindTooltip("Live position", { direction: "top" })
           .addTo(detailMapInstance);
       }
       setTimeout(() => { if (detailMapInstance) detailMapInstance.invalidateSize(); }, 60);
+
+      // Whole route first, then after a real 3-second hold, one pull into
+      // the train's own neighborhood — same choreography every other
+      // board's detail map now uses. Only on the tap that opened the sheet.
+      if (mapJustOpened) {
+        mapJustOpened = false;
+        if (tightBounds) {
+          const mapAtOpen = detailMapInstance;
+          setTimeout(() => {
+            if (detailMapInstance === mapAtOpen) {
+              detailMapInstance.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
+              tightBoundsCache = tightBounds;
+            }
+          }, 3000);
+        }
+      }
     }
 
     loadStations().then(() => {
