@@ -5548,22 +5548,33 @@ body {
 .tt-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
 .tt-panel {
   position: absolute; left: 0; right: 0; bottom: 0; top: 60px;
-  background: var(--bg); border-top: 5px solid var(--tt-accent, var(--border));
+  background: var(--bg);
   border-radius: 18px 18px 0 0; overflow: hidden; overflow-y: auto;
   animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 @keyframes ttUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
-.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 8px auto 0; }
+/* The whole top of the sheet is a solid block of the train's own line
+   color now, not just a thin accent border along the panel's edge — a
+   border there picked up the panel's own corner radius independently of
+   its black fill, reading as a separate rounded tab peeking out from
+   behind it rather than one solid edge. */
+.tt-head {
+  background: var(--tt-accent, var(--panel2));
+  border-radius: 18px 18px 0 0;
+  padding: 8px 16px 14px;
+  position: relative;
+}
+.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: rgba(0,0,0,0.25); margin: 0 auto 10px; }
 .tt-close {
   position: absolute; top: 8px; right: 10px; z-index: 2;
   width: 30px; height: 30px; border-radius: 50%;
-  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
+  border: none; background: rgba(0,0,0,0.22); color: var(--tt-head-fg, #fff);
   font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
-.tt-close:active { background: var(--panel); color: var(--text1); }
+.tt-close:active { background: rgba(0,0,0,0.35); }
 .tt-body { padding: 14px 16px 28px; }
-.tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; color: var(--tt-accent, var(--text1)); }
-.tt-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; color: var(--tt-head-fg, #fff); }
+.tt-sub { font-size: 12px; color: var(--tt-head-fg, #fff); opacity: 0.85; margin-top: 2px; }
 .tt-position {
   margin-top: 12px; background: var(--panel2); border: 1px solid var(--border);
   border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--text1);
@@ -5635,8 +5646,12 @@ body {
 <div class="tt-sheet" id="ttSheet" role="dialog" aria-modal="true" aria-label="Train details">
   <div class="tt-scrim" id="ttScrim"></div>
   <div class="tt-panel">
-    <div class="tt-grip"></div>
-    <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
+    <div class="tt-head" id="ttHead">
+      <div class="tt-grip"></div>
+      <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
+      <div class="tt-title" id="ttTitle"></div>
+      <div class="tt-sub" id="ttSub"></div>
+    </div>
     <div class="tt-body" id="ttBody"></div>
   </div>
 </div>
@@ -5794,13 +5809,16 @@ body {
     return LINE_COLOR_OVERRIDES[hex] || hex;
   }
 
-  // The train detail sheet is tagged with this same color — same source
-  // boardRowHTML uses for --rowbg, before the northbound-Regional display
-  // inversion (that inversion is just about that one row's own legibility,
-  // not a change to what line/color the train actually is).
-  function rowAccentHex(boardKey, row) {
+  // The train detail sheet's header bar is tagged with this same color —
+  // same source boardRowHTML uses for --rowbg, before the northbound-
+  // Regional display inversion (that inversion is just about that one
+  // row's own legibility, not a change to what line/color the train
+  // actually is) — plus a matching readable text color for that bar.
+  function rowAccentColors(boardKey, row) {
     var raw = boardKey === "amtrak" ? (SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist) : "#" + (row.color || "888888");
-    return "#" + standardizeLineColor(boardKey, raw.replace("#", "").toLowerCase());
+    var stdHex = standardizeLineColor(boardKey, raw.replace("#", "").toLowerCase());
+    var fg = (isYellowish(stdHex) || DARK_TEXT_COLORS[stdHex]) ? "#121212" : "#ffffff";
+    return { bg: "#" + stdHex, fg: fg };
   }
 
   // NJT's own GTFS short name for the Montclair-Boonton Line ("MNBTN")
@@ -6008,6 +6026,12 @@ body {
 
   var elSheet = document.getElementById("ttSheet");
   var elBody = document.getElementById("ttBody");
+  var elTitle = document.getElementById("ttTitle");
+  var elSub = document.getElementById("ttSub");
+  function setTtHead(titleHTML, subHTML) {
+    elTitle.innerHTML = titleHTML;
+    elSub.innerHTML = subHTML;
+  }
   var openTrain = null; // { event, idx } — kept so a live poll can re-render it
   var ttMap = null, ttMarker = null;
   // NJT/LIRR's own detail maps (below) share this same ttMap instance
@@ -6110,9 +6134,8 @@ body {
     var speedBit = row.velocity != null
       ? " &middot; " + Math.round(row.velocity) + " mph" + (row.heading ? " " + esc(row.heading) : "")
       : "";
+    setTtHead(esc(row.trainNum) + " " + esc(row.routeName), "Amtrak &middot; " + status.text + speedBit);
     elBody.innerHTML =
-      '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
-      '<div class="tt-sub">Amtrak &middot; ' + status.text + speedBit + '</div>' +
       (showMap ? '<div id="ttMap"></div>' : '<div class="tt-position">Route map not available for this train right now.</div>') +
       '<div class="tt-stops" id="ttStops"></div>';
 
@@ -6350,9 +6373,8 @@ body {
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
     var hasVehicle = row.vehicle && row.vehicle.lat != null && row.vehicle.lon != null;
     var showMap = routeStops.length >= 2 || hasVehicle;
+    setTtHead(esc(row.trainNum) + " " + esc(row.routeName), "NJ Transit &middot; " + status.text);
     elBody.innerHTML =
-      '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
-      '<div class="tt-sub">NJ Transit &middot; ' + status.text + '</div>' +
       (showMap ? '<div id="ttMap"></div>' : '') +
       '<div class="tt-stops" id="ttStops"></div>';
 
@@ -6397,9 +6419,8 @@ body {
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
     var hasVehicle = row.vehicle && row.vehicle.lat != null && row.vehicle.lon != null;
     var showMap = routeStops.length >= 2 || hasVehicle;
+    setTtHead(esc(row.trainNum) + " " + esc(row.routeName), "LIRR &middot; " + status.text);
     elBody.innerHTML =
-      '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
-      '<div class="tt-sub">LIRR &middot; ' + status.text + '</div>' +
       (showMap ? '<div id="ttMap"></div>' : '') +
       '<div class="tt-stops" id="ttStops"></div>';
 
@@ -6446,7 +6467,9 @@ body {
   // board the row came from now, not a per-row operator field — each
   // board only ever holds rows from its own one system.
   function renderDetailForBoard(board, row) {
-    document.querySelector(".tt-panel").style.setProperty("--tt-accent", rowAccentHex(board, row));
+    var accent = rowAccentColors(board, row);
+    document.getElementById("ttHead").style.setProperty("--tt-accent", accent.bg);
+    document.getElementById("ttHead").style.setProperty("--tt-head-fg", accent.fg);
     if (board === "njt") renderNjtDetail(row);
     else if (board === "lirr") renderLirrDetail(row);
     else renderAmtrakDetail(row);
@@ -6701,22 +6724,33 @@ body {
 .tt-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
 .tt-panel {
   position: absolute; left: 0; right: 0; bottom: 0; top: 60px;
-  background: var(--bg); border-top: 5px solid var(--tt-accent, var(--border));
+  background: var(--bg);
   border-radius: 18px 18px 0 0; overflow: hidden; overflow-y: auto;
   animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 @keyframes ttUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
-.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 8px auto 0; }
+/* The whole top of the sheet is a solid block of the train's own line
+   color now, not just a thin accent border along the panel's edge — a
+   border there picked up the panel's own corner radius independently of
+   its black fill, reading as a separate rounded tab peeking out from
+   behind it rather than one solid edge. */
+.tt-head {
+  background: var(--tt-accent, var(--panel2));
+  border-radius: 18px 18px 0 0;
+  padding: 8px 16px 14px;
+  position: relative;
+}
+.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: rgba(0,0,0,0.25); margin: 0 auto 10px; }
 .tt-close {
   position: absolute; top: 8px; right: 10px; z-index: 2;
   width: 30px; height: 30px; border-radius: 50%;
-  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
+  border: none; background: rgba(0,0,0,0.22); color: var(--tt-head-fg, #fff);
   font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
-.tt-close:active { background: var(--panel); color: var(--text1); }
+.tt-close:active { background: rgba(0,0,0,0.35); }
 .tt-body { padding: 14px 16px 28px; }
-.tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; color: var(--tt-accent, var(--text1)); }
-.tt-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; color: var(--tt-head-fg, #fff); }
+.tt-sub { font-size: 12px; color: var(--tt-head-fg, #fff); opacity: 0.85; margin-top: 2px; }
 .tt-position {
   margin-top: 12px; background: var(--panel2); border: 1px solid var(--border);
   border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--text1);
@@ -6806,8 +6840,12 @@ body {
 <div class="tt-sheet" id="ttSheet" role="dialog" aria-modal="true" aria-label="Train details">
   <div class="tt-scrim" id="ttScrim"></div>
   <div class="tt-panel">
-    <div class="tt-grip"></div>
-    <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
+    <div class="tt-head" id="ttHead">
+      <div class="tt-grip"></div>
+      <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
+      <div class="tt-title" id="ttTitle"></div>
+      <div class="tt-sub" id="ttSub"></div>
+    </div>
     <div class="tt-body" id="ttBody"></div>
   </div>
 </div>
@@ -7122,6 +7160,12 @@ body {
 
   var elSheet = document.getElementById("ttSheet");
   var elBody = document.getElementById("ttBody");
+  var elTitle = document.getElementById("ttTitle");
+  var elSub = document.getElementById("ttSub");
+  function setTtHead(titleHTML, subHTML) {
+    elTitle.innerHTML = titleHTML;
+    elSub.innerHTML = subHTML;
+  }
   var openTrain = null; // { event, idx } — kept so a live poll can re-render it
   var ttMap = null, ttMarker = null;
   var ttMapJustOpened = false;
@@ -7179,19 +7223,22 @@ body {
   var AMTRAK_LIVE_COLOR = "#f5c518";
 
   function renderAmtrakDetail(row) {
-    // Tagged with the same color as the row itself (before the northbound-
-    // Regional display inversion, which is only about that row's own
-    // legibility, not a change to what line the train actually is).
-    document.querySelector(".tt-panel").style.setProperty("--tt-accent", SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist);
+    // The sheet's header bar is tagged with the same color as the row
+    // itself (before the northbound-Regional display inversion, which is
+    // only about that row's own legibility, not a change to what line the
+    // train actually is).
+    var accentBg = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
+    var accentFg = isYellowish(accentBg.replace("#", "").toLowerCase()) ? "#121212" : "#ffffff";
+    document.getElementById("ttHead").style.setProperty("--tt-accent", accentBg);
+    document.getElementById("ttHead").style.setProperty("--tt-head-fg", accentFg);
     var status = rowStatus(row);
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
     var showMap = routeStops.length >= 2 || (row.lat != null && row.lon != null);
     var speedBit = row.velocity != null
       ? " &middot; " + Math.round(row.velocity) + " mph" + (row.heading ? " " + esc(row.heading) : "")
       : "";
+    setTtHead(esc(row.trainNum) + " " + esc(row.routeName), "Amtrak &middot; " + status.text + speedBit);
     elBody.innerHTML =
-      '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
-      '<div class="tt-sub">Amtrak &middot; ' + status.text + speedBit + '</div>' +
       (showMap ? '<div id="ttMap"></div>' : '<div class="tt-position">Route map not available for this train right now.</div>') +
       '<div class="tt-stops" id="ttStops"></div>';
 
@@ -7499,22 +7546,33 @@ body {
 .tt-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
 .tt-panel {
   position: absolute; left: 0; right: 0; bottom: 0; top: 60px;
-  background: var(--bg); border-top: 5px solid var(--tt-accent, var(--border));
+  background: var(--bg);
   border-radius: 18px 18px 0 0; overflow: hidden; overflow-y: auto;
   animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 @keyframes ttUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
-.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 8px auto 0; }
+/* The whole top of the sheet is a solid block of the train's own line
+   color now, not just a thin accent border along the panel's edge — a
+   border there picked up the panel's own corner radius independently of
+   its black fill, reading as a separate rounded tab peeking out from
+   behind it rather than one solid edge. */
+.tt-head {
+  background: var(--tt-accent, var(--panel2));
+  border-radius: 18px 18px 0 0;
+  padding: 8px 16px 14px;
+  position: relative;
+}
+.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: rgba(0,0,0,0.25); margin: 0 auto 10px; }
 .tt-close {
   position: absolute; top: 8px; right: 10px; z-index: 2;
   width: 30px; height: 30px; border-radius: 50%;
-  border: 1px solid var(--border); background: var(--panel2); color: var(--text2);
+  border: none; background: rgba(0,0,0,0.22); color: var(--tt-head-fg, #fff);
   font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
-.tt-close:active { background: var(--panel); color: var(--text1); }
+.tt-close:active { background: rgba(0,0,0,0.35); }
 .tt-body { padding: 14px 16px 28px; }
-.tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; color: var(--tt-accent, var(--text1)); }
-.tt-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; color: var(--tt-head-fg, #fff); }
+.tt-sub { font-size: 12px; color: var(--tt-head-fg, #fff); opacity: 0.85; margin-top: 2px; }
 #ttMap { height: 260px; border-radius: 12px; margin-top: 12px; background: var(--panel2); }
 .tt-map-label {
   background: rgba(11,11,13,0.85); color: #fff; border: none; border-radius: 4px;
@@ -7606,8 +7664,12 @@ body {
 <div class="tt-sheet" id="ttSheet" role="dialog" aria-modal="true" aria-label="Train details">
   <div class="tt-scrim" id="ttScrim"></div>
   <div class="tt-panel">
-    <div class="tt-grip"></div>
-    <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
+    <div class="tt-head" id="ttHead">
+      <div class="tt-grip"></div>
+      <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
+      <div class="tt-title" id="ttTitle"></div>
+      <div class="tt-sub" id="ttSub"></div>
+    </div>
     <div class="tt-body" id="ttBody"></div>
   </div>
 </div>
@@ -7895,6 +7957,12 @@ body {
 
   var elSheet = document.getElementById("ttSheet");
   var elBody = document.getElementById("ttBody");
+  var elTitle = document.getElementById("ttTitle");
+  var elSub = document.getElementById("ttSub");
+  function setTtHead(titleHTML, subHTML) {
+    elTitle.innerHTML = titleHTML;
+    elSub.innerHTML = subHTML;
+  }
   var openTrain = null; // { event, idx } — kept so a live poll can re-render it
   var ttMap = null;
   var ttStopMarkers = {}; // station index (into row.stations) -> { marker, name }
@@ -7974,10 +8042,10 @@ body {
     var hasVehicle = row.vehicle && row.vehicle.lat != null && row.vehicle.lon != null;
     var showMap = routeStops.length >= 2 || hasVehicle;
     ttRouteColor = "#" + (row.color || "0039a6");
-    document.querySelector(".tt-panel").style.setProperty("--tt-accent", ttRouteColor);
+    document.getElementById("ttHead").style.setProperty("--tt-accent", ttRouteColor);
+    document.getElementById("ttHead").style.setProperty("--tt-head-fg", "#" + (row.textColor || "ffffff"));
+    setTtHead(esc(row.trainNum) + " " + esc(row.routeName), "NJ Transit &middot; " + status.text);
     elBody.innerHTML =
-      '<div class="tt-title">' + esc(row.trainNum) + " " + esc(row.routeName) + '</div>' +
-      '<div class="tt-sub">NJ Transit &middot; ' + status.text + '</div>' +
       (showMap ? '<div id="ttMap"></div>' : '') +
       '<div class="tt-stops" id="ttStops"></div>';
 
@@ -9326,9 +9394,12 @@ const lirrBoardPage = `<!DOCTYPE html>
 
   .detail-overlay { position: fixed; inset: 0; background: #000; z-index: 2000; display: none; flex-direction: column; }
   .detail-overlay.show { display: flex; }
-  .detail-head { padding: 10px 14px; display: flex; align-items: center; gap: 12px; border-bottom: 4px solid var(--tt-accent, #333); flex-shrink: 0; }
-  .detail-close { background: none; border: none; color: white; font-size: 26px; cursor: pointer; padding: 0; line-height: 1; }
-  .detail-title { color: var(--tt-accent, white); font-size: 16px; font-weight: bold; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-head {
+    padding: 10px 14px; display: flex; align-items: center; gap: 12px;
+    background: var(--tt-accent, #141418); flex-shrink: 0;
+  }
+  .detail-close { background: none; border: none; color: var(--tt-head-fg, white); font-size: 26px; cursor: pointer; padding: 0; line-height: 1; }
+  .detail-title { color: var(--tt-head-fg, white); font-size: 16px; font-weight: bold; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .detail-map { height: 38vh; flex-shrink: 0; background: #111; }
   .detail-stops { flex: 1; overflow-y: auto; }
   .detail-stop { display: grid; grid-template-columns: 94px 1fr; gap: 10px; padding: 9px 14px; border-bottom: 1px solid #1c1c1e; color: white; cursor: pointer; }
@@ -9717,6 +9788,7 @@ const lirrBoardPage = `<!DOCTYPE html>
       currentBoardIdx = boardIdx;
       currentRouteColor = "#" + (route.color || "888888");
       document.getElementById("detailOverlay").style.setProperty("--tt-accent", currentRouteColor);
+      document.getElementById("detailOverlay").style.setProperty("--tt-head-fg", "#" + (route.textColor || "ffffff"));
       stopMarkers = [];
       document.getElementById("detailStops").innerHTML = stops.map((s, i) => {
         const isBoard = i === boardIdx;
