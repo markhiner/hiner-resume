@@ -5507,6 +5507,11 @@ body {
    own badges below, since both columns butt up against the same
    fixed-width status column right after them. */
 .board-row[data-board="lirr"] .c-to { justify-content: flex-end; gap: 8px; }
+/* The badge slot is always rendered now (even with nothing in it), fixed
+   at the plane badge's own width — so the track number's position never
+   shifts depending on whether this particular train happens to stop at
+   Jamaica. */
+.board-row[data-board="lirr"] .c-badges { min-width: 13px; }
 /* A transfer-point icon (plane for an airport stop, circled S for
    Secaucus) sitting right next to the destination it applies to —
    flex-shrink:0 so it's never the thing that gets squeezed when the
@@ -5842,8 +5847,8 @@ body {
   var AMTRAK_EWR_STOP_CODE = "EWR"; // Newark Airport, Amtrak's own code for it
   var BADGE_PLANE_SVG = '<svg width="9" height="9" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">' +
     '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2.5 1.5V22l4-1 4 1v-1.5L13 19v-5.5z"/></svg>';
-  function stationBadgesHTML(boardKey, row) {
-    if (!row.stations || !row.stations.length) return "";
+  function stationBadgesHTML(boardKey, row, reserveSlot) {
+    if (!row.stations || !row.stations.length) return reserveSlot ? '<span class="c-badges"></span>' : "";
     var html = "";
     if (boardKey === "lirr") {
       var hasJamaica = row.stations.some(function (s) { return s.stopId === LIRR_JAMAICA_STOP_ID; });
@@ -5857,7 +5862,8 @@ body {
       var hasEwrA = row.stations.some(function (s) { return s.code === AMTRAK_EWR_STOP_CODE; });
       if (hasEwrA) html += '<span class="board-badge" title="Stops at Newark Airport">' + BADGE_PLANE_SVG + '</span>';
     }
-    return html ? '<span class="c-badges">' + html + '</span>' : "";
+    if (html) return '<span class="c-badges">' + html + '</span>';
+    return reserveSlot ? '<span class="c-badges"></span>' : "";
   }
 
   function boardRowHTML(boardKey, row, idx, kind) {
@@ -5903,7 +5909,7 @@ body {
       // here — a fixed position regardless of whether a track number (or
       // how wide one) precedes it.
       trainCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(shortStopName(row.other)) + '</span>';
-      toCol = (row.track ? esc(row.track) : "") + stationBadgesHTML(boardKey, row);
+      toCol = (row.track ? esc(row.track) : "") + stationBadgesHTML(boardKey, row, true);
     } else {
       trainCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span>';
       toCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
