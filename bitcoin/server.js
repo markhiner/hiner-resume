@@ -5574,7 +5574,17 @@ body {
 .tt-close:active { background: rgba(0,0,0,0.35); }
 .tt-body { padding: 14px 16px 28px; }
 .tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; color: var(--tt-head-fg, #fff); }
-.tt-sub { font-size: 12px; color: var(--tt-head-fg, #fff); opacity: 0.85; margin-top: 2px; }
+.tt-sub { font-size: 12px; color: var(--tt-head-fg, #fff); opacity: 0.85; margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; opacity: 1; }
+.train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
+.train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
+.train-status-badge.verylate { background: rgba(239,68,68,0.25); color: #ffe1e1; }
+.train-status-badge.gone { background: rgba(255,255,255,0.12); color: var(--tt-head-fg, #fff); opacity: 0.75; font-style: italic; text-transform: none; }
+.train-detail-position {
+  font-size: 12px; color: var(--tt-head-fg, #fff); font-weight: 600; margin-top: 8px;
+  background: rgba(0,0,0,0.22); border-radius: 8px; padding: 6px 10px;
+}
+.train-detail-position b { color: var(--tt-head-fg, #fff); }
 .tt-position {
   margin-top: 12px; background: var(--panel2); border: 1px solid var(--border);
   border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--text1);
@@ -5586,43 +5596,32 @@ body {
   padding: 1px 5px; font-size: 9px; font-weight: 700; box-shadow: none;
 }
 .tt-map-label::before { display: none; }
-.tt-stops { margin-top: 14px; border-top: 1px solid var(--border); }
-.tt-stop {
-  display: flex; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer;
-  border-bottom: 1px solid var(--border); font-size: 12px;
-}
-.tt-stop.here { background: rgba(245,197,24,0.08); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
-/* already behind the train — faded, not colored, so it reads as "done";
-   the toggle above hides all but the most recent of these by default, so
-   this is no longer a whole wall of dimmed rows pushing the current stop
-   down the screen — just the one kept for continuity. */
-.tt-stop.past { opacity: 0.6; }
-.tt-stop.past .nm { color: var(--text2); }
-/* the very next stop ahead — the one color call-out on the whole list */
-.tt-stop.next-stop {
-  background: rgba(34,197,94,0.14); margin: 0 -16px; padding-left: 16px; padding-right: 16px;
-  border-left: 3px solid var(--green); opacity: 1;
-}
-.tt-stop.next-stop .nm { color: var(--text1); font-weight: 700; }
-/* Tapping a stop — in the list or on the map, for the NJT/LIRR detail
-   maps that support it — always wins visually, same rule as the LIRR
-   per-station board's own tap-to-highlight. */
-.tt-stop.selected {
-  background: rgba(250,204,21,0.18); margin: 0 -16px; padding-left: 16px; padding-right: 16px;
-  border-left: 3px solid #facc15; opacity: 1;
-}
-.tt-stop.selected .nm { color: #facc15; font-weight: 700; }
-.tt-stop .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text1); }
-.tt-stop .tm { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text2); }
-.tt-stop .st { width: 74px; flex-shrink: 0; text-align: right; font-size: 10px; color: var(--text3); }
-.tt-stop .st.delayed { color: var(--yellow); }
-.tt-stop .st.done { color: var(--text3); font-style: italic; }
-.tt-stops-more {
-  display: block; width: 100%; text-align: center;
-  background: var(--panel2); color: var(--text2); border: none; border-bottom: 1px solid var(--border);
-  padding: 7px 14px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px;
-}
-.tt-stops-more:active { background: var(--panel); color: var(--text1); }
+.tt-stops { padding-top: 4px; }
+/* Same stop-list look as the live NEC/LIRR/NJT map pages' own train-detail
+   sheet — a flat list (no collapse-behind-a-button), the next stop called
+   out in green, everything before it just dimmed rather than hidden. */
+.stop-item { padding: 6px 16px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.stop-item:last-child { border-bottom: none; }
+.stop-item.past { opacity: 0.55; }
+.stop-item.past .stop-name { color: var(--text2); font-weight: 600; }
+.stop-item.next { background: rgba(34,197,94,0.12); border-left: 3px solid var(--green); padding-left: 13px; }
+/* Tapping a stop — in the list or on the map, for the maps that support it
+   — always wins visually, same rule as the LIRR per-station board's own
+   tap-to-highlight. */
+.stop-item.selected { background: rgba(250,204,21,0.16); border-left: 3px solid #facc15; padding-left: 13px; }
+.stop-item.selected .stop-name { color: #facc15; font-weight: 700; }
+.stop-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.stop-name { font-size: 13px; font-weight: 700; color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.stop-status { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); flex-shrink: 0; }
+.stop-status.next { color: var(--green); }
+.stop-times { font-size: 12px; color: var(--text2); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.stt-label { color: var(--text3); font-weight: 600; }
+.stt-time { color: var(--text1); font-weight: 800; }
+.stt-est { font-size: 9.5px; color: var(--text3); font-weight: 600; margin-left: 1px; }
+.stt-delta { font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 4px; margin-left: 3px; white-space: nowrap; }
+.stt-delta.ontime { background: rgba(34,197,94,0.15); color: var(--green); }
+.stt-delta.late { background: rgba(245,197,24,0.18); color: var(--yellow); }
+.stt-delta.verylate { background: rgba(239,68,68,0.18); color: var(--red); }
 .tt-empty { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 16px 0; }
 </style>
 </head>
@@ -5651,6 +5650,7 @@ body {
       <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
       <div class="tt-title" id="ttTitle"></div>
       <div class="tt-sub" id="ttSub"></div>
+      <div class="train-detail-position" id="ttPosition"></div>
     </div>
     <div class="tt-body" id="ttBody"></div>
   </div>
@@ -6028,9 +6028,11 @@ body {
   var elBody = document.getElementById("ttBody");
   var elTitle = document.getElementById("ttTitle");
   var elSub = document.getElementById("ttSub");
-  function setTtHead(titleHTML, subHTML) {
+  var elPosition = document.getElementById("ttPosition");
+  function setTtHead(titleHTML, subHTML, positionHTML) {
     elTitle.innerHTML = titleHTML;
     elSub.innerHTML = subHTML;
+    elPosition.innerHTML = positionHTML || "";
   }
   var openTrain = null; // { event, idx } — kept so a live poll can re-render it
   var ttMap = null, ttMarker = null;
@@ -6069,34 +6071,6 @@ body {
     if (livePt) pts.push(livePt);
     return L.latLngBounds(pts);
   }
-  // A long run's already-departed stops piling up above the current one
-  // pushed it halfway down the screen and read as a wall of empty, washed-
-  // out rows rather than useful context — collapsed behind a toggle by
-  // default (keeping only the single most recent one for continuity) so the
-  // current/next stop lands at or near the top of the list as soon as the
-  // sheet opens. Reset to false on a fresh open; stays expanded across a
-  // live re-render of the same open sheet once someone's asked to see more.
-  var ttStopsExpanded = false;
-  var TT_STOPS_COLLAPSE_KEEP = 1;
-  // the last rendered stop rows/cutoff, so the "show earlier stops" toggle
-  // can redraw just the stops list without touching the map or header
-  var lastStopsRowsHtml = null, lastStopsNextIdx = null;
-
-  function renderStopsList(rowsHtml, nextIdx) {
-    lastStopsRowsHtml = rowsHtml;
-    lastStopsNextIdx = nextIdx;
-    var stopsEl = document.getElementById("ttStops");
-    if (!stopsEl) return;
-    var visibleFrom = 0;
-    if (!ttStopsExpanded && nextIdx > TT_STOPS_COLLAPSE_KEEP) visibleFrom = nextIdx - TT_STOPS_COLLAPSE_KEEP;
-    var html = "";
-    if (visibleFrom > 0) {
-      html += '<button class="tt-stops-more" data-tt-stops-more>Show ' + visibleFrom + ' earlier stop' + (visibleFrom === 1 ? "" : "s") + '</button>';
-    }
-    html += rowsHtml.slice(visibleFrom).join("");
-    stopsEl.innerHTML = html;
-  }
-
   function closeTrain() {
     elSheet.classList.remove("on");
     document.body.style.overflow = "";
@@ -6106,19 +6080,88 @@ body {
   document.getElementById("ttScrim").addEventListener("click", closeTrain);
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && elSheet.classList.contains("on")) closeTrain(); });
 
-  function stopStateHTML(schedMs, atMs, passedLabel) {
-    if (schedMs == null && atMs == null) return '<span class="st">\\u2014</span>';
-    var now = Date.now();
-    var use = atMs != null ? atMs : schedMs;
-    // The time column to its left still shows the scheduled clock time, so
-    // this is what makes a late departure visible at all — the same
-    // "actual next to scheduled" comparison a still-ahead stop already gets
-    // via "Now HH:MM", just in the past tense once it's behind you.
-    if (now >= use) {
-      return '<span class="st done">' + passedLabel + (atMs != null ? " " + fmtBoardTime(atMs) : "") + '</span>';
+  function stopDelayMin(schedMs, actualMs) {
+    if (schedMs == null || actualMs == null) return null;
+    return Math.round((actualMs - schedMs) / 60000);
+  }
+  function deltaBadgeHTML(delayMin) {
+    if (delayMin == null) return "";
+    if (delayMin <= 1) return ' <span class="stt-delta ontime">On time</span>';
+    if (delayMin < 15) return ' <span class="stt-delta late">+' + delayMin + 'm</span>';
+    return ' <span class="stt-delta verylate">+' + delayMin + 'm</span>';
+  }
+  // One stop's arrival/departure line: the actual (delay-adjusted) time wins
+  // over scheduled whenever both exist, tagged with how late it ran; a stop
+  // with only a schedule shows "est" instead of a delay badge.
+  function stopTimeHTML(label, schedMs, actualMs) {
+    var ms = actualMs != null ? actualMs : schedMs;
+    if (ms == null) return "";
+    return '<span class="stt-label">' + label + '</span> <span class="stt-time">' + fmtBoardTime(ms) + '</span>' +
+      (actualMs == null ? ' <span class="stt-est">est</span>' : deltaBadgeHTML(stopDelayMin(schedMs, actualMs)));
+  }
+  function statusBadgeHTML(delayMin) {
+    if (delayMin == null) return "";
+    if (delayMin <= 1) return '<span class="train-status-badge ontime">On time</span>';
+    if (delayMin < 15) return '<span class="train-status-badge late">' + delayMin + 'm late</span>';
+    return '<span class="train-status-badge verylate">' + delayMin + 'm late</span>';
+  }
+  // "Departed"/"arrived" is a real state the plain on-time/late/very-late
+  // tiers above have no room for — shown as its own plain badge instead of
+  // forcing a delay figure that would otherwise look like still-in-progress.
+  function rowStatusBadgeHTML(row, delayMin) {
+    if (row.state === "departed" || row.state === "arrived") {
+      return '<span class="train-status-badge gone">' + (row.state === "departed" ? "Departed" : "Arrived") + '</span>';
     }
-    if (atMs != null && schedMs != null && atMs - schedMs > 60000) return '<span class="st delayed">Now ' + fmtBoardTime(atMs) + '</span>';
-    return '<span class="st">On Time</span>';
+    return statusBadgeHTML(delayMin);
+  }
+  // "Between X and Y · due HH:MM" / "Arrived at X" / "Not yet departed X" —
+  // same position pill the live map pages' own train-detail sheet shows.
+  function positionPillHTML(stations, nextIdx) {
+    if (!stations || !stations.length) return "";
+    if (nextIdx === -1) return "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
+    if (nextIdx === 0) return "Not yet departed <b>" + esc(stations[0].name) + "</b>";
+    var prev = stations[nextIdx - 1], next = stations[nextIdx];
+    var eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
+    return "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " &middot; due " + fmtBoardTime(eta) : "");
+  }
+
+  // Same flat stop list (and the next-stop-in-green call-out) the live map
+  // pages' own train-detail sheet already uses — no "show earlier stops"
+  // toggle; timesHTMLFor(stop, i) supplies just the time portion, since
+  // that's the one part that differs per operator (Amtrak/NJT have a
+  // separate scheduled-vs-actual figure per stop; LIRR's real times
+  // already have delay baked in, no schedule to compare against).
+  function renderStopsList(stations, nextIdx, timesHTMLFor) {
+    var stopsEl = document.getElementById("ttStops");
+    if (!stopsEl) return;
+    if (!stations || !stations.length) {
+      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
+      return;
+    }
+    stopsEl.innerHTML = stations.map(function (s, i) {
+      var isPast = nextIdx === -1 ? true : i < nextIdx;
+      var isNext = i === nextIdx;
+      var cls = (isPast ? " past" : "") + (isNext ? " next" : "");
+      var timesHTML = timesHTMLFor(s, i);
+      return '<div class="stop-item' + cls + '" data-stop-idx="' + i + '">' +
+        '<div class="stop-row-top">' +
+          '<span class="stop-name">' + esc(s.name) + '</span>' +
+          (isPast ? '<span class="stop-status">Departed</span>' : isNext ? '<span class="stop-status next">Next</span>' : '') +
+        '</div>' +
+        '<div class="stop-times">' + (timesHTML || "&mdash;") + '</div>' +
+      '</div>';
+    }).join("");
+    scrollStopsIntoView(nextIdx);
+  }
+
+  // Auto-positions the sheet (map + stops share one scroll container) so
+  // the next stop lands near the top of the visible area with its previous
+  // couple of stops still showing above it, instead of opening scrolled to
+  // the very top of the whole route.
+  function scrollStopsIntoView(nextIdx) {
+    var idx = nextIdx <= 0 ? 0 : Math.max(0, nextIdx - 2);
+    var el = document.querySelector('#ttStops .stop-item[data-stop-idx="' + idx + '"]');
+    if (el) setTimeout(function () { el.scrollIntoView({ block: "start" }); }, 0);
   }
 
   // Shared across all three operators' detail renderers — every station
@@ -6143,47 +6186,36 @@ body {
   var AMTRAK_LIVE_COLOR = "#f5c518";
 
   function renderAmtrakDetail(row) {
-    var status = rowStatus(row);
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
     var showMap = routeStops.length >= 2 || (row.lat != null && row.lon != null);
-    var speedBit = row.velocity != null
-      ? " &middot; " + Math.round(row.velocity) + " mph" + (row.heading ? " " + esc(row.heading) : "")
-      : "";
-    setTtHead(esc(row.trainNum) + " " + esc(row.routeName), "Amtrak &middot; " + status.text + speedBit);
-    elBody.innerHTML =
-      (showMap ? '<div id="ttMap"></div>' : '<div class="tt-position">Route map not available for this train right now.</div>') +
-      '<div class="tt-stops" id="ttStops"></div>';
 
-    var stopsEl = document.getElementById("ttStops");
-    if (!row.stations || !row.stations.length) {
-      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
-    } else {
-      // The first stop with no arrival yet (or none confirmed) is "next" —
-      // everything before it is done, everything after is still ahead.
-      var now = Date.now();
-      var nextIdx = -1;
+    // The first stop with no arrival yet (or none confirmed) is "next" —
+    // everything before it is done, everything after is still ahead.
+    var now = Date.now();
+    var nextIdx = -1;
+    if (row.stations && row.stations.length) {
       for (var ni = 0; ni < row.stations.length; ni++) {
         var best = stopBest(row.stations[ni]);
         var ref = best.arr != null ? best.arr : best.dep;
         if (ref == null || now < ref) { nextIdx = ni; break; }
       }
-      var rowsHtml = row.stations.map(function (s, i) {
-        var best = stopBest(s);
-        var timeMs = best.dep != null ? best.dep : best.arr;
-        var schedMs = s.schedDepMs != null ? s.schedDepMs : s.schedArrMs;
-        var atMs = timeMs;
-        var here = s.code === state.station;
-        var isPast = nextIdx === -1 ? true : i < nextIdx;
-        var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
-        // the "(New York)"-style annotation this used to add for the board's
-        // own reference station is redundant now: s.name already goes through
-        // the same city-name cleanup server-side, so the two agree.
-        return '<div class="tt-stop' + cls + '"><span class="nm">' + esc(s.name) + '</span>' +
-          '<span class="tm">' + fmtBoardTime(schedMs != null ? schedMs : timeMs) + '</span>' +
-          stopStateHTML(schedMs, atMs, "Departed") + '</div>';
-      });
-      renderStopsList(rowsHtml, nextIdx);
     }
+    var delayMin = stopDelayMin(row.schedMs, row.atMs);
+    var speedBit = row.velocity != null
+      ? " &middot; " + Math.round(row.velocity) + " mph" + (row.heading ? " " + esc(row.heading) : "")
+      : "";
+    setTtHead(
+      esc(row.trainNum) + " " + esc(row.routeName),
+      "Amtrak" + speedBit + " " + rowStatusBadgeHTML(row, delayMin),
+      positionPillHTML(row.stations, nextIdx)
+    );
+    elBody.innerHTML =
+      (showMap ? '<div id="ttMap"></div>' : '<div class="tt-position">Route map not available for this train right now.</div>') +
+      '<div class="tt-stops" id="ttStops"></div>';
+
+    renderStopsList(row.stations, nextIdx, function (s) {
+      return [stopTimeHTML("Arr", s.schedArrMs, s.arrMs), stopTimeHTML("Dep", s.schedDepMs, s.depMs)].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
+    });
 
     if (showMap && window.L) {
       setTimeout(function () {
@@ -6192,11 +6224,11 @@ body {
         ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
         var livePt = (row.lat != null && row.lon != null) ? [row.lat, row.lon] : null;
-        // nextIdx (set above, if the stop list rendered) indexes row.stations;
-        // the map draws routeStops, a lat/lon-having subset of the same list
-        // in the same order — matched back up by station code rather than
-        // assumed to line up position-for-position.
-        var routeNextIdx = (typeof nextIdx !== "undefined" && nextIdx !== -1 && row.stations[nextIdx])
+        // nextIdx (set above) indexes row.stations; the map draws routeStops,
+        // a lat/lon-having subset of the same list in the same order —
+        // matched back up by station code rather than assumed to line up
+        // position-for-position.
+        var routeNextIdx = (nextIdx !== -1 && row.stations[nextIdx])
           ? routeStops.findIndex(function (s) { return s.code === row.stations[nextIdx].code; })
           : -1;
         var tightBounds = routeStops.length ? tightBoundsAround(routeStops, routeNextIdx, livePt) : null;
@@ -6270,7 +6302,7 @@ body {
         }
 
         // Whole route first, so it reads as a map before it reads as a
-        // train — then, after a real 3-second hold (not just a moment),
+        // train — then, after a real 2-second hold (not just a moment),
         // one pull into the train's own neighborhood: its current position
         // plus the nearest few stations. Only on the tap that opened the
         // sheet: a periodic re-render of an already-open sheet must never
@@ -6284,7 +6316,7 @@ body {
                 ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
                 ttTightBounds = tightBounds;
               }
-            }, 3000);
+            }, 2000);
           }
         }
        } catch (e) {
@@ -6325,8 +6357,8 @@ body {
     rm.marker.setStyle({ radius: 8, color: "#000", weight: 2.5, fillColor: "#facc15", fillOpacity: 1 });
     rm.marker.bringToFront();
     if (ttMap) ttMap.flyTo(rm.marker.getLatLng(), Math.max(ttMap.getZoom(), 14), { duration: 0.5 });
-    document.querySelectorAll(".tt-stop.selected").forEach(function (el) { el.classList.remove("selected"); });
-    var rowEl = document.querySelector('.tt-stop[data-stop-idx="' + i + '"]');
+    document.querySelectorAll(".stop-item.selected").forEach(function (el) { el.classList.remove("selected"); });
+    var rowEl = document.querySelector('.stop-item[data-stop-idx="' + i + '"]');
     if (rowEl) {
       rowEl.classList.add("selected");
       rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -6403,7 +6435,7 @@ body {
     setTimeout(function () { if (ttMap) ttMap.invalidateSize(); }, 60);
 
     // Same choreography as Amtrak's own map: whole route first, then after
-    // a real 3-second hold, one pull into the train's own neighborhood.
+    // a real 2-second hold, one pull into the train's own neighborhood.
     // Only on the tap that opened the sheet — a periodic board refresh
     // re-rendering an already-open sheet must never yank the view.
     if (ttMapJustOpened) {
@@ -6415,46 +6447,38 @@ body {
             ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
             ttTightBounds = tightBounds;
           }
-        }, 3000);
+        }, 2000);
       }
     }
   }
 
   function renderNjtDetail(row) {
-    var status = rowStatus(row);
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
     var hasVehicle = row.vehicle && row.vehicle.lat != null && row.vehicle.lon != null;
     var showMap = routeStops.length >= 2 || hasVehicle;
-    setTtHead(esc(row.trainNum) + " " + esc(row.routeName), "NJ Transit &middot; " + status.text);
+
+    var now = Date.now();
+    var nextIdx = -1;
+    if (row.stations && row.stations.length) {
+      for (var ni = 0; ni < row.stations.length; ni++) {
+        var best = stopBest(row.stations[ni]);
+        var ref = best.arr != null ? best.arr : best.dep;
+        if (ref == null || now < ref) { nextIdx = ni; break; }
+      }
+    }
+    var delayMin = stopDelayMin(row.schedMs, row.atMs);
+    setTtHead(
+      esc(row.trainNum) + " " + esc(row.routeName),
+      "NJ Transit " + rowStatusBadgeHTML(row, delayMin),
+      positionPillHTML(row.stations, nextIdx)
+    );
     elBody.innerHTML =
       (showMap ? '<div id="ttMap"></div>' : '') +
       '<div class="tt-stops" id="ttStops"></div>';
 
-    var stopsEl = document.getElementById("ttStops");
-    if (!row.stations || !row.stations.length) {
-      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
-      return;
-    }
-    var now = Date.now();
-    var nextIdx = -1;
-    for (var ni = 0; ni < row.stations.length; ni++) {
-      var best = stopBest(row.stations[ni]);
-      var ref = best.arr != null ? best.arr : best.dep;
-      if (ref == null || now < ref) { nextIdx = ni; break; }
-    }
-    var rowsHtml = row.stations.map(function (s, i) {
-      var best = stopBest(s);
-      var timeMs = best.dep != null ? best.dep : best.arr;
-      var schedMs = s.schedDepMs != null ? s.schedDepMs : s.schedArrMs;
-      var atMs = timeMs;
-      var here = s.code === "${NJT_DEFAULT_STATION}";
-      var isPast = nextIdx === -1 ? true : i < nextIdx;
-      var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
-      return '<div class="tt-stop' + cls + '" data-stop-idx="' + i + '"><span class="nm">' + esc(s.name) + '</span>' +
-        '<span class="tm">' + fmtBoardTime(schedMs != null ? schedMs : timeMs) + '</span>' +
-        stopStateHTML(schedMs, atMs, "Departed") + '</div>';
+    renderStopsList(row.stations, nextIdx, function (s) {
+      return [stopTimeHTML("Arr", s.schedArrMs, s.arrMs), stopTimeHTML("Dep", s.schedDepMs, s.depMs)].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
     });
-    renderStopsList(rowsHtml, nextIdx);
 
     if (!showMap || !window.L) return;
     setTimeout(function () {
@@ -6467,41 +6491,36 @@ body {
   }
 
   function renderLirrDetail(row) {
-    var status = rowStatus(row);
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
     var hasVehicle = row.vehicle && row.vehicle.lat != null && row.vehicle.lon != null;
     var showMap = routeStops.length >= 2 || hasVehicle;
-    setTtHead(esc(row.trainNum) + " " + esc(row.routeName), "LIRR &middot; " + status.text);
+
+    // LIRR's own stop list has no separate scheduled-vs-actual figure (its
+    // arrMs/depMs already have delay baked in) — stopTimeHTML already
+    // degrades gracefully to a plain time with no delay badge when the
+    // scheduled figure it's compared against isn't there.
+    var now = Date.now();
+    var nextIdx = -1;
+    if (row.stations && row.stations.length) {
+      for (var ni = 0; ni < row.stations.length; ni++) {
+        var s0 = row.stations[ni];
+        var ref = s0.arrMs != null ? s0.arrMs : s0.depMs;
+        if (ref == null || now < ref) { nextIdx = ni; break; }
+      }
+    }
+    var delayMin = stopDelayMin(row.schedMs, row.atMs);
+    setTtHead(
+      esc(row.trainNum) + " " + esc(row.routeName),
+      "LIRR " + rowStatusBadgeHTML(row, delayMin),
+      positionPillHTML(row.stations, nextIdx)
+    );
     elBody.innerHTML =
       (showMap ? '<div id="ttMap"></div>' : '') +
       '<div class="tt-stops" id="ttStops"></div>';
 
-    var stopsEl = document.getElementById("ttStops");
-    if (!row.stations || !row.stations.length) {
-      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
-      return;
-    }
-    // LIRR's own stop list has no separate scheduled-vs-actual figure (its
-    // arrMs/depMs already have delay baked in) — "On Time"/"Now HH:MM" per
-    // stop isn't available the way it is for Amtrak/NJT, so each stop just
-    // shows its one real time, same as the dedicated LIRR board's own list.
-    var now = Date.now();
-    var nextIdx = -1;
-    for (var ni = 0; ni < row.stations.length; ni++) {
-      var s = row.stations[ni];
-      var ref = s.arrMs != null ? s.arrMs : s.depMs;
-      if (ref == null || now < ref) { nextIdx = ni; break; }
-    }
-    var rowsHtml = row.stations.map(function (s, i) {
-      var timeMs = s.depMs != null ? s.depMs : s.arrMs;
-      var here = s.stopId === PENN_LIRR_STOP_ID;
-      var isPast = nextIdx === -1 ? true : i < nextIdx;
-      var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
-      return '<div class="tt-stop' + cls + '" data-stop-idx="' + i + '"><span class="nm">' + esc(s.name) + '</span>' +
-        '<span class="tm">' + fmtBoardTime(timeMs) + '</span>' +
-        '<span class="st' + (isPast ? " done" : "") + '">' + (isPast ? "Departed" : "On Time") + '</span></div>';
+    renderStopsList(row.stations, nextIdx, function (s) {
+      return [stopTimeHTML("Arr", s.schedArrMs, s.arrMs), stopTimeHTML("Dep", s.schedDepMs, s.depMs)].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
     });
-    renderStopsList(rowsHtml, nextIdx);
 
     if (!showMap || !window.L) return;
     setTimeout(function () {
@@ -6533,7 +6552,6 @@ body {
     document.body.style.overflow = "hidden";
     ttMapJustOpened = true;
     ttTightBounds = null;
-    ttStopsExpanded = false;
     var list = event === "dep" ? BOARDS[board].departures : BOARDS[board].arrivals;
     var row = list[idx];
     if (row) renderDetailForBoard(board, row);
@@ -6555,18 +6573,13 @@ body {
       renderBoard(mkey);
       return;
     }
-    if (e.target.closest("[data-tt-stops-more]")) {
-      ttStopsExpanded = true;
-      if (lastStopsRowsHtml) renderStopsList(lastStopsRowsHtml, lastStopsNextIdx);
-      return;
-    }
     // #ttStops gets replaced wholesale (elBody.innerHTML) every time a train
     // is opened or re-rendered, so a listener attached directly to it would
     // die the moment that happens — delegating from document instead, same
     // fix as every other "list gets rebuilt under you" spot in this app.
-    // Amtrak's own stop rows don't carry data-stop-idx (no tap-to-zoom there,
-    // see renderAmtrakDetail), so this is a no-op for them.
-    var stopRow = e.target.closest(".tt-stop");
+    // Amtrak's own stop rows don't carry a ttStopMarkers entry (no tap-to-
+    // zoom there, see renderAmtrakDetail), so this is a no-op for them.
+    var stopRow = e.target.closest(".stop-item");
     if (stopRow) {
       var stopIdx = stopRow.getAttribute("data-stop-idx");
       if (stopIdx != null) focusStop(+stopIdx);
@@ -6605,7 +6618,7 @@ const amtrakBoardPage = `<!DOCTYPE html>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
-  --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --green: #22c55e; --yellow: #f5c518;
+  --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --green: #22c55e; --yellow: #f5c518; --red: #ef4444;
 }
 html, body { background: var(--bg); color: var(--text1); height: 100%; overflow-x: hidden; }
 body {
@@ -6802,7 +6815,17 @@ body {
 .tt-close:active { background: rgba(0,0,0,0.35); }
 .tt-body { padding: 14px 16px 28px; }
 .tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; color: var(--tt-head-fg, #fff); }
-.tt-sub { font-size: 12px; color: var(--tt-head-fg, #fff); opacity: 0.85; margin-top: 2px; }
+.tt-sub { font-size: 12px; color: var(--tt-head-fg, #fff); opacity: 0.85; margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; opacity: 1; }
+.train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
+.train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
+.train-status-badge.verylate { background: rgba(239,68,68,0.25); color: #ffe1e1; }
+.train-status-badge.gone { background: rgba(255,255,255,0.12); color: var(--tt-head-fg, #fff); opacity: 0.75; font-style: italic; text-transform: none; }
+.train-detail-position {
+  font-size: 12px; color: var(--tt-head-fg, #fff); font-weight: 600; margin-top: 8px;
+  background: rgba(0,0,0,0.22); border-radius: 8px; padding: 6px 10px;
+}
+.train-detail-position b { color: var(--tt-head-fg, #fff); }
 .tt-position {
   margin-top: 12px; background: var(--panel2); border: 1px solid var(--border);
   border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--text1);
@@ -6813,30 +6836,24 @@ body {
   padding: 1px 5px; font-size: 9px; font-weight: 700; box-shadow: none;
 }
 .tt-map-label::before { display: none; }
-.tt-stops { margin-top: 14px; border-top: 1px solid var(--border); }
-.tt-stop {
-  display: flex; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer;
-  border-bottom: 1px solid var(--border); font-size: 12px;
-}
-.tt-stop.here { background: rgba(245,197,24,0.08); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
-.tt-stop.past { opacity: 0.6; }
-.tt-stop.past .nm { color: var(--text2); }
-.tt-stop.next-stop {
-  background: rgba(34,197,94,0.14); margin: 0 -16px; padding-left: 16px; padding-right: 16px;
-  border-left: 3px solid var(--green); opacity: 1;
-}
-.tt-stop.next-stop .nm { color: var(--text1); font-weight: 700; }
-.tt-stop .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text1); }
-.tt-stop .tm { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text2); }
-.tt-stop .st { width: 74px; flex-shrink: 0; text-align: right; font-size: 10px; color: var(--text3); }
-.tt-stop .st.delayed { color: var(--yellow); }
-.tt-stop .st.done { color: var(--text3); font-style: italic; }
-.tt-stops-more {
-  display: block; width: 100%; text-align: center;
-  background: var(--panel2); color: var(--text2); border: none; border-bottom: 1px solid var(--border);
-  padding: 7px 14px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px;
-}
-.tt-stops-more:active { background: var(--panel); color: var(--text1); }
+.tt-stops { padding-top: 4px; }
+.stop-item { padding: 6px 16px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.stop-item:last-child { border-bottom: none; }
+.stop-item.past { opacity: 0.55; }
+.stop-item.past .stop-name { color: var(--text2); font-weight: 600; }
+.stop-item.next { background: rgba(34,197,94,0.12); border-left: 3px solid var(--green); padding-left: 13px; }
+.stop-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.stop-name { font-size: 13px; font-weight: 700; color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.stop-status { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); flex-shrink: 0; }
+.stop-status.next { color: var(--green); }
+.stop-times { font-size: 12px; color: var(--text2); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.stt-label { color: var(--text3); font-weight: 600; }
+.stt-time { color: var(--text1); font-weight: 800; }
+.stt-est { font-size: 9.5px; color: var(--text3); font-weight: 600; margin-left: 1px; }
+.stt-delta { font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 4px; margin-left: 3px; white-space: nowrap; }
+.stt-delta.ontime { background: rgba(34,197,94,0.15); color: var(--green); }
+.stt-delta.late { background: rgba(245,197,24,0.18); color: var(--yellow); }
+.stt-delta.verylate { background: rgba(239,68,68,0.18); color: var(--red); }
 .tt-empty { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 16px 0; }
 </style>
 </head>
@@ -6897,6 +6914,7 @@ body {
       <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
       <div class="tt-title" id="ttTitle"></div>
       <div class="tt-sub" id="ttSub"></div>
+      <div class="train-detail-position" id="ttPosition"></div>
     </div>
     <div class="tt-body" id="ttBody"></div>
   </div>
@@ -7214,9 +7232,11 @@ body {
   var elBody = document.getElementById("ttBody");
   var elTitle = document.getElementById("ttTitle");
   var elSub = document.getElementById("ttSub");
-  function setTtHead(titleHTML, subHTML) {
+  var elPosition = document.getElementById("ttPosition");
+  function setTtHead(titleHTML, subHTML, positionHTML) {
     elTitle.innerHTML = titleHTML;
     elSub.innerHTML = subHTML;
+    elPosition.innerHTML = positionHTML || "";
   }
   var openTrain = null; // { event, idx } — kept so a live poll can re-render it
   var ttMap = null, ttMarker = null;
@@ -7235,25 +7255,6 @@ body {
     if (livePt) pts.push(livePt);
     return L.latLngBounds(pts);
   }
-  var ttStopsExpanded = false;
-  var TT_STOPS_COLLAPSE_KEEP = 1;
-  var lastStopsRowsHtml = null, lastStopsNextIdx = null;
-
-  function renderStopsList(rowsHtml, nextIdx) {
-    lastStopsRowsHtml = rowsHtml;
-    lastStopsNextIdx = nextIdx;
-    var stopsEl = document.getElementById("ttStops");
-    if (!stopsEl) return;
-    var visibleFrom = 0;
-    if (!ttStopsExpanded && nextIdx > TT_STOPS_COLLAPSE_KEEP) visibleFrom = nextIdx - TT_STOPS_COLLAPSE_KEEP;
-    var html = "";
-    if (visibleFrom > 0) {
-      html += '<button class="tt-stops-more" data-tt-stops-more>Show ' + visibleFrom + ' earlier stop' + (visibleFrom === 1 ? "" : "s") + '</button>';
-    }
-    html += rowsHtml.slice(visibleFrom).join("");
-    stopsEl.innerHTML = html;
-  }
-
   function closeTrain() {
     elSheet.classList.remove("on");
     document.body.style.overflow = "";
@@ -7263,15 +7264,81 @@ body {
   document.getElementById("ttScrim").addEventListener("click", closeTrain);
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && elSheet.classList.contains("on")) closeTrain(); });
 
-  function stopStateHTML(schedMs, atMs, passedLabel) {
-    if (schedMs == null && atMs == null) return '<span class="st">\\u2014</span>';
-    var now = Date.now();
-    var use = atMs != null ? atMs : schedMs;
-    if (now >= use) {
-      return '<span class="st done">' + passedLabel + (atMs != null ? " " + fmtBoardTime(atMs) : "") + '</span>';
+  function stopDelayMin(schedMs, actualMs) {
+    if (schedMs == null || actualMs == null) return null;
+    return Math.round((actualMs - schedMs) / 60000);
+  }
+  function deltaBadgeHTML(delayMin) {
+    if (delayMin == null) return "";
+    if (delayMin <= 1) return ' <span class="stt-delta ontime">On time</span>';
+    if (delayMin < 15) return ' <span class="stt-delta late">+' + delayMin + 'm</span>';
+    return ' <span class="stt-delta verylate">+' + delayMin + 'm</span>';
+  }
+  function stopTimeHTML(label, schedMs, actualMs) {
+    var ms = actualMs != null ? actualMs : schedMs;
+    if (ms == null) return "";
+    return '<span class="stt-label">' + label + '</span> <span class="stt-time">' + fmtBoardTime(ms) + '</span>' +
+      (actualMs == null ? ' <span class="stt-est">est</span>' : deltaBadgeHTML(stopDelayMin(schedMs, actualMs)));
+  }
+  function statusBadgeHTML(delayMin) {
+    if (delayMin == null) return "";
+    if (delayMin <= 1) return '<span class="train-status-badge ontime">On time</span>';
+    if (delayMin < 15) return '<span class="train-status-badge late">' + delayMin + 'm late</span>';
+    return '<span class="train-status-badge verylate">' + delayMin + 'm late</span>';
+  }
+  // "Departed"/"arrived" is a real state the plain on-time/late/very-late
+  // tiers above have no room for — shown as its own plain badge instead of
+  // forcing a delay figure that would otherwise look like still-in-progress.
+  function rowStatusBadgeHTML(row, delayMin) {
+    if (row.state === "departed" || row.state === "arrived") {
+      return '<span class="train-status-badge gone">' + (row.state === "departed" ? "Departed" : "Arrived") + '</span>';
     }
-    if (atMs != null && schedMs != null && atMs - schedMs > 60000) return '<span class="st delayed">Now ' + fmtBoardTime(atMs) + '</span>';
-    return '<span class="st">On Time</span>';
+    return statusBadgeHTML(delayMin);
+  }
+  // "Between X and Y · due HH:MM" / "Arrived at X" / "Not yet departed X" —
+  // same position pill the live map pages' own train-detail sheet shows.
+  function positionPillHTML(stations, nextIdx) {
+    if (!stations || !stations.length) return "";
+    if (nextIdx === -1) return "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
+    if (nextIdx === 0) return "Not yet departed <b>" + esc(stations[0].name) + "</b>";
+    var prev = stations[nextIdx - 1], next = stations[nextIdx];
+    var eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
+    return "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " &middot; due " + fmtBoardTime(eta) : "");
+  }
+
+  // Same flat stop list (and the next-stop-in-green call-out) the live map
+  // pages' own train-detail sheet already uses — no "show earlier stops"
+  // toggle; timesHTMLFor(stop, i) supplies just the time portion.
+  function renderStopsList(stations, nextIdx, timesHTMLFor) {
+    var stopsEl = document.getElementById("ttStops");
+    if (!stopsEl) return;
+    if (!stations || !stations.length) {
+      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
+      return;
+    }
+    stopsEl.innerHTML = stations.map(function (s, i) {
+      var isPast = nextIdx === -1 ? true : i < nextIdx;
+      var isNext = i === nextIdx;
+      var cls = (isPast ? " past" : "") + (isNext ? " next" : "");
+      var timesHTML = timesHTMLFor(s, i);
+      return '<div class="stop-item' + cls + '" data-stop-idx="' + i + '">' +
+        '<div class="stop-row-top">' +
+          '<span class="stop-name">' + esc(s.name) + '</span>' +
+          (isPast ? '<span class="stop-status">Departed</span>' : isNext ? '<span class="stop-status next">Next</span>' : '') +
+        '</div>' +
+        '<div class="stop-times">' + (timesHTML || "&mdash;") + '</div>' +
+      '</div>';
+    }).join("");
+    scrollStopsIntoView(nextIdx);
+  }
+
+  // Auto-positions the sheet (map + stops share one scroll container) so
+  // the next stop lands near the top of the visible area with its previous
+  // couple of stops still showing above it.
+  function scrollStopsIntoView(nextIdx) {
+    var idx = nextIdx <= 0 ? 0 : Math.max(0, nextIdx - 2);
+    var el = document.querySelector('#ttStops .stop-item[data-stop-idx="' + idx + '"]');
+    if (el) setTimeout(function () { el.scrollIntoView({ block: "start" }); }, 0);
   }
 
   function stopBest(s) {
@@ -7296,42 +7363,34 @@ body {
     var accentFg = isYellowish(accentBg.replace("#", "").toLowerCase()) ? "#121212" : "#ffffff";
     document.getElementById("ttHead").style.setProperty("--tt-accent", accentBg);
     document.getElementById("ttHead").style.setProperty("--tt-head-fg", accentFg);
-    var status = rowStatus(row);
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
     var showMap = routeStops.length >= 2 || (row.lat != null && row.lon != null);
-    var speedBit = row.velocity != null
-      ? " &middot; " + Math.round(row.velocity) + " mph" + (row.heading ? " " + esc(row.heading) : "")
-      : "";
-    setTtHead(esc(row.trainNum) + " " + esc(row.routeName), "Amtrak &middot; " + status.text + speedBit);
-    elBody.innerHTML =
-      (showMap ? '<div id="ttMap"></div>' : '<div class="tt-position">Route map not available for this train right now.</div>') +
-      '<div class="tt-stops" id="ttStops"></div>';
 
-    var stopsEl = document.getElementById("ttStops");
-    if (!row.stations || !row.stations.length) {
-      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
-    } else {
-      var now = Date.now();
-      var nextIdx = -1;
+    var now = Date.now();
+    var nextIdx = -1;
+    if (row.stations && row.stations.length) {
       for (var ni = 0; ni < row.stations.length; ni++) {
         var best = stopBest(row.stations[ni]);
         var ref = best.arr != null ? best.arr : best.dep;
         if (ref == null || now < ref) { nextIdx = ni; break; }
       }
-      var rowsHtml = row.stations.map(function (s, i) {
-        var best = stopBest(s);
-        var timeMs = best.dep != null ? best.dep : best.arr;
-        var schedMs = s.schedDepMs != null ? s.schedDepMs : s.schedArrMs;
-        var atMs = timeMs;
-        var here = s.code === state.station;
-        var isPast = nextIdx === -1 ? true : i < nextIdx;
-        var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
-        return '<div class="tt-stop' + cls + '"><span class="nm">' + esc(s.name) + '</span>' +
-          '<span class="tm">' + fmtBoardTime(schedMs != null ? schedMs : timeMs) + '</span>' +
-          stopStateHTML(schedMs, atMs, "Departed") + '</div>';
-      });
-      renderStopsList(rowsHtml, nextIdx);
     }
+    var delayMin = stopDelayMin(row.schedMs, row.atMs);
+    var speedBit = row.velocity != null
+      ? " &middot; " + Math.round(row.velocity) + " mph" + (row.heading ? " " + esc(row.heading) : "")
+      : "";
+    setTtHead(
+      esc(row.trainNum) + " " + esc(row.routeName),
+      "Amtrak" + speedBit + " " + rowStatusBadgeHTML(row, delayMin),
+      positionPillHTML(row.stations, nextIdx)
+    );
+    elBody.innerHTML =
+      (showMap ? '<div id="ttMap"></div>' : '<div class="tt-position">Route map not available for this train right now.</div>') +
+      '<div class="tt-stops" id="ttStops"></div>';
+
+    renderStopsList(row.stations, nextIdx, function (s) {
+      return [stopTimeHTML("Arr", s.schedArrMs, s.arrMs), stopTimeHTML("Dep", s.schedDepMs, s.depMs)].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
+    });
 
     if (showMap && window.L) {
       setTimeout(function () {
@@ -7340,11 +7399,11 @@ body {
         ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
         var livePt = (row.lat != null && row.lon != null) ? [row.lat, row.lon] : null;
-        // nextIdx (set above, if the stop list rendered) indexes row.stations;
-        // the map draws routeStops, a lat/lon-having subset of the same list
-        // in the same order — matched back up by station code rather than
-        // assumed to line up position-for-position.
-        var routeNextIdx = (typeof nextIdx !== "undefined" && nextIdx !== -1 && row.stations[nextIdx])
+        // nextIdx (set above) indexes row.stations; the map draws routeStops,
+        // a lat/lon-having subset of the same list in the same order —
+        // matched back up by station code rather than assumed to line up
+        // position-for-position.
+        var routeNextIdx = (nextIdx !== -1 && row.stations[nextIdx])
           ? routeStops.findIndex(function (s) { return s.code === row.stations[nextIdx].code; })
           : -1;
         var tightBounds = routeStops.length ? tightBoundsAround(routeStops, routeNextIdx, livePt) : null;
@@ -7401,7 +7460,7 @@ body {
                 ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
                 ttTightBounds = tightBounds;
               }
-            }, 3000);
+            }, 2000);
           }
         }
        } catch (e) {
@@ -7417,7 +7476,6 @@ body {
     document.body.style.overflow = "hidden";
     ttMapJustOpened = true;
     ttTightBounds = null;
-    ttStopsExpanded = false;
     var list = event === "dep" ? state.departures : state.arrivals;
     var row = list[idx];
     if (row) renderAmtrakDetail(row);
@@ -7436,11 +7494,6 @@ body {
       var mkind = more.getAttribute("data-more");
       boardExpanded[mkind] = !boardExpanded[mkind];
       renderBoard(mkind === "dep" ? "depBody" : "arrBody", mkind === "dep" ? state.departures : state.arrivals, mkind);
-      return;
-    }
-    if (e.target.closest("[data-tt-stops-more]")) {
-      ttStopsExpanded = true;
-      if (lastStopsRowsHtml) renderStopsList(lastStopsRowsHtml, lastStopsNextIdx);
       return;
     }
     var row = e.target.closest(".board-row");
@@ -7471,7 +7524,7 @@ const njtBoardPage = `<!DOCTYPE html>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
-  --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --green: #22c55e; --yellow: #f5c518;
+  --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --green: #22c55e; --yellow: #f5c518; --red: #ef4444;
 }
 html, body { background: var(--bg); color: var(--text1); height: 100%; overflow-x: hidden; }
 body {
@@ -7644,45 +7697,45 @@ body {
 .tt-close:active { background: rgba(0,0,0,0.35); }
 .tt-body { padding: 14px 16px 28px; }
 .tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; color: var(--tt-head-fg, #fff); }
-.tt-sub { font-size: 12px; color: var(--tt-head-fg, #fff); opacity: 0.85; margin-top: 2px; }
+.tt-sub { font-size: 12px; color: var(--tt-head-fg, #fff); opacity: 0.85; margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; opacity: 1; }
+.train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
+.train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
+.train-status-badge.verylate { background: rgba(239,68,68,0.25); color: #ffe1e1; }
+.train-status-badge.gone { background: rgba(255,255,255,0.12); color: var(--tt-head-fg, #fff); opacity: 0.75; font-style: italic; text-transform: none; }
+.train-detail-position {
+  font-size: 12px; color: var(--tt-head-fg, #fff); font-weight: 600; margin-top: 8px;
+  background: rgba(0,0,0,0.22); border-radius: 8px; padding: 6px 10px;
+}
+.train-detail-position b { color: var(--tt-head-fg, #fff); }
 #ttMap { height: 260px; border-radius: 12px; margin-top: 12px; background: var(--panel2); }
 .tt-map-label {
   background: rgba(11,11,13,0.85); color: #fff; border: none; border-radius: 4px;
   padding: 1px 5px; font-size: 9px; font-weight: 700; box-shadow: none;
 }
 .tt-map-label::before { display: none; }
-.tt-stops { margin-top: 14px; border-top: 1px solid var(--border); }
-.tt-stop {
-  display: flex; align-items: center; gap: 8px; padding: 5px 0; cursor: pointer;
-  border-bottom: 1px solid var(--border); font-size: 12px;
-}
-.tt-stop.here { background: rgba(245,197,24,0.08); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
-.tt-stop.past { opacity: 0.6; }
-.tt-stop.past .nm { color: var(--text2); }
-.tt-stop.next-stop {
-  background: rgba(34,197,94,0.14); margin: 0 -16px; padding-left: 16px; padding-right: 16px;
-  border-left: 3px solid var(--green); opacity: 1;
-}
-.tt-stop.next-stop .nm { color: var(--text1); font-weight: 700; }
-/* Tapping a stop — in the list or on the map — always wins visually, even
-   over here/next-stop/past, same rule the LIRR board uses for its own
-   tap-to-highlight. */
-.tt-stop.selected {
-  background: rgba(250,204,21,0.18); margin: 0 -16px; padding-left: 16px; padding-right: 16px;
-  border-left: 3px solid #facc15; opacity: 1;
-}
-.tt-stop.selected .nm { color: #facc15; font-weight: 700; }
-.tt-stop .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text1); }
-.tt-stop .tm { width: 54px; flex-shrink: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text2); }
-.tt-stop .st { width: 74px; flex-shrink: 0; text-align: right; font-size: 10px; color: var(--text3); }
-.tt-stop .st.delayed { color: var(--yellow); }
-.tt-stop .st.done { color: var(--text3); font-style: italic; }
-.tt-stops-more {
-  display: block; width: 100%; text-align: center;
-  background: var(--panel2); color: var(--text2); border: none; border-bottom: 1px solid var(--border);
-  padding: 7px 14px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.4px;
-}
-.tt-stops-more:active { background: var(--panel); color: var(--text1); }
+.tt-stops { padding-top: 4px; }
+.stop-item { padding: 6px 16px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.stop-item:last-child { border-bottom: none; }
+.stop-item.past { opacity: 0.55; }
+.stop-item.past .stop-name { color: var(--text2); font-weight: 600; }
+.stop-item.next { background: rgba(34,197,94,0.12); border-left: 3px solid var(--green); padding-left: 13px; }
+/* Tapping a stop — in the list or on the map — always wins visually, same
+   rule the LIRR board uses for its own tap-to-highlight. */
+.stop-item.selected { background: rgba(250,204,21,0.16); border-left: 3px solid #facc15; padding-left: 13px; }
+.stop-item.selected .stop-name { color: #facc15; font-weight: 700; }
+.stop-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.stop-name { font-size: 13px; font-weight: 700; color: var(--text1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.stop-status { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); flex-shrink: 0; }
+.stop-status.next { color: var(--green); }
+.stop-times { font-size: 12px; color: var(--text2); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.stt-label { color: var(--text3); font-weight: 600; }
+.stt-time { color: var(--text1); font-weight: 800; }
+.stt-est { font-size: 9.5px; color: var(--text3); font-weight: 600; margin-left: 1px; }
+.stt-delta { font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 4px; margin-left: 3px; white-space: nowrap; }
+.stt-delta.ontime { background: rgba(34,197,94,0.15); color: var(--green); }
+.stt-delta.late { background: rgba(245,197,24,0.18); color: var(--yellow); }
+.stt-delta.verylate { background: rgba(239,68,68,0.18); color: var(--red); }
 .tt-empty { text-align: center; color: var(--text3); font-size: 12px; font-style: italic; padding: 16px 0; }
 </style>
 </head>
@@ -7741,6 +7794,7 @@ body {
       <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
       <div class="tt-title" id="ttTitle"></div>
       <div class="tt-sub" id="ttSub"></div>
+      <div class="train-detail-position" id="ttPosition"></div>
     </div>
     <div class="tt-body" id="ttBody"></div>
   </div>
@@ -8031,9 +8085,11 @@ body {
   var elBody = document.getElementById("ttBody");
   var elTitle = document.getElementById("ttTitle");
   var elSub = document.getElementById("ttSub");
-  function setTtHead(titleHTML, subHTML) {
+  var elPosition = document.getElementById("ttPosition");
+  function setTtHead(titleHTML, subHTML, positionHTML) {
     elTitle.innerHTML = titleHTML;
     elSub.innerHTML = subHTML;
+    elPosition.innerHTML = positionHTML || "";
   }
   var openTrain = null; // { event, idx } — kept so a live poll can re-render it
   var ttMap = null;
@@ -8055,25 +8111,6 @@ body {
     if (livePt) pts.push(livePt);
     return L.latLngBounds(pts);
   }
-  var ttStopsExpanded = false;
-  var TT_STOPS_COLLAPSE_KEEP = 1;
-  var lastStopsRowsHtml = null, lastStopsNextIdx = null;
-
-  function renderStopsList(rowsHtml, nextIdx) {
-    lastStopsRowsHtml = rowsHtml;
-    lastStopsNextIdx = nextIdx;
-    var stopsEl = document.getElementById("ttStops");
-    if (!stopsEl) return;
-    var visibleFrom = 0;
-    if (!ttStopsExpanded && nextIdx > TT_STOPS_COLLAPSE_KEEP) visibleFrom = nextIdx - TT_STOPS_COLLAPSE_KEEP;
-    var html = "";
-    if (visibleFrom > 0) {
-      html += '<button class="tt-stops-more" data-tt-stops-more>Show ' + visibleFrom + ' earlier stop' + (visibleFrom === 1 ? "" : "s") + '</button>';
-    }
-    html += rowsHtml.slice(visibleFrom).join("");
-    stopsEl.innerHTML = html;
-  }
-
   function closeTrain() {
     elSheet.classList.remove("on");
     document.body.style.overflow = "";
@@ -8083,15 +8120,81 @@ body {
   document.getElementById("ttScrim").addEventListener("click", closeTrain);
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && elSheet.classList.contains("on")) closeTrain(); });
 
-  function stopStateHTML(schedMs, atMs, passedLabel) {
-    if (schedMs == null && atMs == null) return '<span class="st">\\u2014</span>';
-    var now = Date.now();
-    var use = atMs != null ? atMs : schedMs;
-    if (now >= use) {
-      return '<span class="st done">' + passedLabel + (atMs != null ? " " + fmtBoardTime(atMs) : "") + '</span>';
+  function stopDelayMin(schedMs, actualMs) {
+    if (schedMs == null || actualMs == null) return null;
+    return Math.round((actualMs - schedMs) / 60000);
+  }
+  function deltaBadgeHTML(delayMin) {
+    if (delayMin == null) return "";
+    if (delayMin <= 1) return ' <span class="stt-delta ontime">On time</span>';
+    if (delayMin < 15) return ' <span class="stt-delta late">+' + delayMin + 'm</span>';
+    return ' <span class="stt-delta verylate">+' + delayMin + 'm</span>';
+  }
+  function stopTimeHTML(label, schedMs, actualMs) {
+    var ms = actualMs != null ? actualMs : schedMs;
+    if (ms == null) return "";
+    return '<span class="stt-label">' + label + '</span> <span class="stt-time">' + fmtBoardTime(ms) + '</span>' +
+      (actualMs == null ? ' <span class="stt-est">est</span>' : deltaBadgeHTML(stopDelayMin(schedMs, actualMs)));
+  }
+  function statusBadgeHTML(delayMin) {
+    if (delayMin == null) return "";
+    if (delayMin <= 1) return '<span class="train-status-badge ontime">On time</span>';
+    if (delayMin < 15) return '<span class="train-status-badge late">' + delayMin + 'm late</span>';
+    return '<span class="train-status-badge verylate">' + delayMin + 'm late</span>';
+  }
+  // "Departed"/"arrived" is a real state the plain on-time/late/very-late
+  // tiers above have no room for — shown as its own plain badge instead of
+  // forcing a delay figure that would otherwise look like still-in-progress.
+  function rowStatusBadgeHTML(row, delayMin) {
+    if (row.state === "departed" || row.state === "arrived") {
+      return '<span class="train-status-badge gone">' + (row.state === "departed" ? "Departed" : "Arrived") + '</span>';
     }
-    if (atMs != null && schedMs != null && atMs - schedMs > 60000) return '<span class="st delayed">Now ' + fmtBoardTime(atMs) + '</span>';
-    return '<span class="st">On Time</span>';
+    return statusBadgeHTML(delayMin);
+  }
+  // "Between X and Y · due HH:MM" / "Arrived at X" / "Not yet departed X" —
+  // same position pill the live map pages' own train-detail sheet shows.
+  function positionPillHTML(stations, nextIdx) {
+    if (!stations || !stations.length) return "";
+    if (nextIdx === -1) return "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
+    if (nextIdx === 0) return "Not yet departed <b>" + esc(stations[0].name) + "</b>";
+    var prev = stations[nextIdx - 1], next = stations[nextIdx];
+    var eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
+    return "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " &middot; due " + fmtBoardTime(eta) : "");
+  }
+
+  // Same flat stop list (and the next-stop-in-green call-out) the live map
+  // pages' own train-detail sheet already uses — no "show earlier stops"
+  // toggle; timesHTMLFor(stop, i) supplies just the time portion.
+  function renderStopsList(stations, nextIdx, timesHTMLFor) {
+    var stopsEl = document.getElementById("ttStops");
+    if (!stopsEl) return;
+    if (!stations || !stations.length) {
+      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
+      return;
+    }
+    stopsEl.innerHTML = stations.map(function (s, i) {
+      var isPast = nextIdx === -1 ? true : i < nextIdx;
+      var isNext = i === nextIdx;
+      var cls = (isPast ? " past" : "") + (isNext ? " next" : "");
+      var timesHTML = timesHTMLFor(s, i);
+      return '<div class="stop-item' + cls + '" data-stop-idx="' + i + '">' +
+        '<div class="stop-row-top">' +
+          '<span class="stop-name">' + esc(s.name) + '</span>' +
+          (isPast ? '<span class="stop-status">Departed</span>' : isNext ? '<span class="stop-status next">Next</span>' : '') +
+        '</div>' +
+        '<div class="stop-times">' + (timesHTML || "&mdash;") + '</div>' +
+      '</div>';
+    }).join("");
+    scrollStopsIntoView(nextIdx);
+  }
+
+  // Auto-positions the sheet (map + stops share one scroll container) so
+  // the next stop lands near the top of the visible area with its previous
+  // couple of stops still showing above it.
+  function scrollStopsIntoView(nextIdx) {
+    var idx = nextIdx <= 0 ? 0 : Math.max(0, nextIdx - 2);
+    var el = document.querySelector('#ttStops .stop-item[data-stop-idx="' + idx + '"]');
+    if (el) setTimeout(function () { el.scrollIntoView({ block: "start" }); }, 0);
   }
 
   function njtStopBest(s) {
@@ -8117,51 +8220,43 @@ body {
     rm.marker.setStyle({ radius: 8, color: "#000", weight: 2.5, fillColor: "#facc15", fillOpacity: 1 });
     rm.marker.bringToFront();
     if (ttMap) ttMap.flyTo(rm.marker.getLatLng(), Math.max(ttMap.getZoom(), 14), { duration: 0.5 });
-    document.querySelectorAll(".tt-stop.selected").forEach(function (el) { el.classList.remove("selected"); });
-    var rowEl = document.querySelector('.tt-stop[data-stop-idx="' + i + '"]');
+    document.querySelectorAll(".stop-item.selected").forEach(function (el) { el.classList.remove("selected"); });
+    var rowEl = document.querySelector('.stop-item[data-stop-idx="' + i + '"]');
     if (rowEl) {
       rowEl.classList.add("selected");
       rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }
   function renderNjtDetail(row) {
-    var status = njtStatus(row);
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
     var hasVehicle = row.vehicle && row.vehicle.lat != null && row.vehicle.lon != null;
     var showMap = routeStops.length >= 2 || hasVehicle;
     ttRouteColor = "#" + (row.color || "0039a6");
     document.getElementById("ttHead").style.setProperty("--tt-accent", ttRouteColor);
     document.getElementById("ttHead").style.setProperty("--tt-head-fg", "#" + (row.textColor || "ffffff"));
-    setTtHead(esc(row.trainNum) + " " + esc(row.routeName), "NJ Transit &middot; " + status.text);
+
+    var now = Date.now();
+    var nextIdx = -1;
+    if (row.stations && row.stations.length) {
+      for (var ni = 0; ni < row.stations.length; ni++) {
+        var best = njtStopBest(row.stations[ni]);
+        var ref = best.arr != null ? best.arr : best.dep;
+        if (ref == null || now < ref) { nextIdx = ni; break; }
+      }
+    }
+    var delayMin = stopDelayMin(row.schedMs, row.atMs);
+    setTtHead(
+      esc(row.trainNum) + " " + esc(row.routeName),
+      "NJ Transit " + rowStatusBadgeHTML(row, delayMin),
+      positionPillHTML(row.stations, nextIdx)
+    );
     elBody.innerHTML =
       (showMap ? '<div id="ttMap"></div>' : '') +
       '<div class="tt-stops" id="ttStops"></div>';
 
-    var stopsEl = document.getElementById("ttStops");
-    if (!row.stations || !row.stations.length) {
-      stopsEl.innerHTML = '<div class="tt-empty">No station list available.</div>';
-      return;
-    }
-    var now = Date.now();
-    var nextIdx = -1;
-    for (var ni = 0; ni < row.stations.length; ni++) {
-      var best = njtStopBest(row.stations[ni]);
-      var ref = best.arr != null ? best.arr : best.dep;
-      if (ref == null || now < ref) { nextIdx = ni; break; }
-    }
-    var rowsHtml = row.stations.map(function (s, i) {
-      var best = njtStopBest(s);
-      var timeMs = best.dep != null ? best.dep : best.arr;
-      var schedMs = s.schedDepMs != null ? s.schedDepMs : s.schedArrMs;
-      var atMs = timeMs;
-      var here = s.code === state.station;
-      var isPast = nextIdx === -1 ? true : i < nextIdx;
-      var cls = (here ? " here" : "") + (isPast ? " past" : "") + (i === nextIdx ? " next-stop" : "");
-      return '<div class="tt-stop' + cls + '" data-stop-idx="' + i + '"><span class="nm">' + esc(s.name) + '</span>' +
-        '<span class="tm">' + fmtBoardTime(schedMs != null ? schedMs : timeMs) + '</span>' +
-        stopStateHTML(schedMs, atMs, "Departed") + '</div>';
+    renderStopsList(row.stations, nextIdx, function (s) {
+      return [stopTimeHTML("Arr", s.schedArrMs, s.arrMs), stopTimeHTML("Dep", s.schedDepMs, s.depMs)].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
     });
-    renderStopsList(rowsHtml, nextIdx);
 
     if (!showMap || !window.L) return;
     // Deferred a tick so #ttMap actually exists in the DOM (it was just set
@@ -8241,7 +8336,7 @@ body {
         }
         setTimeout(function () { if (ttMap) ttMap.invalidateSize(); }, 60);
 
-        // Whole route first, then after a real 3-second hold, one pull into
+        // Whole route first, then after a real 2-second hold, one pull into
         // the train's own neighborhood — same choreography as the Amtrak
         // board's map. Only on the tap that opened the sheet.
         if (ttMapJustOpened) {
@@ -8253,7 +8348,7 @@ body {
                 ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
                 ttTightBounds = tightBounds;
               }
-            }, 3000);
+            }, 2000);
           }
         }
       } catch (e) {
@@ -8268,7 +8363,6 @@ body {
     document.body.style.overflow = "hidden";
     ttMapJustOpened = true;
     ttTightBounds = null;
-    ttStopsExpanded = false;
     var row = (event === "dep" ? state.departures : state.arrivals)[idx];
     if (row) renderNjtDetail(row);
   }
@@ -8288,16 +8382,11 @@ body {
       renderBoard(mkind === "dep" ? "depBody" : "arrBody", mkind === "dep" ? state.departures : state.arrivals, mkind);
       return;
     }
-    if (e.target.closest("[data-tt-stops-more]")) {
-      ttStopsExpanded = true;
-      if (lastStopsRowsHtml) renderStopsList(lastStopsRowsHtml, lastStopsNextIdx);
-      return;
-    }
     // #ttStops gets replaced wholesale (elBody.innerHTML) every time a train
     // is opened or re-rendered, so a listener attached directly to it would
     // die the moment that happens — delegating from document instead, same
     // fix as every other "list gets rebuilt under you" spot in this app.
-    var stopRow = e.target.closest(".tt-stop");
+    var stopRow = e.target.closest(".stop-item");
     if (stopRow) {
       var stopIdx = stopRow.getAttribute("data-stop-idx");
       if (stopIdx != null) focusStop(+stopIdx);
@@ -9513,30 +9602,53 @@ const lirrBoardPage = `<!DOCTYPE html>
   .detail-overlay { position: fixed; inset: 0; background: #000; z-index: 2000; display: none; flex-direction: column; }
   .detail-overlay.show { display: flex; }
   .detail-head {
-    padding: 10px 14px; display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; display: flex; align-items: flex-start; gap: 12px;
     background: var(--tt-accent, #141418); flex-shrink: 0;
   }
-  .detail-close { background: none; border: none; color: var(--tt-head-fg, white); font-size: 26px; cursor: pointer; padding: 0; line-height: 1; }
-  .detail-title { color: var(--tt-head-fg, white); font-size: 16px; font-weight: bold; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-title-wrap { min-width: 0; flex: 1; }
+  .detail-close {
+    background: rgba(0,0,0,0.22); border: none; color: var(--tt-head-fg, white); font-size: 20px; cursor: pointer;
+    padding: 0; line-height: 1; width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .detail-title { color: var(--tt-head-fg, white); font-size: 15.5px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-sub { font-size: 11.5px; color: var(--tt-head-fg, white); opacity: 0.85; margin-top: 3px; font-weight: 700; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .detail-position {
+    font-size: 12px; color: var(--tt-head-fg, white); font-weight: 600; margin-top: 8px;
+    background: rgba(0,0,0,0.22); border-radius: 8px; padding: 6px 10px;
+  }
+  .detail-position b { color: var(--tt-head-fg, white); }
+  .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
+  .train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
+  .train-status-badge.verylate { background: rgba(239,68,68,0.25); color: #ffe1e1; }
+  .train-status-badge.gone { background: rgba(255,255,255,0.12); color: var(--tt-head-fg, white); opacity: 0.75; font-style: italic; text-transform: none; }
   .detail-map { height: 38vh; flex-shrink: 0; background: #111; }
   .detail-stops { flex: 1; overflow-y: auto; }
-  .detail-stop { display: grid; grid-template-columns: 94px 1fr; gap: 10px; padding: 9px 14px; border-bottom: 1px solid #1c1c1e; color: white; cursor: pointer; }
-  .detail-stop:active { background: rgba(255,255,255,0.06); }
+  /* Same stop-list look the other boards' detail sheets use now — a flat
+     list, the boarding stop called out in green ("Board here" takes the
+     place of "Next", since this view is anchored on a specific boarding
+     station rather than a live train's current position). */
+  .stop-item { padding: 8px 14px; border-bottom: 1px solid #1c1c1e; color: white; cursor: pointer; }
+  .stop-item:last-child { border-bottom: none; }
   /* Stops before the boarding station are earlier on this same trip's run —
      shown dimmed for route context, not as something the rider will see. */
-  .detail-stop.before-board { opacity: 0.45; }
-  .detail-stop.board { background: rgba(74,222,128,0.12); border-left: 3px solid #4ade80; }
-  .detail-stop.board .detail-stop-name { color: #4ade80; }
-  .detail-stop.board .stop-tag { color: #4ade80; }
-  .detail-stop.dest .detail-stop-name { font-weight: bold; }
+  .stop-item.past { opacity: 0.45; }
+  .stop-item.past .stop-name { color: #999; }
+  .stop-item.next { background: rgba(74,222,128,0.12); border-left: 3px solid #4ade80; padding-left: 11px; }
+  .stop-item.next .stop-name { color: #4ade80; }
+  .stop-item.next .stop-status.next { color: #4ade80; }
+  .stop-item.dest .stop-name { font-weight: bold; }
   /* Tapping a stop (in the list or on the map) highlights both — this is
-     the one state that always wins visually, even over board/dest/dimmed. */
-  .detail-stop.selected { background: rgba(250,204,21,0.18); border-left: 3px solid #facc15; opacity: 1; }
-  .detail-stop.selected .detail-stop-name { color: #facc15; }
-  .detail-stop-time { font-size: 13px; font-weight: bold; font-variant-numeric: tabular-nums; color: #ccc; line-height: 1.5; }
-  .detail-stop-time .lbl { color: #777; font-weight: 600; font-size: 11px; }
-  .detail-stop-name { font-size: 15px; }
-  .stop-tag { display: block; font-size: 10px; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase; color: #777; margin-top: 1px; }
+     the one state that always wins visually, even over next/dest/dimmed. */
+  .stop-item.selected { background: rgba(250,204,21,0.18); border-left: 3px solid #facc15; padding-left: 11px; }
+  .stop-item.selected .stop-name { color: #facc15; }
+  .stop-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .stop-name { font-size: 15px; font-weight: 700; color: white; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .stop-status { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: #777; flex-shrink: 0; }
+  .stop-times { font-size: 13px; color: #ccc; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stt-label { color: #777; font-weight: 600; font-size: 11px; }
+  .stt-time { color: white; font-weight: 800; }
 </style>
 </head>
 <body>
@@ -9579,8 +9691,12 @@ const lirrBoardPage = `<!DOCTYPE html>
 
   <div class="detail-overlay" id="detailOverlay">
     <div class="detail-head">
+      <div class="detail-title-wrap">
+        <div class="detail-title" id="detailTitle"></div>
+        <div class="detail-sub" id="detailSub"></div>
+        <div class="detail-position" id="detailPosition"></div>
+      </div>
       <button class="detail-close" onclick="closeDetail()">&times;</button>
-      <div class="detail-title" id="detailTitle"></div>
     </div>
     <div class="detail-map" id="detailMap"></div>
     <div class="detail-stops" id="detailStops"></div>
@@ -9896,8 +10012,8 @@ const lirrBoardPage = `<!DOCTYPE html>
       if (s.lat != null && s.lon != null && detailMapInstance) {
         detailMapInstance.flyTo([s.lat, s.lon], Math.max(detailMapInstance.getZoom(), 13), { duration: 0.5 });
       }
-      document.querySelectorAll(".detail-stop.selected").forEach(el => el.classList.remove("selected"));
-      const rowEl = document.querySelector('.detail-stop[data-stop-idx="' + i + '"]');
+      document.querySelectorAll(".stop-item.selected").forEach(el => el.classList.remove("selected"));
+      const rowEl = document.querySelector('.stop-item[data-stop-idx="' + i + '"]');
       if (rowEl) {
         rowEl.classList.add("selected");
         rowEl.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -9905,16 +10021,30 @@ const lirrBoardPage = `<!DOCTYPE html>
     }
 
     document.getElementById("detailStops").addEventListener("click", function(e) {
-      const rowEl = e.target.closest(".detail-stop");
+      const rowEl = e.target.closest(".stop-item");
       if (!rowEl) return;
       const idx = rowEl.getAttribute("data-stop-idx");
       if (idx != null) focusStop(+idx);
     });
 
+    function statusBadgeHTML(delayMin) {
+      if (delayMin == null) return "";
+      if (delayMin <= 1) return '<span class="train-status-badge ontime">On time</span>';
+      if (delayMin < 15) return '<span class="train-status-badge late">' + delayMin + 'm late</span>';
+      return '<span class="train-status-badge verylate">' + delayMin + 'm late</span>';
+    }
+    function rowStatusBadgeHTML(row) {
+      if (row.state === "departed") return '<span class="train-status-badge gone">Departed</span>';
+      return statusBadgeHTML(row.delayMs != null ? Math.round(row.delayMs / 60000) : null);
+    }
+
     function renderDetail(row) {
       const route = row.route || {};
       document.getElementById("detailTitle").textContent =
         formatTime(row.depMs) + " to " + row.destName + (route.name ? " \\u2014 " + route.name : "");
+      document.getElementById("detailSub").innerHTML = "LIRR " + rowStatusBadgeHTML(row);
+      document.getElementById("detailPosition").innerHTML =
+        "Headed to <b>" + esc(row.destName) + "</b>" + (row.track ? " &middot; Track " + esc(row.track) : "");
 
       const stops = row.stops || [];
       // stops is now the WHOLE trip (true origin through true terminus), so
@@ -9932,15 +10062,18 @@ const lirrBoardPage = `<!DOCTYPE html>
         const isBoard = i === boardIdx;
         const isDest = i === stops.length - 1;
         const isBeforeBoard = boardIdx !== -1 && i < boardIdx;
-        const cls = (isBoard ? " board" : "") + (isDest ? " dest" : "") + (isBeforeBoard ? " before-board" : "");
+        const cls = (isBoard ? " next" : "") + (isDest ? " dest" : "") + (isBeforeBoard ? " past" : "");
         const tag = isBoard ? "Board here" : isDest ? "Final stop" : "";
-        return '<div class="detail-stop' + cls + '" data-stop-idx="' + i + '">' +
-          '<div class="detail-stop-time">' +
-            '<span class="lbl">Arr</span> ' + formatTime(s.arrMs) + '<br>' +
-            '<span class="lbl">Dep</span> ' + formatTime(s.depMs) +
+        const timesHTML = [
+          s.arrMs != null ? '<span class="stt-label">Arr</span> <span class="stt-time">' + formatTime(s.arrMs) + '</span>' : "",
+          s.depMs != null ? '<span class="stt-label">Dep</span> <span class="stt-time">' + formatTime(s.depMs) + '</span>' : "",
+        ].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
+        return '<div class="stop-item' + cls + '" data-stop-idx="' + i + '">' +
+          '<div class="stop-row-top">' +
+            '<span class="stop-name">' + esc(s.name) + '</span>' +
+            (tag ? '<span class="stop-status' + (isBoard ? ' next' : '') + '">' + tag + '</span>' : '') +
           '</div>' +
-          '<div><div class="detail-stop-name">' + esc(s.name) + '</div>' +
-          (tag ? '<span class="stop-tag">' + tag + '</span>' : '') + '</div>' +
+          '<div class="stop-times">' + (timesHTML || "&mdash;") + '</div>' +
           '</div>';
       }).join("");
 
@@ -9985,7 +10118,7 @@ const lirrBoardPage = `<!DOCTYPE html>
       }
       setTimeout(() => { if (detailMapInstance) detailMapInstance.invalidateSize(); }, 60);
 
-      // Whole route first, then after a real 3-second hold, one pull into
+      // Whole route first, then after a real 2-second hold, one pull into
       // the train's own neighborhood — same choreography every other
       // board's detail map now uses. Only on the tap that opened the sheet.
       if (mapJustOpened) {
@@ -9997,7 +10130,7 @@ const lirrBoardPage = `<!DOCTYPE html>
               detailMapInstance.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
               tightBoundsCache = tightBounds;
             }
-          }, 3000);
+          }, 2000);
         }
       }
     }
