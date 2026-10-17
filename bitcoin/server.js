@@ -9587,17 +9587,26 @@ const lirrBoardPage = `<!DOCTYPE html>
             // Same branch can end at either Manhattan terminal depending on
             // the specific trip, so the branch's own line color doesn't
             // actually say which one a given row is headed to — Penn and
-            // GCT rows get a flat gray instead, with the terminal itself
-            // called out by the text color (red/green) rather than the bar.
+            // GCT rows go flat black instead (blending into the board
+            // itself, no bar at all), with the terminal called out by the
+            // text color (red/green) alone.
             let bg = route.color || "666666";
             let fg = route.textColor || "ffffff";
-            if (row.destName === "Penn Station") { bg = "58585c"; fg = "ff3b30"; }
-            else if (row.destName === "Grand Central") { bg = "58585c"; fg = "34c759"; }
+            if (row.destName === "Penn Station") { bg = "000000"; fg = "ff3b30"; }
+            else if (row.destName === "Grand Central") { bg = "000000"; fg = "34c759"; }
             const departed = row.state === "departed";
             const track = departed ? '<span class="dep-gone">Departed</span>' : (row.track ? esc(row.track) : "");
+            // The Jamaica-for-JFK note is Penn-specific — it's the one
+            // station where "do I need to change for Jamaica" is a live
+            // question riders actually have, so it's the only board that
+            // shows it. Everywhere else it just added a black gap row
+            // between every single train (nearly every LIRR train either
+            // stops at or skips Jamaica), with no benefit.
             let note = "";
-            if (row.skipsJamaica) note = '<div class="dep-note">Will <b>not</b> stop at Jamaica</div>';
-            else if (row.viaJamaica) note = '<span class="dep-badge">JFK &#9992;</span>';
+            if (currentStation === "Penn Station") {
+              if (row.skipsJamaica) note = '<div class="dep-note">Will <b>not</b> stop at Jamaica</div>';
+              else if (row.viaJamaica) note = '<span class="dep-badge">JFK &#9992;</span>';
+            }
             return '<div class="dep' + (departed ? ' departed' : '') + '" data-trip-id="' + esc(row.tripId) + '">' +
               '<div class="dep-bar" style="background:#' + bg + '; color:#' + fg + ';">' +
               '<div class="dep-time">' + formatTime(row.depMs) + '</div>' +
