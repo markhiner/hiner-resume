@@ -5572,11 +5572,19 @@ body {
    a small glowing signal-light dot keying the title text to that same
    color — so it's still unmistakably "this line" at a glance, just as an
    accent rather than a backdrop the text has to fight for contrast with. */
+/* Sticky, not just relative — the stop list's own auto-scroll-into-view
+   (bringing the next stop near the top) scrolls this same panel, and a
+   merely-relative header scrolled away with everything else, leaving the
+   map as the first thing visible with the title cut off above the fold.
+   Pinning it to the top of the scrollable panel keeps the title in view
+   no matter how far the stop list scrolls. */
 .tt-head {
   background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
   border-radius: 18px 18px 0 0;
   padding: 8px 16px 14px;
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 5;
   overflow: hidden;
 }
 .tt-head::before {
@@ -6849,11 +6857,19 @@ body {
    a small glowing signal-light dot keying the title text to that same
    color — so it's still unmistakably "this line" at a glance, just as an
    accent rather than a backdrop the text has to fight for contrast with. */
+/* Sticky, not just relative — the stop list's own auto-scroll-into-view
+   (bringing the next stop near the top) scrolls this same panel, and a
+   merely-relative header scrolled away with everything else, leaving the
+   map as the first thing visible with the title cut off above the fold.
+   Pinning it to the top of the scrollable panel keeps the title in view
+   no matter how far the stop list scrolls. */
 .tt-head {
   background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
   border-radius: 18px 18px 0 0;
   padding: 8px 16px 14px;
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 5;
   overflow: hidden;
 }
 .tt-head::before {
@@ -7763,11 +7779,19 @@ body {
    a small glowing signal-light dot keying the title text to that same
    color — so it's still unmistakably "this line" at a glance, just as an
    accent rather than a backdrop the text has to fight for contrast with. */
+/* Sticky, not just relative — the stop list's own auto-scroll-into-view
+   (bringing the next stop near the top) scrolls this same panel, and a
+   merely-relative header scrolled away with everything else, leaving the
+   map as the first thing visible with the title cut off above the fold.
+   Pinning it to the top of the scrollable panel keeps the title in view
+   no matter how far the stop list scrolls. */
 .tt-head {
   background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
   border-radius: 18px 18px 0 0;
   padding: 8px 16px 14px;
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 5;
   overflow: hidden;
 }
 .tt-head::before {
