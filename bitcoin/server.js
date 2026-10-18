@@ -5523,15 +5523,21 @@ body {
   background: rgba(0,0,0,0.4); color: #fff; font-size: 8px; font-weight: 800; line-height: 1;
   position: relative; top: 1px;
 }
-.c-status { width: 56px; flex-shrink: 0; font-size: 9.5px; text-align: right; }
+/* Amtrak track now rides here (same fix the dedicated Amtrak/NJT boards
+   already needed): a real line color behind the status column means a
+   fixed gray wouldn't read well against every line, and status text can't
+   share a cell with it without the two crowding each other — so track
+   gets its own flex slot, left of the right-aligned status text. */
+.c-status { width: 78px; flex-shrink: 0; font-size: 9.5px; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.c-status .trk { font-weight: 800; color: #fff; white-space: nowrap; flex-shrink: 0; }
 /* A row can now be any line's real color, some of them close to this same
    yellow — a dark pill behind the text keeps a delay legible regardless of
    what color it's sitting on, same fix NJT's own board already needed. */
-.c-status.delayed {
+.c-status .status-text.delayed {
   color: var(--yellow); font-weight: 800; display: inline-block;
   background: rgba(0,0,0,0.5); border-radius: 6px; padding: 2px 5px; line-height: 1.2;
 }
-.c-status.gone { opacity: 0.75; font-style: italic; }
+.c-status .status-text.gone { opacity: 0.75; font-style: italic; }
 .board-empty { background: #0d1226; color: var(--text3); text-align: center; padding: 16px 0; font-size: 11px; font-style: italic; }
 /* Departures/Arrivals is now a single switch for all three boards at once
    (the button up top by the page title), not a per-board control — so
@@ -5558,38 +5564,70 @@ body {
   animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 @keyframes ttUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
-/* The whole top of the sheet is a solid block of the train's own line
-   color now, not just a thin accent border along the panel's edge — a
-   border there picked up the panel's own corner radius independently of
-   its black fill, reading as a separate rounded tab peeking out from
-   behind it rather than one solid edge. */
+/* A flat wash of the line's own color across the whole bar just reads as
+   a colored rectangle — real train livery almost never works that way,
+   it's a dark body with an angled accent stripe. Same idea here: a dark
+   "coach" base with the line color as a diagonal stripe tucked into one
+   corner (a sheen overlay keeps it from looking like a flat cutout), plus
+   a small glowing signal-light dot keying the title text to that same
+   color — so it's still unmistakably "this line" at a glance, just as an
+   accent rather than a backdrop the text has to fight for contrast with. */
 .tt-head {
-  background: var(--tt-accent, var(--panel2));
+  background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
   border-radius: 18px 18px 0 0;
   padding: 8px 16px 14px;
   position: relative;
+  overflow: hidden;
 }
-.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: rgba(0,0,0,0.25); margin: 0 auto 10px; }
+.tt-head::before {
+  content: ""; position: absolute; inset: 0;
+  background: var(--tt-accent, var(--panel2));
+  clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
+}
+.tt-head::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(115deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 38%);
+  clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
+  mix-blend-mode: overlay;
+}
+.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.22); margin: 0 auto 10px; position: relative; z-index: 1; }
 .tt-close {
   position: absolute; top: 8px; right: 10px; z-index: 2;
   width: 30px; height: 30px; border-radius: 50%;
-  border: none; background: rgba(0,0,0,0.22); color: var(--tt-head-fg, #fff);
+  border: none; background: rgba(0,0,0,0.35); color: #fff;
   font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
-.tt-close:active { background: rgba(0,0,0,0.35); }
+.tt-close:active { background: rgba(0,0,0,0.5); }
 .tt-body { padding: 14px 16px 28px; }
-.tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; color: var(--tt-head-fg, #fff); }
-.tt-sub { font-size: 12px; color: var(--tt-head-fg, #fff); opacity: 0.85; margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.tt-title {
+  font-size: 17px; font-weight: 800; padding-right: 30px; color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5); position: relative; z-index: 1;
+}
+.tt-title::before {
+  content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 3px;
+  background: var(--tt-accent, var(--yellow)); margin-right: 7px; vertical-align: 1px;
+  animation: ttSignalPulse 2.4s ease-in-out infinite;
+}
+@keyframes ttSignalPulse {
+  0%, 100% { box-shadow: 0 0 5px 0px var(--tt-accent, transparent); }
+  50% { box-shadow: 0 0 9px 3px var(--tt-accent, transparent); }
+}
+.tt-sub {
+  font-size: 12px; color: rgba(255,255,255,0.8); opacity: 0.85; margin-top: 2px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  position: relative; z-index: 1; text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}
 .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; opacity: 1; }
 .train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
 .train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
 .train-status-badge.verylate { background: rgba(239,68,68,0.25); color: #ffe1e1; }
-.train-status-badge.gone { background: rgba(255,255,255,0.12); color: var(--tt-head-fg, #fff); opacity: 0.75; font-style: italic; text-transform: none; }
+.train-status-badge.gone { background: rgba(255,255,255,0.12); color: #fff; opacity: 0.75; font-style: italic; text-transform: none; }
 .train-detail-position {
-  font-size: 12px; color: var(--tt-head-fg, #fff); font-weight: 600; margin-top: 8px;
-  background: rgba(0,0,0,0.22); border-radius: 8px; padding: 6px 10px;
+  font-size: 12px; color: #fff; font-weight: 600; margin-top: 8px;
+  background: rgba(0,0,0,0.3); border-radius: 8px; padding: 6px 10px;
+  position: relative; z-index: 1;
 }
-.train-detail-position b { color: var(--tt-head-fg, #fff); }
+.train-detail-position b { color: #fff; }
 .tt-position {
   margin-top: 12px; background: var(--panel2); border: 1px solid var(--border);
   border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--text1);
@@ -5918,7 +5956,10 @@ body {
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train">' + trainCol + '</span>' +
       '<span class="c-to">' + toCol + '</span>' +
-      '<span class="c-status ' + status.cls + '">' + status.text + '</span>' +
+      '<span class="c-status">' +
+        (boardKey === "amtrak" && row.track ? '<span class="trk">Trk ' + esc(row.track) + '</span>' : '') +
+        '<span class="status-text ' + status.cls + '">' + status.text + '</span>' +
+      '</span>' +
       '</div>';
   }
 
@@ -6800,38 +6841,70 @@ body {
   animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 @keyframes ttUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
-/* The whole top of the sheet is a solid block of the train's own line
-   color now, not just a thin accent border along the panel's edge — a
-   border there picked up the panel's own corner radius independently of
-   its black fill, reading as a separate rounded tab peeking out from
-   behind it rather than one solid edge. */
+/* A flat wash of the line's own color across the whole bar just reads as
+   a colored rectangle — real train livery almost never works that way,
+   it's a dark body with an angled accent stripe. Same idea here: a dark
+   "coach" base with the line color as a diagonal stripe tucked into one
+   corner (a sheen overlay keeps it from looking like a flat cutout), plus
+   a small glowing signal-light dot keying the title text to that same
+   color — so it's still unmistakably "this line" at a glance, just as an
+   accent rather than a backdrop the text has to fight for contrast with. */
 .tt-head {
-  background: var(--tt-accent, var(--panel2));
+  background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
   border-radius: 18px 18px 0 0;
   padding: 8px 16px 14px;
   position: relative;
+  overflow: hidden;
 }
-.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: rgba(0,0,0,0.25); margin: 0 auto 10px; }
+.tt-head::before {
+  content: ""; position: absolute; inset: 0;
+  background: var(--tt-accent, var(--panel2));
+  clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
+}
+.tt-head::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(115deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 38%);
+  clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
+  mix-blend-mode: overlay;
+}
+.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.22); margin: 0 auto 10px; position: relative; z-index: 1; }
 .tt-close {
   position: absolute; top: 8px; right: 10px; z-index: 2;
   width: 30px; height: 30px; border-radius: 50%;
-  border: none; background: rgba(0,0,0,0.22); color: var(--tt-head-fg, #fff);
+  border: none; background: rgba(0,0,0,0.35); color: #fff;
   font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
-.tt-close:active { background: rgba(0,0,0,0.35); }
+.tt-close:active { background: rgba(0,0,0,0.5); }
 .tt-body { padding: 14px 16px 28px; }
-.tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; color: var(--tt-head-fg, #fff); }
-.tt-sub { font-size: 12px; color: var(--tt-head-fg, #fff); opacity: 0.85; margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.tt-title {
+  font-size: 17px; font-weight: 800; padding-right: 30px; color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5); position: relative; z-index: 1;
+}
+.tt-title::before {
+  content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 3px;
+  background: var(--tt-accent, var(--yellow)); margin-right: 7px; vertical-align: 1px;
+  animation: ttSignalPulse 2.4s ease-in-out infinite;
+}
+@keyframes ttSignalPulse {
+  0%, 100% { box-shadow: 0 0 5px 0px var(--tt-accent, transparent); }
+  50% { box-shadow: 0 0 9px 3px var(--tt-accent, transparent); }
+}
+.tt-sub {
+  font-size: 12px; color: rgba(255,255,255,0.8); opacity: 0.85; margin-top: 2px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  position: relative; z-index: 1; text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}
 .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; opacity: 1; }
 .train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
 .train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
 .train-status-badge.verylate { background: rgba(239,68,68,0.25); color: #ffe1e1; }
-.train-status-badge.gone { background: rgba(255,255,255,0.12); color: var(--tt-head-fg, #fff); opacity: 0.75; font-style: italic; text-transform: none; }
+.train-status-badge.gone { background: rgba(255,255,255,0.12); color: #fff; opacity: 0.75; font-style: italic; text-transform: none; }
 .train-detail-position {
-  font-size: 12px; color: var(--tt-head-fg, #fff); font-weight: 600; margin-top: 8px;
-  background: rgba(0,0,0,0.22); border-radius: 8px; padding: 6px 10px;
+  font-size: 12px; color: #fff; font-weight: 600; margin-top: 8px;
+  background: rgba(0,0,0,0.3); border-radius: 8px; padding: 6px 10px;
+  position: relative; z-index: 1;
 }
-.train-detail-position b { color: var(--tt-head-fg, #fff); }
+.train-detail-position b { color: #fff; }
 .tt-position {
   margin-top: 12px; background: var(--panel2); border: 1px solid var(--border);
   border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--text1);
@@ -7682,38 +7755,70 @@ body {
   animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 @keyframes ttUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
-/* The whole top of the sheet is a solid block of the train's own line
-   color now, not just a thin accent border along the panel's edge — a
-   border there picked up the panel's own corner radius independently of
-   its black fill, reading as a separate rounded tab peeking out from
-   behind it rather than one solid edge. */
+/* A flat wash of the line's own color across the whole bar just reads as
+   a colored rectangle — real train livery almost never works that way,
+   it's a dark body with an angled accent stripe. Same idea here: a dark
+   "coach" base with the line color as a diagonal stripe tucked into one
+   corner (a sheen overlay keeps it from looking like a flat cutout), plus
+   a small glowing signal-light dot keying the title text to that same
+   color — so it's still unmistakably "this line" at a glance, just as an
+   accent rather than a backdrop the text has to fight for contrast with. */
 .tt-head {
-  background: var(--tt-accent, var(--panel2));
+  background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
   border-radius: 18px 18px 0 0;
   padding: 8px 16px 14px;
   position: relative;
+  overflow: hidden;
 }
-.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: rgba(0,0,0,0.25); margin: 0 auto 10px; }
+.tt-head::before {
+  content: ""; position: absolute; inset: 0;
+  background: var(--tt-accent, var(--panel2));
+  clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
+}
+.tt-head::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(115deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 38%);
+  clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
+  mix-blend-mode: overlay;
+}
+.tt-grip { width: 34px; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.22); margin: 0 auto 10px; position: relative; z-index: 1; }
 .tt-close {
   position: absolute; top: 8px; right: 10px; z-index: 2;
   width: 30px; height: 30px; border-radius: 50%;
-  border: none; background: rgba(0,0,0,0.22); color: var(--tt-head-fg, #fff);
+  border: none; background: rgba(0,0,0,0.35); color: #fff;
   font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
-.tt-close:active { background: rgba(0,0,0,0.35); }
+.tt-close:active { background: rgba(0,0,0,0.5); }
 .tt-body { padding: 14px 16px 28px; }
-.tt-title { font-size: 17px; font-weight: 800; padding-right: 30px; color: var(--tt-head-fg, #fff); }
-.tt-sub { font-size: 12px; color: var(--tt-head-fg, #fff); opacity: 0.85; margin-top: 2px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.tt-title {
+  font-size: 17px; font-weight: 800; padding-right: 30px; color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5); position: relative; z-index: 1;
+}
+.tt-title::before {
+  content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 3px;
+  background: var(--tt-accent, var(--yellow)); margin-right: 7px; vertical-align: 1px;
+  animation: ttSignalPulse 2.4s ease-in-out infinite;
+}
+@keyframes ttSignalPulse {
+  0%, 100% { box-shadow: 0 0 5px 0px var(--tt-accent, transparent); }
+  50% { box-shadow: 0 0 9px 3px var(--tt-accent, transparent); }
+}
+.tt-sub {
+  font-size: 12px; color: rgba(255,255,255,0.8); opacity: 0.85; margin-top: 2px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  position: relative; z-index: 1; text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}
 .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; opacity: 1; }
 .train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
 .train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
 .train-status-badge.verylate { background: rgba(239,68,68,0.25); color: #ffe1e1; }
-.train-status-badge.gone { background: rgba(255,255,255,0.12); color: var(--tt-head-fg, #fff); opacity: 0.75; font-style: italic; text-transform: none; }
+.train-status-badge.gone { background: rgba(255,255,255,0.12); color: #fff; opacity: 0.75; font-style: italic; text-transform: none; }
 .train-detail-position {
-  font-size: 12px; color: var(--tt-head-fg, #fff); font-weight: 600; margin-top: 8px;
-  background: rgba(0,0,0,0.22); border-radius: 8px; padding: 6px 10px;
+  font-size: 12px; color: #fff; font-weight: 600; margin-top: 8px;
+  background: rgba(0,0,0,0.3); border-radius: 8px; padding: 6px 10px;
+  position: relative; z-index: 1;
 }
-.train-detail-position b { color: var(--tt-head-fg, #fff); }
+.train-detail-position b { color: #fff; }
 #ttMap { height: 260px; border-radius: 12px; margin-top: 12px; background: var(--panel2); }
 .tt-map-label {
   background: rgba(11,11,13,0.85); color: #fff; border: none; border-radius: 4px;
@@ -9609,26 +9714,51 @@ const lirrBoardPage = `<!DOCTYPE html>
   .detail-overlay.show { display: flex; }
   .detail-head {
     padding: 10px 14px; display: flex; align-items: flex-start; gap: 12px;
-    background: var(--tt-accent, #141418); flex-shrink: 0;
+    background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
+    flex-shrink: 0; position: relative; overflow: hidden;
   }
-  .detail-title-wrap { min-width: 0; flex: 1; }
+  .detail-head::before {
+    content: ""; position: absolute; inset: 0;
+    background: var(--tt-accent, #141418);
+    clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
+  }
+  .detail-head::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(115deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 38%);
+    clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
+    mix-blend-mode: overlay;
+  }
+  .detail-title-wrap { min-width: 0; flex: 1; position: relative; z-index: 1; }
   .detail-close {
-    background: rgba(0,0,0,0.22); border: none; color: var(--tt-head-fg, white); font-size: 20px; cursor: pointer;
+    background: rgba(0,0,0,0.35); border: none; color: #fff; font-size: 20px; cursor: pointer;
     padding: 0; line-height: 1; width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
+    position: relative; z-index: 1;
   }
-  .detail-title { color: var(--tt-head-fg, white); font-size: 15.5px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .detail-sub { font-size: 11.5px; color: var(--tt-head-fg, white); opacity: 0.85; margin-top: 3px; font-weight: 700; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .detail-title {
+    color: #fff; font-size: 15.5px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  }
+  .detail-title::before {
+    content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 3px;
+    background: var(--tt-accent, var(--yellow)); margin-right: 7px; vertical-align: 1px;
+    animation: ttSignalPulse 2.4s ease-in-out infinite;
+  }
+  @keyframes ttSignalPulse {
+    0%, 100% { box-shadow: 0 0 5px 0px var(--tt-accent, transparent); }
+    50% { box-shadow: 0 0 9px 3px var(--tt-accent, transparent); }
+  }
+  .detail-sub { font-size: 11.5px; color: rgba(255,255,255,0.8); opacity: 0.85; margin-top: 3px; font-weight: 700; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }
   .detail-position {
-    font-size: 12px; color: var(--tt-head-fg, white); font-weight: 600; margin-top: 8px;
-    background: rgba(0,0,0,0.22); border-radius: 8px; padding: 6px 10px;
+    font-size: 12px; color: #fff; font-weight: 600; margin-top: 8px;
+    background: rgba(0,0,0,0.3); border-radius: 8px; padding: 6px 10px;
   }
-  .detail-position b { color: var(--tt-head-fg, white); }
+  .detail-position b { color: #fff; }
   .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; }
   .train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
   .train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
   .train-status-badge.verylate { background: rgba(239,68,68,0.25); color: #ffe1e1; }
-  .train-status-badge.gone { background: rgba(255,255,255,0.12); color: var(--tt-head-fg, white); opacity: 0.75; font-style: italic; text-transform: none; }
+  .train-status-badge.gone { background: rgba(255,255,255,0.12); color: #fff; opacity: 0.75; font-style: italic; text-transform: none; }
   .detail-map { height: 38vh; flex-shrink: 0; background: #111; }
   .detail-stops { flex: 1; overflow-y: auto; }
   /* Same stop-list look the other boards' detail sheets use now — a flat
