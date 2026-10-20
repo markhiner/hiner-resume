@@ -4098,6 +4098,91 @@ async function runAudioDownloadJob(id, videoUrl) {
   }
 }
 
+// ---------- YouTube video download (highest quality) ----------
+// Same shape as the audio download job above (its own queue, its own
+// timed cleanup instead of the transcribe job's immediate one), just
+// pulling video+audio instead of audio alone. "Highest quality" is
+// yt-dlp's own best-video + best-audio pick, merged into one MP4 file —
+// --merge-output-format only takes effect when a merge actually happens
+// (two separate streams), so a source that only ever offers one combined
+// stream is left in whatever container it already came in.
+const VIDEO_DL_DIR = path.join(__dirname, ".video-downloads-tmp");
+const VIDEO_DL_JOB_TTL_MS = 2 * 60 * 60 * 1000; // give a phone on a slow connection time to actually fetch it
+const VIDEO_EXT_CONTENT_TYPES = {
+  mp4: "video/mp4", webm: "video/webm", mkv: "video/x-matroska", mov: "video/quicktime",
+};
+
+const videoDlJobs = new Map(); // id -> { status, phase, title, fileName, filePath, error, createdAt }
+const videoDlQueue = [];
+let videoDlRunning = false;
+
+function queueVideoDownload(videoUrl) {
+  const id = crypto.randomUUID();
+  videoDlJobs.set(id, { status: "queued", phase: "Queued", title: null, fileName: null, filePath: null, error: null, createdAt: Date.now() });
+  videoDlQueue.push({ id, videoUrl });
+  processVideoDlQueue();
+  return id;
+}
+
+async function processVideoDlQueue() {
+  if (videoDlRunning) return;
+  const next = videoDlQueue.shift();
+  if (!next) return;
+  videoDlRunning = true;
+  try {
+    await runVideoDownloadJob(next.id, next.videoUrl);
+  } finally {
+    videoDlRunning = false;
+    processVideoDlQueue();
+  }
+}
+
+async function runVideoDownloadJob(id, videoUrl) {
+  const job = videoDlJobs.get(id);
+  const dir = path.join(VIDEO_DL_DIR, id);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    job.status = "running";
+
+    try {
+      const meta = await runCmd(YTDLP_BIN, ["--skip-download", "--no-playlist", "--print", "%(title)s", videoUrl]);
+      job.title = meta.stdout.trim().split("\n").filter(Boolean).pop() || null;
+    } catch (e) {
+      console.warn(`Video download ${id}: title lookup failed (continuing without one):`, e.message);
+    }
+
+    job.phase = "Downloading video (highest quality)…";
+    await runCmd(YTDLP_BIN, [
+      "-f", "bestvideo*+bestaudio/best", "--no-playlist",
+      "--merge-output-format", "mp4",
+      "-o", path.join(dir, "video.%(ext)s"),
+      videoUrl,
+    ]);
+
+    const videoName = fs.readdirSync(dir).find((f) => f.startsWith("video."));
+    if (!videoName) throw new Error("yt-dlp did not produce a video file");
+
+    const ext = videoName.slice(videoName.lastIndexOf(".") + 1).toLowerCase();
+    const safeTitle = (job.title || "video").replace(/[^a-z0-9]+/gi, "-").toLowerCase().replace(/^-+|-+$/g, "").slice(0, 60) || "video";
+    job.fileName = safeTitle + "." + ext;
+    job.filePath = path.join(dir, videoName);
+    job.contentType = VIDEO_EXT_CONTENT_TYPES[ext] || "application/octet-stream";
+    job.status = "done";
+    job.phase = "Done";
+    setTimeout(() => {
+      fs.rmSync(dir, { recursive: true, force: true });
+      videoDlJobs.delete(id);
+    }, VIDEO_DL_JOB_TTL_MS);
+  } catch (e) {
+    job.status = "error";
+    job.phase = "Failed";
+    job.error = e.message;
+    console.error(`Video download ${id} failed:`, e.message);
+    fs.rmSync(dir, { recursive: true, force: true });
+    setTimeout(() => videoDlJobs.delete(id), TRANSCRIBE_JOB_TTL_MS);
+  }
+}
+
 // ---------- NJ Transit rail (official GTFS/GTFSRT API) ----------
 // Same static-schedule + realtime-delay-overlay shape as the LIRR board
 // above, fed by NJT's own developer API instead of the MTA's public feed.
@@ -5200,6 +5285,54 @@ const server = http.createServer((req, res) => {
     const stat = fs.statSync(job.filePath);
     res.writeHead(200, {
       "Content-Type": "audio/mpeg",
+      "Content-Length": stat.size,
+      "Content-Disposition": `attachment; filename="${job.fileName}"; filename*=UTF-8''${encodeURIComponent(job.fileName)}`,
+    });
+    fs.createReadStream(job.filePath).pipe(res);
+    return;
+  }
+  if (url.pathname === "/api/download-video" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => {
+      body += c;
+      if (body.length > 4096) { req.destroy(); }
+    });
+    req.on("end", () => {
+      const send = (code, obj) => {
+        res.writeHead(code, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(obj));
+      };
+      let payload;
+      try { payload = JSON.parse(body || "{}"); } catch { return send(400, { error: "bad request" }); }
+      const videoUrl = String(payload.url || "").trim();
+      if (!videoUrl) return send(400, { error: "url required" });
+      let parsed;
+      try { parsed = new URL(videoUrl); } catch { return send(400, { error: "not a valid URL" }); }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return send(400, { error: "url must be http(s)" });
+      send(200, { id: queueVideoDownload(videoUrl) });
+    });
+    return;
+  }
+  if (url.pathname === "/api/download-video-status") {
+    const id = url.searchParams.get("id");
+    const job = id && videoDlJobs.get(id);
+    res.writeHead(job ? 200 : 404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(job
+      ? { status: job.status, phase: job.phase, title: job.title, error: job.error }
+      : { error: "not found" }));
+    return;
+  }
+  if (url.pathname === "/api/download-video-file") {
+    const id = url.searchParams.get("id");
+    const job = id && videoDlJobs.get(id);
+    if (!job || job.status !== "done" || !job.filePath || !fs.existsSync(job.filePath)) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+      return;
+    }
+    const stat = fs.statSync(job.filePath);
+    res.writeHead(200, {
+      "Content-Type": job.contentType || "application/octet-stream",
       "Content-Length": stat.size,
       "Content-Disposition": `attachment; filename="${job.fileName}"; filename*=UTF-8''${encodeURIComponent(job.fileName)}`,
     });
@@ -12511,6 +12644,22 @@ body {
     </div>
   </div>
 
+  <div class="tr-divider"></div>
+  <div class="tr-section-title">Download Video (Highest Quality)</div>
+  <div class="tr-form">
+    <input class="tr-input" id="vdUrl" type="url" inputmode="url" placeholder="Paste a video link&hellip;" autocapitalize="off" autocorrect="off">
+    <button class="tr-go" id="vdGo">Get Video</button>
+  </div>
+
+  <div class="tr-status" id="vdStatus"><span class="tr-spin"></span><span id="vdStatusText">&mdash;</span></div>
+
+  <div class="tr-result" id="vdResult">
+    <div class="tr-title" id="vdTitle"></div>
+    <div class="tr-actions">
+      <a class="tr-btn" id="vdLink" href="#">Download Video</a>
+    </div>
+  </div>
+
   <div class="tr-foot">Runs entirely on this server with a local Whisper model &middot; no video data leaves it</div>
 </div>
 
@@ -12706,6 +12855,109 @@ body {
     setBusy(true);
     showStatus("Starting\\u2026", false);
     fetch("/api/download-audio", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: videoUrl }),
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          showStatus(res.body.error || "Could not start download", true);
+          setBusy(false);
+          return;
+        }
+        localStorage.setItem(STORE_KEY, res.body.id);
+        poll(res.body.id);
+      })
+      .catch(function () {
+        showStatus("Could not reach the server", true);
+        setBusy(false);
+      });
+  }
+
+  goEl.addEventListener("click", function () {
+    var v = urlEl.value.trim();
+    if (!v) return;
+    start(v);
+  });
+  urlEl.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") goEl.click();
+  });
+
+  var resumeId = localStorage.getItem(STORE_KEY);
+  if (resumeId) {
+    setBusy(true);
+    showStatus("Resuming\\u2026", false);
+    poll(resumeId);
+  }
+})();
+
+(function () {
+  "use strict";
+  var STORE_KEY = "videoDlJobId";
+  var urlEl = document.getElementById("vdUrl");
+  var goEl = document.getElementById("vdGo");
+  var statusEl = document.getElementById("vdStatus");
+  var statusTextEl = document.getElementById("vdStatusText");
+  var resultEl = document.getElementById("vdResult");
+  var titleEl = document.getElementById("vdTitle");
+  var linkEl = document.getElementById("vdLink");
+  var pollTimer = null;
+
+  function setBusy(busy) {
+    goEl.disabled = busy;
+    urlEl.disabled = busy;
+  }
+
+  function showStatus(text, isError) {
+    statusEl.classList.add("show");
+    statusEl.classList.toggle("error", !!isError);
+    statusTextEl.textContent = text;
+  }
+
+  function hideStatus() {
+    statusEl.classList.remove("show");
+  }
+
+  function poll(id) {
+    clearTimeout(pollTimer);
+    fetch("/api/download-video-status?id=" + encodeURIComponent(id))
+      .then(function (r) { return r.json(); })
+      .then(function (job) {
+        if (job.error && !job.status) {
+          localStorage.removeItem(STORE_KEY);
+          setBusy(false);
+          hideStatus();
+          return;
+        }
+        if (job.status === "error") {
+          showStatus(job.error || "Download failed", true);
+          setBusy(false);
+          localStorage.removeItem(STORE_KEY);
+          return;
+        }
+        if (job.status === "done") {
+          hideStatus();
+          setBusy(false);
+          titleEl.textContent = job.title || "";
+          linkEl.href = "/api/download-video-file?id=" + encodeURIComponent(id);
+          resultEl.classList.add("show");
+          localStorage.removeItem(STORE_KEY);
+          return;
+        }
+        showStatus(job.phase || "Working\\u2026", false);
+        pollTimer = setTimeout(function () { poll(id); }, 1500);
+      })
+      .catch(function () {
+        pollTimer = setTimeout(function () { poll(id); }, 3000);
+      });
+  }
+
+  function start(videoUrl) {
+    resultEl.classList.remove("show");
+    setBusy(true);
+    showStatus("Starting\\u2026", false);
+    fetch("/api/download-video", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: videoUrl }),
