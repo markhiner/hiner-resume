@@ -4553,6 +4553,33 @@ function njtDecodeVehiclePositions(buf) {
   return byTrip;
 }
 
+// Falls back to a schedule+delay interpolated position when NJT's own
+// VehiclePositions feed has no GPS fix for this trip at all — not every
+// vehicle reports, so a trip can have real-time arrival/departure
+// estimates (and so a perfectly good "between X and Y" position pill)
+// while still having nothing to put a dot on the map at. Same
+// progress-along-the-segment approach njtActiveTrains already uses for
+// the systemwide live map, applied here so a board's detail sheet isn't
+// left showing the route with no train on it just because this one
+// trip's AVL unit didn't check in.
+function njtInterpolatePosition(stations, nowMs) {
+  for (let i = 0; i < stations.length - 1; i++) {
+    const fromStop = stations[i], toStop = stations[i + 1];
+    const fromDep = fromStop.depMs != null ? fromStop.depMs : fromStop.schedDepMs;
+    const toArr = toStop.arrMs != null ? toStop.arrMs : toStop.schedArrMs;
+    if (fromDep == null || toArr == null) continue;
+    if (nowMs < fromDep || nowMs > toArr) continue;
+    if (fromStop.lat == null || toStop.lat == null) continue;
+    const progress = Math.max(0, Math.min(1, (nowMs - fromDep) / Math.max(toArr - fromDep, 1)));
+    return {
+      lat: fromStop.lat + (toStop.lat - fromStop.lat) * progress,
+      lon: fromStop.lon + (toStop.lon - fromStop.lon) * progress,
+      estimated: true,
+    };
+  }
+  return null;
+}
+
 let njtRealtimeByTrip = new Map();
 let njtVehicleByTrip = new Map();
 async function refreshNjtRealtime() {
@@ -4693,7 +4720,7 @@ function njtScheduleEntries(now, stationId) {
         routeName: route ? route.name : "", routeShortName: route ? route.shortName : null,
         color: (route && route.color) || "0039a6",
         textColor: (route && route.textColor) || "ffffff", stations, live: !!rt,
-        vehicle: njtVehicleByTrip.get(tripId) || null,
+        vehicle: njtVehicleByTrip.get(tripId) || njtInterpolatePosition(stations, now.getTime()),
       };
       if (idx > 0) {
         const from = stations[0];
@@ -6618,7 +6645,7 @@ body {
     if (vehicle) {
       L.circleMarker(livePt, { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
       L.circleMarker(livePt, { radius: 9, color: "#000", weight: 2.5, fillColor: "#f5c518", fillOpacity: 1 })
-        .bindTooltip("Live position", { direction: "top" }).addTo(ttMap);
+        .bindTooltip(vehicle.estimated ? "Estimated position" : "Live position", { direction: "top" }).addTo(ttMap);
     }
     setTimeout(function () { if (ttMap) ttMap.invalidateSize(); }, 60);
 
@@ -8595,11 +8622,15 @@ body {
         // The train's actual live GPS, when NJT's realtime feed has one for
         // this trip — bigger and higher-contrast than the fixed stop dots (a
         // white halo under a bright yellow dot), same convention the Amtrak
-        // board and LIRR map use for "the one that moves".
+        // board and LIRR map use for "the one that moves". When NJT has no
+        // GPS fix for this trip at all, row.vehicle is a schedule+delay
+        // interpolated stand-in instead (see njtInterpolatePosition
+        // server-side) — labeled "Estimated" rather than "Live" so it's
+        // never mistaken for a real fix.
         if (hasVehicle) {
           L.circleMarker(livePt, { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
           L.circleMarker(livePt, { radius: 9, color: "#000", weight: 2.5, fillColor: "#f5c518", fillOpacity: 1 })
-            .bindTooltip("Live position", { direction: "top" })
+            .bindTooltip(row.vehicle.estimated ? "Estimated position" : "Live position", { direction: "top" })
             .addTo(ttMap);
         }
         setTimeout(function () { if (ttMap) ttMap.invalidateSize(); }, 60);
