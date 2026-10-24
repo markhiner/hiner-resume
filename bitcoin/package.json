@@ -1,0 +1,15 @@
+{
+  "name": "btc-ticker",
+  "version": "1.0.0",
+  "description": "Live BTC/USD ticker blending Coinbase + Bitstamp, served via Cloudflare Tunnel",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
