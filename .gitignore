@@ -18,4 +18,6 @@ bitcoin/.amtrak-gtfs-cache/
 bitcoin/.njt-cache/
 bitcoin/.transcribe-tmp/
 bitcoin/.audio-downloads-tmp/
+bitcoin/.video-downloads-tmp/
 bitcoin/.whisper-models/
+bitcoin/activity.log

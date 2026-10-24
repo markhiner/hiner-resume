@@ -4835,8 +4835,86 @@ setInterval(() => {
   broadcast({ type: "trend", ...forecast });
 }, 10000);
 
+// ---------- activity log ----------
+// A verbose, human-readable record of every real interaction with this
+// server — which module was touched, what was requested, and when —
+// written to its own file next to server.js (so it survives independent
+// of however stdout happens to be captured) and echoed to the console.
+// Wrapping res.end once here catches every route's response in one
+// place, rather than threading a log call through each of the 50-odd
+// route branches below.
+const ACTIVITY_LOG_PATH = path.join(__dirname, "activity.log");
+let activityLogStream = null;
+try {
+  activityLogStream = fs.createWriteStream(ACTIVITY_LOG_PATH, { flags: "a" });
+} catch (e) {
+  console.error("Could not open activity log file (logging to console only):", e.message);
+}
+
+// Static files and polling noise that aren't a real "interaction" with
+// any module — board logos, decoy thumbnails, the favicon — served
+// constantly but not something a human actually did.
+const ACTIVITY_LOG_SKIP = new Set([
+  "/favicon.ico",
+  "/amtraklogosquare.png", "/njtlogosquare.png", "/lirrlogosquare.png",
+  "/amtraklogowide.png", "/njtlogowide.png", "/lirrlogowide.png",
+  "/amtrakherotrain.png", "/amtrakherotrain2.png", "/amtrakskyline.jpg", "/amtrakskylinedusk.jpg", "/amtrakskylinenight.jpg",
+  "/lirrherotrain.png", "/njtherotrain.png",
+]);
+
+// Ordered path -> module rules, most specific first (so e.g. a Kalshi
+// route is claimed before the generic BTC-ticker catch-all at the
+// bottom). A pathname is classified by the first rule it matches.
+const ACTIVITY_MODULE_RULES = [
+  { module: "Kalshi Trade", test: (p) => p === "/api/buy" || p === "/api/sell" || p === "/api/open-position" || p === "/api/portfolio" || p === "/api/trades" || p.startsWith("/api/kalshi") },
+  { module: "Travel", test: (p) => p === "/travel" || p.startsWith("/api/flight") || p.startsWith("/api/hotel") },
+  { module: "Train Board — Amtrak", test: (p) => p === "/amtrak-board" || p === "/amtrak-nec-map" || p === "/api/penn-board" || p.startsWith("/api/amtrak") },
+  { module: "Train Board — NJT", test: (p) => p === "/njt-board" || p === "/njt-map" || p.startsWith("/api/njt") },
+  { module: "Train Board — LIRR", test: (p) => p === "/lirr-board" || p === "/lirr-map" || p.startsWith("/api/lirr") },
+  { module: "Train Board — Combined", test: (p) => p === "/trains" },
+  { module: "Transcribe / Download", test: (p) => p === "/transcribe" || p.startsWith("/api/transcribe") || p.startsWith("/api/download-audio") || p.startsWith("/api/download-video") },
+  { module: "Rundown Builder", test: (p) => p === "/rundown" },
+  { module: "Stealth / Decoy", test: (p) => p === "/api/decoy" || /^\/pic[a-z]\.png$/i.test(p) },
+  { module: "BTC Ticker", test: (p) => p === "/" || p === "/calibration" || p === "/api/latest" || p === "/api/history" || p === "/api/trend" || p === "/api/calibration" || p === "/api/brti" || p === "/stream" },
+];
+
+function classifyActivityModule(pathname) {
+  for (const rule of ACTIVITY_MODULE_RULES) {
+    if (rule.test(pathname)) return rule.module;
+  }
+  // The server's own catch-all (no route matched) falls through to the
+  // ticker page, so an unrecognized path lands in the same module it'll
+  // actually be served from.
+  return "BTC Ticker";
+}
+
+function activityClientIp(req) {
+  const fwd = req.headers["x-forwarded-for"];
+  if (fwd) return String(fwd).split(",")[0].trim();
+  return (req.socket && req.socket.remoteAddress) || "unknown";
+}
+
+function logActivity(module, method, pathname, search, status, ip) {
+  const ts = new Date().toLocaleString("en-US", {
+    timeZone: NY_TZ, year: "numeric", month: "short", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true,
+  });
+  const line = `[${ts} ET] ${module.padEnd(24)} ${method} ${pathname}${search || ""} -> ${status}  (${ip})`;
+  console.log(line);
+  if (activityLogStream) activityLogStream.write(line + "\n");
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  if (!ACTIVITY_LOG_SKIP.has(url.pathname)) {
+    const module = classifyActivityModule(url.pathname);
+    const ip = activityClientIp(req);
+    const origEnd = res.end.bind(res);
+    res.end = (...args) => {
+      logActivity(module, req.method, url.pathname, url.search, res.statusCode, ip);
+      return origEnd(...args);
+    };
+  }
   res.setHeader("Access-Control-Allow-Origin", "*");
 
   if (url.pathname === "/favicon.ico") { res.writeHead(204); res.end(); return; }
@@ -5387,8 +5465,10 @@ server.on("upgrade", (req, socket, head) => {
   if (pathname !== "/stream") { socket.destroy(); return; }
   wss.handleUpgrade(req, socket, head, (ws) => {
     clients.add(ws);
+    const ip = activityClientIp(req);
+    logActivity("BTC Ticker", "WS", "/stream", "", "connected", ip);
     ws.send(JSON.stringify({ type: "bootstrap", snapshot: snapshot(), trades: recentTrades, trend: computeForecast(), portfolio: portfolioState, brti: brtiPublic() }));
-    ws.on("close", () => clients.delete(ws));
+    ws.on("close", () => { clients.delete(ws); logActivity("BTC Ticker", "WS", "/stream", "", "closed", ip); });
     ws.on("error", () => clients.delete(ws));
   });
 });
