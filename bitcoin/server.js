@@ -14826,18 +14826,23 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
 
   function announceWins(rows) {
     // Multiple positions from the same hour settle together, in the same
-    // batch — collect all of them first so a shared hour's wins land in one
-    // toast with a combined total, rather than one flashing over the last.
-    var newlyWon = [];
+    // batch — collect all of them first (wins AND losses, not just wins)
+    // so the banner nets the whole batch, the way the actual balance
+    // change does, rather than showing one winning leg in isolation while
+    // a loss that settled in the very same batch goes unmentioned.
+    var newlyDecided = [];
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
-      if (r.won !== true || celebrated[r.ticker]) continue;
+      if ((r.won !== true && r.won !== false) || celebrated[r.ticker]) continue;
       celebrated[r.ticker] = true;
-      newlyWon.push(r);
+      newlyDecided.push(r);
     }
-    if (!newlyWon.length) return;
-    if (newlyWon.length === 1) showWinToast(newlyWon[0]);
-    else showWinToastBatch(newlyWon);
+    if (!newlyDecided.length) return;
+    // A win is still the one thing worth interrupting for — a batch of
+    // losses alone stays silent, same as before.
+    if (!newlyDecided.some(function (r) { return r.won === true; })) return;
+    if (newlyDecided.length === 1) showWinToast(newlyDecided[0]);
+    else showWinToastBatch(newlyDecided);
   }
 
   function showWinToast(r) {
@@ -14860,17 +14865,23 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
 
   // Several positions can settle in the very same batch when they share an
   // hour, one toast per position would just overwrite itself before you
-  // could read it, so show the combined total instead.
+  // could read it, so show the combined total instead -- net of any losses
+  // that settled alongside the win(s), not just the winning leg(s) alone.
   function showWinToastBatch(rows) {
     var el = document.getElementById("winToast");
     var anyProfit = false, totalProfit = 0;
     rows.forEach(function (r) {
       if (r.value != null && r.costBasis != null) { totalProfit += r.value - r.costBasis; anyProfit = true; }
     });
+    var wonCount = rows.filter(function (r) { return r.won === true; }).length;
+    var lostCount = rows.length - wonCount;
+    var title = lostCount
+      ? wonCount + " won, " + lostCount + " lost"
+      : rows.length + " positions won";
     var pendingCount = rows.filter(function (r) { return r.pending; }).length;
     var sub = rows.length + " positions" + (pendingCount ? " \u00b7 " + pendingCount + " unofficial" : "");
     el.innerHTML =
-      '<div class="wt-top">' + rows.length + " positions won</div>" +
+      '<div class="wt-top">' + title + "</div>" +
       '<div class="wt-amt">' + (anyProfit ? (totalProfit >= 0 ? "+" : "\u2212") + "$" + Math.abs(totalProfit).toFixed(2) : "\u2013") + "</div>" +
       '<div class="wt-sub">' + sub + "</div>";
     showToastEl(el);
