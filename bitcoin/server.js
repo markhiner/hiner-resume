@@ -1892,22 +1892,53 @@ function addDaysYMD(ymd, delta) {
   return new Date(Date.UTC(y, m - 1, d + delta)).toISOString().slice(0, 10);
 }
 
+function todayYMD() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Frontier shows up in Google Flights results but this graph should never
+// count it toward "the cheapest way on this day" — an airline filter, not
+// a data-availability one, so it lives here rather than in serpFlights
+// itself (the main search results are untouched).
+function isFrontierItinerary(it) {
+  return (it.airlines || []).some((a) => /frontier/i.test(a));
+}
+
 async function cheapestPriceForDate(from, to, date, apiKey) {
   const entry = await serpFlights(from, to, date, "economy", apiKey);
-  const prices = entry.itineraries.map((it) => it.price).filter((p) => p != null);
+  const prices = entry.itineraries
+    .filter((it) => !isFrontierItinerary(it))
+    .map((it) => it.price)
+    .filter((p) => p != null);
   if (prices.length) return Math.min(...prices);
   // Falls back to Google's own headline number when no itinerary parsed
   // cleanly but the search itself still returned one — better than a hole
-  // in the graph.
-  return (entry.priceInsights && entry.priceInsights.lowest_price) || null;
+  // in the graph. Only when nothing parsed at all, though: if everything
+  // that parsed was Frontier and got filtered out above, Google's one
+  // aggregate number can't be un-mixed by airline, so a gap is more honest
+  // than quietly letting Frontier back in through this fallback.
+  if (!entry.itineraries.length) return (entry.priceInsights && entry.priceInsights.lowest_price) || null;
+  return null;
 }
 
-// A date before "today" or one Google Flights simply won't quote (too far
-// out, no service that day, etc.) surfaces as a rejected search rather than
-// a thrown error — the graph shows a gap there instead of failing outright.
+// Google Flights has no live quote for a date that's already passed — every
+// such date in the window used to come back a silent gap, which is why the
+// graph only ever seemed to show "future" prices once the search date was
+// anywhere near today. Rather than spend part of the window on days that
+// can only ever be empty, the whole window shifts forward just far enough
+// that every point is a real, queryable date, extending further into the
+// future by however many days got pushed out so the graph still shows the
+// same number of points. A center date already in the past (not something
+// the date picker itself allows, but defensive either way) just shifts the
+// whole thing to start today.
 async function flightPriceGraph(from, to, centerDate, days, apiKey) {
+  const today = todayYMD();
+  const totalPoints = 2 * days + 1;
+  let start = -days;
+  while (addDaysYMD(centerDate, start) < today) start++;
+  const end = start + totalPoints - 1;
   const dates = [];
-  for (let i = -days; i <= days; i++) dates.push(addDaysYMD(centerDate, i));
+  for (let i = start; i <= end; i++) dates.push(addDaysYMD(centerDate, i));
   const settled = await Promise.allSettled(dates.map((d) => cheapestPriceForDate(from, to, d, apiKey)));
   return dates.map((date, i) => ({
     date,
