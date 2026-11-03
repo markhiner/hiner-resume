@@ -5828,19 +5828,21 @@ body {
 .tt-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
 .tt-sheet.on { display: block; }
 .tt-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
-/* The open animation used to translateY() the panel in — but a transform
-   on ANY ancestor of a position:sticky element permanently breaks that
-   element's stickiness in Safari/WebKit, even once the transform settles
-   back to none. .tt-head (the sticky header) is a direct child of this
-   panel, so that transform was quietly disabling the sticky header on
-   every iPhone: the header would scroll away with the map instead of
-   staying pinned. Animating margin-top instead gets the same slide-up
-   motion without ever putting a transform in the sticky header's
-   ancestor chain. */
+/* position:sticky turned out not to be worth chasing on iOS Safari — a
+   transform on this panel's own open animation was one way to break it
+   (fixed by animating margin-top instead, below), but sticky positioning
+   inside a scrolling container that ALSO does the rounded-corner overflow
+   clipping has further long-standing WebKit bugs independent of that, and
+   it kept coming back. Laid out as a flex column instead, the same fix
+   LIRR's own detail overlay already used successfully: the header is a
+   non-scrolling flex item (see .tt-head's flex-shrink below), and only
+   .tt-body scrolls — nothing "sticks", so there's nothing for Safari to
+   get wrong. */
 .tt-panel {
   position: absolute; left: 0; right: 0; bottom: 0; top: 60px;
   background: var(--bg);
-  border-radius: 18px 18px 0 0; overflow: hidden; overflow-y: auto;
+  border-radius: 18px 18px 0 0; overflow: hidden;
+  display: flex; flex-direction: column;
   animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 @keyframes ttUp { from { margin-top: 26px; opacity: 0; } to { margin-top: 0; opacity: 1; } }
@@ -5852,19 +5854,18 @@ body {
    a small glowing signal-light dot keying the title text to that same
    color — so it's still unmistakably "this line" at a glance, just as an
    accent rather than a backdrop the text has to fight for contrast with. */
-/* Sticky, not just relative — the stop list's own auto-scroll-into-view
-   (bringing the next stop near the top) scrolls this same panel, and a
-   merely-relative header scrolled away with everything else, leaving the
-   map as the first thing visible with the title cut off above the fold.
-   Pinning it to the top of the scrollable panel keeps the title in view
-   no matter how far the stop list scrolls. */
+/* flex-shrink: 0 — a fixed, non-scrolling flex item in .tt-panel's column
+   layout, so the stop list's own auto-scroll-into-view (bringing the next
+   stop near the top) only ever scrolls .tt-body next to it. The header
+   simply isn't part of the scrolling content, so there's no way for it to
+   end up carried off-screen the way a merely-relative (or, it turns out,
+   even a sticky) header could. */
 .tt-head {
   background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
   border-radius: 18px 18px 0 0;
   padding: 8px 16px 14px;
-  position: sticky;
-  top: 0;
-  z-index: 5;
+  flex-shrink: 0;
+  position: relative;
   overflow: hidden;
 }
 .tt-head::before {
@@ -5886,7 +5887,7 @@ body {
   font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
 .tt-close:active { background: rgba(0,0,0,0.5); }
-.tt-body { padding: 14px 16px 28px; }
+.tt-body { padding: 14px 16px 28px; flex: 1; min-height: 0; overflow-y: auto; }
 .tt-title {
   font-size: 17px; font-weight: 800; padding-right: 30px; color: #fff;
   text-shadow: 0 1px 3px rgba(0,0,0,0.5); position: relative; z-index: 1;
@@ -7122,19 +7123,21 @@ body {
 .tt-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
 .tt-sheet.on { display: block; }
 .tt-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
-/* The open animation used to translateY() the panel in — but a transform
-   on ANY ancestor of a position:sticky element permanently breaks that
-   element's stickiness in Safari/WebKit, even once the transform settles
-   back to none. .tt-head (the sticky header) is a direct child of this
-   panel, so that transform was quietly disabling the sticky header on
-   every iPhone: the header would scroll away with the map instead of
-   staying pinned. Animating margin-top instead gets the same slide-up
-   motion without ever putting a transform in the sticky header's
-   ancestor chain. */
+/* position:sticky turned out not to be worth chasing on iOS Safari — a
+   transform on this panel's own open animation was one way to break it
+   (fixed by animating margin-top instead, below), but sticky positioning
+   inside a scrolling container that ALSO does the rounded-corner overflow
+   clipping has further long-standing WebKit bugs independent of that, and
+   it kept coming back. Laid out as a flex column instead, the same fix
+   LIRR's own detail overlay already used successfully: the header is a
+   non-scrolling flex item (see .tt-head's flex-shrink below), and only
+   .tt-body scrolls — nothing "sticks", so there's nothing for Safari to
+   get wrong. */
 .tt-panel {
   position: absolute; left: 0; right: 0; bottom: 0; top: 60px;
   background: var(--bg);
-  border-radius: 18px 18px 0 0; overflow: hidden; overflow-y: auto;
+  border-radius: 18px 18px 0 0; overflow: hidden;
+  display: flex; flex-direction: column;
   animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 @keyframes ttUp { from { margin-top: 26px; opacity: 0; } to { margin-top: 0; opacity: 1; } }
@@ -7146,19 +7149,18 @@ body {
    a small glowing signal-light dot keying the title text to that same
    color — so it's still unmistakably "this line" at a glance, just as an
    accent rather than a backdrop the text has to fight for contrast with. */
-/* Sticky, not just relative — the stop list's own auto-scroll-into-view
-   (bringing the next stop near the top) scrolls this same panel, and a
-   merely-relative header scrolled away with everything else, leaving the
-   map as the first thing visible with the title cut off above the fold.
-   Pinning it to the top of the scrollable panel keeps the title in view
-   no matter how far the stop list scrolls. */
+/* flex-shrink: 0 — a fixed, non-scrolling flex item in .tt-panel's column
+   layout, so the stop list's own auto-scroll-into-view (bringing the next
+   stop near the top) only ever scrolls .tt-body next to it. The header
+   simply isn't part of the scrolling content, so there's no way for it to
+   end up carried off-screen the way a merely-relative (or, it turns out,
+   even a sticky) header could. */
 .tt-head {
   background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
   border-radius: 18px 18px 0 0;
   padding: 8px 16px 14px;
-  position: sticky;
-  top: 0;
-  z-index: 5;
+  flex-shrink: 0;
+  position: relative;
   overflow: hidden;
 }
 .tt-head::before {
@@ -7180,7 +7182,7 @@ body {
   font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
 .tt-close:active { background: rgba(0,0,0,0.5); }
-.tt-body { padding: 14px 16px 28px; }
+.tt-body { padding: 14px 16px 28px; flex: 1; min-height: 0; overflow-y: auto; }
 .tt-title {
   font-size: 17px; font-weight: 800; padding-right: 30px; color: #fff;
   text-shadow: 0 1px 3px rgba(0,0,0,0.5); position: relative; z-index: 1;
@@ -8053,19 +8055,21 @@ body {
 .tt-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
 .tt-sheet.on { display: block; }
 .tt-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
-/* The open animation used to translateY() the panel in — but a transform
-   on ANY ancestor of a position:sticky element permanently breaks that
-   element's stickiness in Safari/WebKit, even once the transform settles
-   back to none. .tt-head (the sticky header) is a direct child of this
-   panel, so that transform was quietly disabling the sticky header on
-   every iPhone: the header would scroll away with the map instead of
-   staying pinned. Animating margin-top instead gets the same slide-up
-   motion without ever putting a transform in the sticky header's
-   ancestor chain. */
+/* position:sticky turned out not to be worth chasing on iOS Safari — a
+   transform on this panel's own open animation was one way to break it
+   (fixed by animating margin-top instead, below), but sticky positioning
+   inside a scrolling container that ALSO does the rounded-corner overflow
+   clipping has further long-standing WebKit bugs independent of that, and
+   it kept coming back. Laid out as a flex column instead, the same fix
+   LIRR's own detail overlay already used successfully: the header is a
+   non-scrolling flex item (see .tt-head's flex-shrink below), and only
+   .tt-body scrolls — nothing "sticks", so there's nothing for Safari to
+   get wrong. */
 .tt-panel {
   position: absolute; left: 0; right: 0; bottom: 0; top: 60px;
   background: var(--bg);
-  border-radius: 18px 18px 0 0; overflow: hidden; overflow-y: auto;
+  border-radius: 18px 18px 0 0; overflow: hidden;
+  display: flex; flex-direction: column;
   animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 @keyframes ttUp { from { margin-top: 26px; opacity: 0; } to { margin-top: 0; opacity: 1; } }
@@ -8077,19 +8081,18 @@ body {
    a small glowing signal-light dot keying the title text to that same
    color — so it's still unmistakably "this line" at a glance, just as an
    accent rather than a backdrop the text has to fight for contrast with. */
-/* Sticky, not just relative — the stop list's own auto-scroll-into-view
-   (bringing the next stop near the top) scrolls this same panel, and a
-   merely-relative header scrolled away with everything else, leaving the
-   map as the first thing visible with the title cut off above the fold.
-   Pinning it to the top of the scrollable panel keeps the title in view
-   no matter how far the stop list scrolls. */
+/* flex-shrink: 0 — a fixed, non-scrolling flex item in .tt-panel's column
+   layout, so the stop list's own auto-scroll-into-view (bringing the next
+   stop near the top) only ever scrolls .tt-body next to it. The header
+   simply isn't part of the scrolling content, so there's no way for it to
+   end up carried off-screen the way a merely-relative (or, it turns out,
+   even a sticky) header could. */
 .tt-head {
   background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
   border-radius: 18px 18px 0 0;
   padding: 8px 16px 14px;
-  position: sticky;
-  top: 0;
-  z-index: 5;
+  flex-shrink: 0;
+  position: relative;
   overflow: hidden;
 }
 .tt-head::before {
@@ -8111,7 +8114,7 @@ body {
   font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
 }
 .tt-close:active { background: rgba(0,0,0,0.5); }
-.tt-body { padding: 14px 16px 28px; }
+.tt-body { padding: 14px 16px 28px; flex: 1; min-height: 0; overflow-y: auto; }
 .tt-title {
   font-size: 17px; font-weight: 800; padding-right: 30px; color: #fff;
   text-shadow: 0 1px 3px rgba(0,0,0,0.5); position: relative; z-index: 1;
