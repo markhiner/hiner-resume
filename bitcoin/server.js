@@ -5828,13 +5828,22 @@ body {
 .tt-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
 .tt-sheet.on { display: block; }
 .tt-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
+/* The open animation used to translateY() the panel in — but a transform
+   on ANY ancestor of a position:sticky element permanently breaks that
+   element's stickiness in Safari/WebKit, even once the transform settles
+   back to none. .tt-head (the sticky header) is a direct child of this
+   panel, so that transform was quietly disabling the sticky header on
+   every iPhone: the header would scroll away with the map instead of
+   staying pinned. Animating margin-top instead gets the same slide-up
+   motion without ever putting a transform in the sticky header's
+   ancestor chain. */
 .tt-panel {
   position: absolute; left: 0; right: 0; bottom: 0; top: 60px;
   background: var(--bg);
   border-radius: 18px 18px 0 0; overflow: hidden; overflow-y: auto;
   animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
-@keyframes ttUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ttUp { from { margin-top: 26px; opacity: 0; } to { margin-top: 0; opacity: 1; } }
 /* A flat wash of the line's own color across the whole bar just reads as
    a colored rectangle — real train livery almost never works that way,
    it's a dark body with an angled accent stripe. Same idea here: a dark
@@ -7113,13 +7122,22 @@ body {
 .tt-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
 .tt-sheet.on { display: block; }
 .tt-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
+/* The open animation used to translateY() the panel in — but a transform
+   on ANY ancestor of a position:sticky element permanently breaks that
+   element's stickiness in Safari/WebKit, even once the transform settles
+   back to none. .tt-head (the sticky header) is a direct child of this
+   panel, so that transform was quietly disabling the sticky header on
+   every iPhone: the header would scroll away with the map instead of
+   staying pinned. Animating margin-top instead gets the same slide-up
+   motion without ever putting a transform in the sticky header's
+   ancestor chain. */
 .tt-panel {
   position: absolute; left: 0; right: 0; bottom: 0; top: 60px;
   background: var(--bg);
   border-radius: 18px 18px 0 0; overflow: hidden; overflow-y: auto;
   animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
-@keyframes ttUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ttUp { from { margin-top: 26px; opacity: 0; } to { margin-top: 0; opacity: 1; } }
 /* A flat wash of the line's own color across the whole bar just reads as
    a colored rectangle — real train livery almost never works that way,
    it's a dark body with an angled accent stripe. Same idea here: a dark
@@ -8035,13 +8053,22 @@ body {
 .tt-sheet { position: fixed; inset: 0; z-index: 60; display: none; }
 .tt-sheet.on { display: block; }
 .tt-scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(2px); }
+/* The open animation used to translateY() the panel in — but a transform
+   on ANY ancestor of a position:sticky element permanently breaks that
+   element's stickiness in Safari/WebKit, even once the transform settles
+   back to none. .tt-head (the sticky header) is a direct child of this
+   panel, so that transform was quietly disabling the sticky header on
+   every iPhone: the header would scroll away with the map instead of
+   staying pinned. Animating margin-top instead gets the same slide-up
+   motion without ever putting a transform in the sticky header's
+   ancestor chain. */
 .tt-panel {
   position: absolute; left: 0; right: 0; bottom: 0; top: 60px;
   background: var(--bg);
   border-radius: 18px 18px 0 0; overflow: hidden; overflow-y: auto;
   animation: ttUp 0.24s cubic-bezier(0.2, 0.8, 0.3, 1);
 }
-@keyframes ttUp { from { transform: translateY(26px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ttUp { from { margin-top: 26px; opacity: 0; } to { margin-top: 0; opacity: 1; } }
 /* A flat wash of the line's own color across the whole bar just reads as
    a colored rectangle — real train livery almost never works that way,
    it's a dark body with an angled accent stripe. Same idea here: a dark
