@@ -12385,7 +12385,7 @@ const rundownPage = `<!DOCTYPE html>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
   --bg: #000000; --panel: #0b0b0d; --panel2: #131317; --border: #232329;
-  --text1: #ffffff; --text2: #9a9aa2; --text3: #5c5c66; --yellow: #f5c518; --green: #22c55e;
+  --text1: #ffffff; --text2: #9a9aa2; --text3: #86868f; --yellow: #f5c518; --green: #22c55e;
 }
 html, body { background: var(--bg); color: var(--text1); height: 100%; }
 body {
@@ -12419,7 +12419,7 @@ body {
 .rd-section { margin-bottom: 6px; }
 .rd-section-hdr { font-size: 10.5px; font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; color: var(--yellow); padding: 14px 2px 8px; }
 .rd-field { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 9px 11px; margin-bottom: 8px; transition: opacity 0.2s ease, border-color 0.2s ease; }
-.rd-field.gray { opacity: 0.5; border-style: dashed; }
+.rd-field.gray { opacity: 0.7; border-style: dashed; }
 .rd-field.gray.active { opacity: 1; border-style: solid; }
 .rd-label { font-size: 9.5px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text3); margin-bottom: 5px; }
 .rd-input {
