@@ -4231,19 +4231,26 @@ const NJT_CACHE_DIR = path.join(__dirname, ".njt-cache");
 const NJT_TOKEN_FILE = path.join(NJT_CACHE_DIR, "token.json");
 const NJT_STATIC_REFRESH_MS = 20 * 60 * 60 * 1000; // schedules don't change intraday
 const NJT_RT_REFRESH_MS = 30 * 1000;
+// These are NJT's real GTFS stop_ids (verified against the live /api/njt-stations
+// data, which is sourced straight from njtModel) — NOT the same numbering as
+// the old hardcoded values here used to assume. That earlier guess ("109" etc.)
+// actually pointed at unrelated stations (North Elizabeth, Summit, New Bridge
+// Landing, Atco, Radburn), which went unnoticed everywhere except Philadelphia,
+// whose Atlantic City Line trains are distinct enough from Radburn's that the
+// mismatch was obvious.
 const NJT_BOARD_STATIONS = {
-  "109": "New York Penn",
-  "145": "Secaucus",
-  "110": "Newark Airport",
-  "9": "Atlantic City",
-  "126": "Philadelphia",
+  "105": "New York Penn",
+  "38187": "Secaucus",
+  "37953": "Newark Airport",
+  "10": "Atlantic City",
+  "1": "Philadelphia",
 };
 // JS reorders plain-object keys that look like array indices into ascending
 // numeric order regardless of insertion order, which silently scrambles the
 // station picker's intended display order — this list is what the dropdown
 // actually iterates, kept separate from the lookup object above.
-const NJT_BOARD_STATION_ORDER = ["109", "145", "110", "9", "126"];
-const NJT_DEFAULT_STATION = "109";
+const NJT_BOARD_STATION_ORDER = ["105", "38187", "37953", "10", "1"];
+const NJT_DEFAULT_STATION = "105";
 const NJT_DEP_GRACE_MS = 4 * 60 * 1000; // stays listed as "Departed" this long, then drops off
 const NJT_ARR_GRACE_MS = 6 * 60 * 1000; // stays listed as "Arrived" this long if this is the train's final stop, then drops off
 const NJT_DELAY_THRESHOLD_MS = 60 * 1000; // how far off schedule counts as "delayed" rather than noise
@@ -4353,7 +4360,7 @@ const NJT_RAILDATA_API_BASE = "https://raildata.njtransit.com/api/TrainData";
 const NJT_RAILDATA_TOKEN_FILE = path.join(NJT_CACHE_DIR, "raildata-token.json");
 // stop_id -> NJT's own 2-letter station code (stops.txt's stop_code field),
 // which is what getStationSchedule's "station" parameter actually expects.
-const NJT_STATION_2CHAR = { "109": "NY", "145": "SE", "110": "NA", "9": "AC", "126": "PH" };
+const NJT_STATION_2CHAR = { "105": "NY", "38187": "SE", "37953": "NA", "10": "AC", "1": "PH" };
 
 function njtRailDataLoadCachedToken() {
   try {
@@ -6169,8 +6176,8 @@ body {
   // check reads off whichever field that operator's row.stations actually
   // has.
   var LIRR_JAMAICA_STOP_ID = "102"; // JFK AirTrain transfer
-  var NJT_SEC_STOP_CODE = "145"; // Secaucus Junction
-  var NJT_EWR_STOP_CODE = "110"; // Newark Airport
+  var NJT_SEC_STOP_CODE = "38187"; // Secaucus Junction (upper level)
+  var NJT_EWR_STOP_CODE = "37953"; // Newark Airport
   var AMTRAK_EWR_STOP_CODE = "EWR"; // Newark Airport, Amtrak's own code for it
   var BADGE_PLANE_SVG = '<svg width="9" height="9" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">' +
     '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2.5 1.5V22l4-1 4 1v-1.5L13 19v-5.5z"/></svg>';
@@ -8386,8 +8393,8 @@ body {
   // circular icons (a plane, a circled "S") rather than text pills — both
   // narrower (so they fit beside the train number without crowding out the
   // route name) and what was actually asked for.
-  var SEC_STOP_CODE = "145";
-  var EWR_STOP_CODE = "110";
+  var SEC_STOP_CODE = "38187";
+  var EWR_STOP_CODE = "37953";
   var EWR_PLANE_SVG = '<svg width="8" height="8" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">' +
     '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2.5 1.5V22l4-1 4 1v-1.5L13 19v-5.5z"/></svg>';
 
