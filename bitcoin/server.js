@@ -3277,6 +3277,26 @@ let amtrakModel = null; // { stopNameById, routeById, tripById, stByTrip, calend
 // trips — so this only builds full row objects for the handful of shape_ids
 // those trips actually reference, via a cheap prefix check (shape_id is
 // always the unquoted first field) before paying for a full CSV-line parse.
+// A full national long-distance shape can run 3,000+ points — harmless for
+// the one train actually open in the detail sheet, but costly once the
+// static-schedule fallback (loadAmtrakModel's safety net, above) populates
+// a whole board with distinct long-haul trains at once: every board row
+// carries its own full shape, and 20+ of those together pushed a single
+// board response past 2MB — slow enough on a phone connection to look like
+// the board never loaded at all. A curve rendered into a small inline map
+// doesn't need anywhere near that many points to look smooth, so this caps
+// each shape at AMTRAK_SHAPE_MAX_POINTS, evenly strided, always keeping the
+// first and last point so the curve's endpoints never drift from the
+// train's actual first/last stop.
+const AMTRAK_SHAPE_MAX_POINTS = 300;
+function downsampleShape(points) {
+  if (points.length <= AMTRAK_SHAPE_MAX_POINTS) return points;
+  const stride = (points.length - 1) / (AMTRAK_SHAPE_MAX_POINTS - 1);
+  const out = [];
+  for (let i = 0; i < AMTRAK_SHAPE_MAX_POINTS; i++) out.push(points[Math.round(i * stride)]);
+  return out;
+}
+
 function loadAmtrakShapes(shapeIds) {
   const shapeById = new Map();
   if (!shapeIds.size) return shapeById;
@@ -3298,7 +3318,7 @@ function loadAmtrakShapes(shapeIds) {
   }
   for (const [id, pts] of pointsById) {
     pts.sort((a, b) => a.seq - b.seq);
-    shapeById.set(id, pts.map((p) => [p.lat, p.lon]));
+    shapeById.set(id, downsampleShape(pts.map((p) => [p.lat, p.lon])));
   }
   return shapeById;
 }
