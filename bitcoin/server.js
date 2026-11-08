@@ -4741,6 +4741,9 @@ function njtActiveTrains(nowMs) {
 // list but just get truncated off in the board's single-line destination
 // column ("TRENTON TRANSIT ..." instead of "TRENTON") — stripped only where
 // that column actually renders the name, not in the fuller stop list.
+// One-off renames for names that don't read as the place a rider expects at
+// all (Philadelphia's Atlantic City Line terminus) go in the client-side
+// STOP_ABBR/NJT_STOP_ABBR maps instead, alongside their other overrides.
 function njtDisplayStationName(name) {
   return (name || "").replace(/ (TRANSIT CENTER|UPPER LEVEL|LOWER LEVEL)$/i, "");
 }
@@ -6090,14 +6093,15 @@ body {
     njt:    { departures: [], arrivals: [], view: "dep", enabled: true, expanded: { dep: false, arr: false } },
   };
 
-  // A few NJT station names are long enough to force the "To"/"From"
-  // column onto a second line on their own — same fix as the NJT board's
-  // own shortStopName. Harmless for Amtrak/LIRR names too (none of them hit
-  // these 3 exact strings, and none end in " Station" either).
+  // A few NJT station names don't read as the place a rider expects at a
+  // glance — same fix as the NJT board's own shortStopName, including the
+  // same lesson: keys are the raw GTFS stop_name exactly as NJT's feed
+  // spells it (all-caps), not a guessed display form. Harmless for
+  // Amtrak/LIRR names too (none of them hit these exact strings, and none
+  // end in " Station" either).
   var STOP_ABBR = {
-    "Montclair State University": "MSU",
-    "Philadelphia 30th St.": "Philadelphia",
-    "Atlantic City Terminal": "Atlantic City",
+    "30TH ST. PHL.": "Philadelphia",
+    "ATLANTIC CITY": "Atlantic City",
   };
   function shortStopName(name) {
     if (!name) return name;
@@ -8389,16 +8393,17 @@ body {
   }
   // Same idea for the destination/origin column. A plain " Station" suffix
   // strip isn't enough on its own — a few real termini among the lines this
-  // board covers are long enough to wrap even alone ("Montclair State
-  // University" is 27 characters) — so the worst offenders get an explicit
-  // short form first (MSU matches NJT's own app), and anything else just
-  // loses its redundant trailing " Station".
+  // board covers don't read as the place a rider expects at all, so those
+  // get an explicit short form first; anything else just loses its
+  // redundant trailing " Station". Keys are the raw GTFS stop_name exactly
+  // as NJT's feed spells it (all-caps, no transform applied before this) —
+  // these previously used guessed names that never matched anything real
+  // and silently never fired.
   var NJT_STOP_ABBR = {
-    "Montclair State University": "MSU",
-    "Philadelphia 30th St.": "Philadelphia",
-    "Atlantic City Terminal": "Atlantic City",
-    "Penn Station New York": "NY Penn",
-    "Hoboken Terminal": "Hoboken",
+    "30TH ST. PHL.": "Philadelphia",
+    "ATLANTIC CITY": "Atlantic City",
+    "NEW YORK PENN STATION": "NY Penn",
+    "HOBOKEN": "Hoboken",
   };
   function shortStopName(name) {
     if (!name) return name;
