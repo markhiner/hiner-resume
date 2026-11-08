@@ -6456,6 +6456,36 @@ body {
   // out to the full route every refresh. Reset to null on a fresh open so
   // each newly-opened train still gets the full wide-then-tight sequence.
   var ttTightBounds = null;
+  // Whether the rider has actually touched this map (pinch/scroll/drag/
+  // double-tap) since it was opened. ttTightBounds alone isn't enough once
+  // that's happened: it's still just the last AUTO-computed target, so
+  // re-applying it on every board refresh was overriding whatever the rider
+  // had deliberately zoomed or panned to moments earlier — the map would
+  // sit still for a couple of seconds and then snap back under them. Once
+  // this is true, a refresh restores the rider's own last view instead of
+  // recomputing anything. Reset to false on a fresh open, same as the two
+  // above.
+  var ttUserAdjustedView = false;
+  // Snapshots the view right before a refresh tears down and rebuilds
+  // #ttMap's Leaflet instance — only once the rider has taken control of it
+  // (see ttUserAdjustedView) — so it can be restored exactly afterward
+  // instead of recomputed.
+  function ttCaptureView() {
+    if (!ttMap || !ttUserAdjustedView) return null;
+    return { center: ttMap.getCenter(), zoom: ttMap.getZoom() };
+  }
+  // A genuine wheel/touch/mouse/double-click gesture on the map container is
+  // unambiguous — unlike Leaflet's zoom/move events, which also fire for
+  // this code's own programmatic fitBounds/setView calls — so this is what
+  // actually flips ttUserAdjustedView, attached fresh to each new map
+  // instance since the refresh cycle replaces the container element too.
+  function ttWatchUserInteraction() {
+    var el = ttMap.getContainer();
+    var mark = function () { ttUserAdjustedView = true; };
+    ["wheel", "touchstart", "mousedown", "dblclick"].forEach(function (evt) {
+      el.addEventListener(evt, mark, { passive: true });
+    });
+  }
   // Full route in, then the train's own neighborhood — same few-stations
   // window every operator's map now zooms into 3 seconds after opening.
   // centerIdx is the index (within stops, not the raw station list some
@@ -6619,6 +6649,7 @@ body {
     if (showMap && window.L) {
       setTimeout(function () {
        try {
+        var ttSavedView = ttCaptureView();
         if (ttMap) { ttMap.remove(); ttMap = null; }
         ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
@@ -6678,15 +6709,22 @@ body {
             });
           }
           ttMap.on("zoomend moveend", declutterLabels);
+          ttWatchUserInteraction();
           // Recreated on every refresh, so without this it would land back on
           // the wide fit above every time — jump straight to the tight
-          // framing the 3-second zoom already settled on instead.
-          if (ttTightBounds) {
+          // framing the 3-second zoom already settled on instead. Once the
+          // rider has actually touched the map themselves, their own last
+          // view wins over that recomputed target instead.
+          if (ttSavedView) {
+            ttMap.setView(ttSavedView.center, ttSavedView.zoom, { animate: false });
+          } else if (ttTightBounds) {
             ttMap.fitBounds(ttTightBounds, { padding: [32, 32] });
           } else {
             ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
           }
           declutterLabels();
+        } else if (ttSavedView) {
+          ttMap.setView(ttSavedView.center, ttSavedView.zoom, { animate: false });
         } else if (livePt) {
           ttMap.setView(livePt, 8);
         }
@@ -6773,6 +6811,7 @@ body {
   // same full-route -> (3s) -> train's-neighborhood zoom Amtrak's map does.
   function renderOperatorRouteMap(stations, routeColor, hereCode, vehicle, centerIdx) {
     ttRouteColor = routeColor;
+    var ttSavedView = ttCaptureView();
     if (ttMap) { ttMap.remove(); ttMap = null; }
     ttStopMarkers = {};
     ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
@@ -6817,12 +6856,17 @@ body {
     var tightBounds = routeStops.length ? tightBoundsAround(routeStops, routeCenterIdx, livePt) : null;
     if (latlngs.length >= 2) {
       ttMap.on("zoomend moveend", declutterLabels);
-      if (ttTightBounds) {
+      ttWatchUserInteraction();
+      if (ttSavedView) {
+        ttMap.setView(ttSavedView.center, ttSavedView.zoom, { animate: false });
+      } else if (ttTightBounds) {
         ttMap.fitBounds(ttTightBounds, { padding: [32, 32] });
       } else {
         ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
       }
       declutterLabels();
+    } else if (ttSavedView) {
+      ttMap.setView(ttSavedView.center, ttSavedView.zoom, { animate: false });
     } else if (livePt) {
       ttMap.setView(livePt, 11);
     }
@@ -6951,6 +6995,7 @@ body {
     document.body.style.overflow = "hidden";
     ttMapJustOpened = true;
     ttTightBounds = null;
+    ttUserAdjustedView = false;
     var list = event === "dep" ? BOARDS[board].departures : BOARDS[board].arrivals;
     var row = list[idx];
     if (row) renderDetailForBoard(board, row);
@@ -7691,6 +7736,23 @@ body {
   var ttMap = null, ttMarker = null;
   var ttMapJustOpened = false;
   var ttTightBounds = null;
+  // Whether the rider has actually touched this map (pinch/scroll/drag/
+  // double-tap) since it was opened — once true, a board-refresh re-render
+  // restores the rider's own last view instead of re-applying ttTightBounds,
+  // which was otherwise overriding whatever they'd deliberately zoomed or
+  // panned to moments earlier.
+  var ttUserAdjustedView = false;
+  function ttCaptureView() {
+    if (!ttMap || !ttUserAdjustedView) return null;
+    return { center: ttMap.getCenter(), zoom: ttMap.getZoom() };
+  }
+  function ttWatchUserInteraction() {
+    var el = ttMap.getContainer();
+    var mark = function () { ttUserAdjustedView = true; };
+    ["wheel", "touchstart", "mousedown", "dblclick"].forEach(function (evt) {
+      el.addEventListener(evt, mark, { passive: true });
+    });
+  }
   // Full route in, then the train's own neighborhood — same window every
   // operator's map zooms into 3 seconds after opening. centerIdx is the
   // index (within stops) of the stop nearest the train right now;
@@ -7844,6 +7906,7 @@ body {
     if (showMap && window.L) {
       setTimeout(function () {
        try {
+        var ttSavedView = ttCaptureView();
         if (ttMap) { ttMap.remove(); ttMap = null; }
         ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(ttMap);
@@ -7883,12 +7946,17 @@ body {
             });
           }
           ttMap.on("zoomend moveend", declutterLabels);
-          if (ttTightBounds) {
+          ttWatchUserInteraction();
+          if (ttSavedView) {
+            ttMap.setView(ttSavedView.center, ttSavedView.zoom, { animate: false });
+          } else if (ttTightBounds) {
             ttMap.fitBounds(ttTightBounds, { padding: [32, 32] });
           } else {
             ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
           }
           declutterLabels();
+        } else if (ttSavedView) {
+          ttMap.setView(ttSavedView.center, ttSavedView.zoom, { animate: false });
         } else if (livePt) {
           ttMap.setView(livePt, 8);
         }
@@ -7925,6 +7993,7 @@ body {
     document.body.style.overflow = "hidden";
     ttMapJustOpened = true;
     ttTightBounds = null;
+    ttUserAdjustedView = false;
     var list = event === "dep" ? state.departures : state.arrivals;
     var row = list[idx];
     if (row) renderAmtrakDetail(row);
@@ -8602,6 +8671,23 @@ body {
   // resetting back out to the wide route view. Reset to null on a fresh
   // open so each newly-opened train gets the full wide-then-tight sequence.
   var ttTightBounds = null;
+  // Whether the rider has actually touched this map (pinch/scroll/drag/
+  // double-tap) since it was opened — once true, a board-refresh re-render
+  // restores the rider's own last view instead of re-applying ttTightBounds,
+  // which was otherwise overriding whatever they'd deliberately zoomed or
+  // panned to moments earlier.
+  var ttUserAdjustedView = false;
+  function ttCaptureView() {
+    if (!ttMap || !ttUserAdjustedView) return null;
+    return { center: ttMap.getCenter(), zoom: ttMap.getZoom() };
+  }
+  function ttWatchUserInteraction() {
+    var el = ttMap.getContainer();
+    var mark = function () { ttUserAdjustedView = true; };
+    ["wheel", "touchstart", "mousedown", "dblclick"].forEach(function (evt) {
+      el.addEventListener(evt, mark, { passive: true });
+    });
+  }
   function tightBoundsAround(stops, centerIdx, livePt) {
     if (!stops.length) return null;
     var idx = centerIdx == null || centerIdx < 0 ? stops.length - 1 : Math.min(centerIdx, stops.length - 1);
@@ -8763,6 +8849,7 @@ body {
     // via innerHTML above) before Leaflet tries to measure it.
     setTimeout(function () {
       try {
+        var ttSavedView = ttCaptureView();
         if (ttMap) { ttMap.remove(); ttMap = null; }
         ttStopMarkers = {};
         ttMap = L.map("ttMap", { zoomControl: false, attributionControl: false });
@@ -8815,12 +8902,17 @@ body {
         var tightBounds = routeStops.length ? tightBoundsAround(routeStops, routeNextIdx, livePt) : null;
         if (latlngs.length >= 2) {
           ttMap.on("zoomend moveend", declutterLabels);
-          if (ttTightBounds) {
+          ttWatchUserInteraction();
+          if (ttSavedView) {
+            ttMap.setView(ttSavedView.center, ttSavedView.zoom, { animate: false });
+          } else if (ttTightBounds) {
             ttMap.fitBounds(ttTightBounds, { padding: [32, 32] });
           } else {
             ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
           }
           declutterLabels();
+        } else if (ttSavedView) {
+          ttMap.setView(ttSavedView.center, ttSavedView.zoom, { animate: false });
         } else if (livePt) {
           ttMap.setView(livePt, 11);
         }
@@ -8867,6 +8959,7 @@ body {
     document.body.style.overflow = "hidden";
     ttMapJustOpened = true;
     ttTightBounds = null;
+    ttUserAdjustedView = false;
     var row = (event === "dep" ? state.departures : state.arrivals)[idx];
     if (row) renderNjtDetail(row);
   }
@@ -10409,6 +10502,23 @@ const lirrBoardPage = `<!DOCTYPE html>
     // of resetting back out to the wide route view.
     let mapJustOpened = false;
     let tightBoundsCache = null;
+    // Whether the rider has actually touched this map (pinch/scroll/drag/
+    // double-tap) since it was opened — once true, a board-refresh re-render
+    // restores the rider's own last view instead of re-applying
+    // tightBoundsCache, which was otherwise overriding whatever they'd
+    // deliberately zoomed or panned to moments earlier.
+    let userAdjustedView = false;
+    function captureDetailMapView() {
+      if (!detailMapInstance || !userAdjustedView) return null;
+      return { center: detailMapInstance.getCenter(), zoom: detailMapInstance.getZoom() };
+    }
+    function watchDetailMapUserInteraction() {
+      var el = detailMapInstance.getContainer();
+      var mark = function () { userAdjustedView = true; };
+      ["wheel", "touchstart", "mousedown", "dblclick"].forEach(function (evt) {
+        el.addEventListener(evt, mark, { passive: true });
+      });
+    }
     function tightBoundsAround(stops, centerIdx, livePt) {
       if (!stops.length) return null;
       const idx = centerIdx == null || centerIdx < 0 ? stops.length - 1 : Math.min(centerIdx, stops.length - 1);
@@ -10487,6 +10597,7 @@ const lirrBoardPage = `<!DOCTYPE html>
       openTripId = tripId;
       mapJustOpened = true;
       tightBoundsCache = null;
+      userAdjustedView = false;
       document.getElementById("detailOverlay").classList.add("show");
       renderDetail(row);
     }
@@ -10606,6 +10717,7 @@ const lirrBoardPage = `<!DOCTYPE html>
           '</div>';
       }).join("");
 
+      const savedDetailMapView = captureDetailMapView();
       if (detailMapInstance) { detailMapInstance.remove(); detailMapInstance = null; }
       detailMapInstance = L.map("detailMap", { zoomControl: false, attributionControl: false });
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(detailMapInstance);
@@ -10627,11 +10739,16 @@ const lirrBoardPage = `<!DOCTYPE html>
           marker.on("click", () => focusStop(i));
           stopMarkers[i] = marker;
         });
-        if (tightBoundsCache) {
+        watchDetailMapUserInteraction();
+        if (savedDetailMapView) {
+          detailMapInstance.setView(savedDetailMapView.center, savedDetailMapView.zoom, { animate: false });
+        } else if (tightBoundsCache) {
           detailMapInstance.fitBounds(tightBoundsCache, { padding: [32, 32] });
         } else {
           detailMapInstance.fitBounds(L.latLngBounds(pts), { padding: [24, 24] });
         }
+      } else if (savedDetailMapView) {
+        detailMapInstance.setView(savedDetailMapView.center, savedDetailMapView.zoom, { animate: false });
       } else {
         detailMapInstance.setView([40.75, -73.5], 9);
       }
