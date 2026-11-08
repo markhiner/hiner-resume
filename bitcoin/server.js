@@ -3347,6 +3347,23 @@ function loadAmtrakModel() {
     const trip = tripById.get(tripId);
     if (trip && trip.shape_id) usedShapeIds.add(trip.shape_id);
   }
+  // A healthy feed has well over a thousand trips touching a board station,
+  // and hundreds of calendar.txt service_ids — either count being this low
+  // means the on-disk GTFS files are stale or corrupt (say, a prior download
+  // that got truncated partway through) even though they parsed without
+  // throwing. calendar.txt matters on its own: stByTrip is built from
+  // stop_times/trips/routes alone, so a trip can "load" fine while every
+  // service_id it references is missing, which silently makes every trip
+  // look inactive forever (amtrakServiceActive always false) without
+  // stByTrip's own count ever looking wrong. Accepting either case would
+  // quietly zero out the one job this static schedule has: backing up the
+  // board whenever amtraker.com's live feed is down. Throwing here instead
+  // means that shows up as a loud, logged failure (caught by the caller)
+  // rather than a board that's quietly empty with no error anywhere.
+  if (stByTrip.size < 100 || calendarById.size < 20) {
+    throw new Error(`Amtrak static GTFS looks stale or corrupt (${stByTrip.size} trips, ${calendarById.size} calendar entries) — refusing to use it`);
+  }
+
   const shapeById = loadAmtrakShapes(usedShapeIds);
 
   amtrakModel = { stopNameById, routeById, tripById, stByTrip, calendarById, shapeById };
@@ -3638,15 +3655,21 @@ function lirrPennBoard() {
 async function startAmtrakBoard() {
   await refreshAmtrakStations();
   setInterval(refreshAmtrakStations, AMTRAK_STATIONS_REFRESH_MS);
-  try {
-    await ensureAmtrakStaticGTFS();
-    loadAmtrakModel();
-    setInterval(() => {
-      ensureAmtrakStaticGTFS().then(loadAmtrakModel).catch((e) => console.error("Amtrak static GTFS refresh failed:", e.message));
-    }, AMTRAK_STATIC_REFRESH_MS);
-  } catch (e) {
-    console.error("Amtrak static schedule failed to load (board will be live-only):", e.message);
-  }
+  const loadStaticSchedule = async () => {
+    try {
+      await ensureAmtrakStaticGTFS();
+      loadAmtrakModel();
+    } catch (e) {
+      console.error("Amtrak static schedule failed to load (board will be live-only):", e.message);
+      // Whatever's on disk just failed to produce a usable model — force a
+      // real re-download on the next attempt instead of silently reusing the
+      // same stale/corrupt files for a full day under the normal freshness
+      // window.
+      try { fs.unlinkSync(path.join(AMTRAK_CACHE_DIR, ".fetched-at")); } catch {}
+    }
+  };
+  await loadStaticSchedule();
+  setInterval(loadStaticSchedule, AMTRAK_STATIC_REFRESH_MS);
   await refreshAmtrakBoard();
   amtrakBoardWarmedUp = true;
   setInterval(refreshAmtrakBoard, AMTRAK_REFRESH_MS);
@@ -4713,6 +4736,15 @@ function njtActiveTrains(nowMs) {
   return trains;
 }
 
+// NJT's GTFS stop names carry generic suffixes ("TRANSIT CENTER", "UPPER
+// LEVEL", "LOWER LEVEL") that are real information in a stop-by-stop route
+// list but just get truncated off in the board's single-line destination
+// column ("TRENTON TRANSIT ..." instead of "TRENTON") — stripped only where
+// that column actually renders the name, not in the fuller stop list.
+function njtDisplayStationName(name) {
+  return (name || "").replace(/ (TRANSIT CENTER|UPPER LEVEL|LOWER LEVEL)$/i, "");
+}
+
 // The static schedule checks yesterday/today/tomorrow's service calendar for
 // each trip (a weekday trip's service_id is typically active on all three),
 // so a merge step below keeps whichever candidate is closest to right now —
@@ -4762,11 +4794,11 @@ function njtScheduleEntries(now, stationId) {
       };
       if (idx > 0) {
         const from = stations[0];
-        entries.push({ ...common, event: "arr", other: from.name, schedMs: at.schedArrMs, atMs: at.arrMs != null ? at.arrMs : at.schedArrMs });
+        entries.push({ ...common, event: "arr", other: njtDisplayStationName(from.name), schedMs: at.schedArrMs, atMs: at.arrMs != null ? at.arrMs : at.schedArrMs });
       }
       if (idx < stations.length - 1) {
         const to = stations[stations.length - 1];
-        entries.push({ ...common, event: "dep", other: to.name, schedMs: at.schedDepMs, atMs: at.depMs != null ? at.depMs : at.schedDepMs });
+        entries.push({ ...common, event: "dep", other: njtDisplayStationName(to.name), schedMs: at.schedDepMs, atMs: at.depMs != null ? at.depMs : at.schedDepMs });
       }
     }
   }
