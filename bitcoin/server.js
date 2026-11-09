@@ -6580,7 +6580,6 @@ body {
         '<div class="stop-times">' + (timesHTML || "&mdash;") + '</div>' +
       '</div>';
     }).join("");
-    scrollStopsIntoView(nextIdx);
   }
 
   // Auto-positions the sheet (map + stops share one scroll container) so
@@ -6746,15 +6745,15 @@ body {
         // yank the view out from under someone still looking at it.
         if (ttMapJustOpened) {
           ttMapJustOpened = false;
-          if (tightBounds) {
-            var mapAtOpen = ttMap;
-            setTimeout(function () {
-              if (ttMap === mapAtOpen) {
-                ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
-                ttTightBounds = tightBounds;
-              }
-            }, 2000);
-          }
+          var mapAtOpen = ttMap;
+          setTimeout(function () {
+            if (ttMap !== mapAtOpen) return;
+            scrollStopsIntoView(nextIdx);
+            if (tightBounds) {
+              ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
+              ttTightBounds = tightBounds;
+            }
+          }, 2000);
         }
        } catch (e) {
         // Anything thrown anywhere above (bad shape data, a stale map
@@ -6766,6 +6765,12 @@ body {
         console.error("Train detail map failed to build:", e);
        }
       }, 0);
+    } else if (ttMapJustOpened) {
+      // No map to show first here, so nothing to wait on — but still only
+      // on a fresh open, same rule as everywhere else: a periodic refresh
+      // must never re-scroll out from under someone still reading.
+      ttMapJustOpened = false;
+      scrollStopsIntoView(nextIdx);
     }
   }
 
@@ -6883,15 +6888,15 @@ body {
     // re-rendering an already-open sheet must never yank the view.
     if (ttMapJustOpened) {
       ttMapJustOpened = false;
-      if (tightBounds) {
-        var mapAtOpen = ttMap;
-        setTimeout(function () {
-          if (ttMap === mapAtOpen) {
-            ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
-            ttTightBounds = tightBounds;
-          }
-        }, 2000);
-      }
+      var mapAtOpen = ttMap;
+      setTimeout(function () {
+        if (ttMap !== mapAtOpen) return;
+        scrollStopsIntoView(centerIdx);
+        if (tightBounds) {
+          ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
+          ttTightBounds = tightBounds;
+        }
+      }, 2000);
     }
   }
 
@@ -6923,7 +6928,10 @@ body {
       return [stopTimeHTML("Arr", s.schedArrMs, s.arrMs), stopTimeHTML("Dep", s.schedDepMs, s.depMs)].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
     });
 
-    if (!showMap || !window.L) return;
+    if (!showMap || !window.L) {
+      if (ttMapJustOpened) { ttMapJustOpened = false; scrollStopsIntoView(nextIdx); }
+      return;
+    }
     setTimeout(function () {
       try {
         renderOperatorRouteMap(row.stations, "#" + standardizeLineColor("njt", row.color || "0039a6"), "${NJT_DEFAULT_STATION}", hasVehicle ? row.vehicle : null, nextIdx);
@@ -6965,7 +6973,10 @@ body {
       return [stopTimeHTML("Arr", s.schedArrMs, s.arrMs), stopTimeHTML("Dep", s.schedDepMs, s.depMs)].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
     });
 
-    if (!showMap || !window.L) return;
+    if (!showMap || !window.L) {
+      if (ttMapJustOpened) { ttMapJustOpened = false; scrollStopsIntoView(nextIdx); }
+      return;
+    }
     setTimeout(function () {
       try {
         renderOperatorRouteMap(row.stations, "#" + standardizeLineColor("lirr", row.color || "6a6a6a"), PENN_LIRR_STOP_ID, hasVehicle ? row.vehicle : null, nextIdx);
@@ -7840,7 +7851,6 @@ body {
         '<div class="stop-times">' + (timesHTML || "&mdash;") + '</div>' +
       '</div>';
     }).join("");
-    scrollStopsIntoView(nextIdx);
   }
 
   // Auto-positions the sheet (map + stops share one scroll container) so
@@ -7970,20 +7980,23 @@ body {
 
         if (ttMapJustOpened) {
           ttMapJustOpened = false;
-          if (tightBounds) {
-            var mapAtOpen = ttMap;
-            setTimeout(function () {
-              if (ttMap === mapAtOpen) {
-                ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
-                ttTightBounds = tightBounds;
-              }
-            }, 2000);
-          }
+          var mapAtOpen = ttMap;
+          setTimeout(function () {
+            if (ttMap !== mapAtOpen) return;
+            scrollStopsIntoView(nextIdx);
+            if (tightBounds) {
+              ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
+              ttTightBounds = tightBounds;
+            }
+          }, 2000);
         }
        } catch (e) {
         console.error("Train detail map failed to build:", e);
        }
       }, 0);
+    } else if (ttMapJustOpened) {
+      ttMapJustOpened = false;
+      scrollStopsIntoView(nextIdx);
     }
   }
 
@@ -8771,7 +8784,6 @@ body {
         '<div class="stop-times">' + (timesHTML || "&mdash;") + '</div>' +
       '</div>';
     }).join("");
-    scrollStopsIntoView(nextIdx);
   }
 
   // Auto-positions the sheet (map + stops share one scroll container) so
@@ -8844,7 +8856,10 @@ body {
       return [stopTimeHTML("Arr", s.schedArrMs, s.arrMs), stopTimeHTML("Dep", s.schedDepMs, s.depMs)].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
     });
 
-    if (!showMap || !window.L) return;
+    if (!showMap || !window.L) {
+      if (ttMapJustOpened) { ttMapJustOpened = false; scrollStopsIntoView(nextIdx); }
+      return;
+    }
     // Deferred a tick so #ttMap actually exists in the DOM (it was just set
     // via innerHTML above) before Leaflet tries to measure it.
     setTimeout(function () {
@@ -8937,15 +8952,15 @@ body {
         // board's map. Only on the tap that opened the sheet.
         if (ttMapJustOpened) {
           ttMapJustOpened = false;
-          if (tightBounds) {
-            var mapAtOpen = ttMap;
-            setTimeout(function () {
-              if (ttMap === mapAtOpen) {
-                ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
-                ttTightBounds = tightBounds;
-              }
-            }, 2000);
-          }
+          var mapAtOpen = ttMap;
+          setTimeout(function () {
+            if (ttMap !== mapAtOpen) return;
+            scrollStopsIntoView(nextIdx);
+            if (tightBounds) {
+              ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
+              ttTightBounds = tightBounds;
+            }
+          }, 2000);
         }
       } catch (e) {
         console.error("NJT train detail map failed to build:", e);
