@@ -3542,10 +3542,32 @@ function amtrakBoardRow(entry, nowMs, companionDep) {
   if (passed) state = entry.event === "dep" ? "departed" : "arrived";
   else if (entry.live === false) state = "scheduled"; // on the printed timetable, not live-tracked yet
   else state = entry.atMs - entry.schedMs > AMTRAK_DELAY_THRESHOLD_MS ? "delayed" : "on-time";
+
+  // amtraker.com occasionally reports a GPS fix that's just stuck at an
+  // earlier stop (the train's actual per-stop arrival/departure times keep
+  // moving normally, but lat/lon never updates past, say, its origin) — the
+  // live dot then sits a city away from where the train's own schedule says
+  // it actually is. amtrakEstimatePosition gives an independent, actual-
+  // time estimate; when the two disagree by more than a sane GPS-lag
+  // margin, the live fix is almost certainly stale, so this falls back to
+  // that estimate instead (flagged the same way NJT already flags its own
+  // estimated positions) rather than show something visibly wrong on the
+  // map.
+  const AMTRAK_LIVE_FIX_SANITY_MILES = 50;
+  let lat = entry.lat, lon = entry.lon, estimated = false;
+  if (entry.live && lat != null && lon != null) {
+    const interp = amtrakEstimatePosition(entry, nowMs);
+    if (interp && haversineMiles(lat, lon, interp[0], interp[1]) > AMTRAK_LIVE_FIX_SANITY_MILES) {
+      lat = interp[0];
+      lon = interp[1];
+      estimated = true;
+    }
+  }
+
   return {
     trainNum: entry.trainNum, trainID: entry.trainID, routeName: amtrakDisplayRouteName(entry.routeName),
-    color: entry.color, textColor: entry.textColor, lat: entry.lat, lon: entry.lon,
-    velocity: entry.velocity, heading: entry.heading,
+    color: entry.color, textColor: entry.textColor, lat, lon, estimated,
+    velocity: estimated ? null : entry.velocity, heading: estimated ? null : entry.heading,
     other: entry.other, schedMs: entry.schedMs, atMs: entry.atMs, track: entry.track,
     state, stations: entry.stations, shape: entry.shape || null,
     serviceType: amtrakServiceType(entry.routeName),
@@ -3790,6 +3812,49 @@ function trainPositionOnShape(entry, nowMs) {
   }
 
   return null;
+}
+
+// trainPositionOnShape only resolves a position while the train is strictly
+// between two stops' own ACTUAL times (depMs of one, arrMs of the next) —
+// it comes back empty while a train is dwelling at a stop (arrived but not
+// yet past its own recorded departure, which amtraker.com sometimes pads
+// well past when it realistically should have left) or when a stop's
+// actual times are missing. positionPillHTML's "Between X and Y" already
+// has to handle exactly that with a looser, arrival-only rule — this uses
+// the same rule to fall back to a straight line between those same two
+// stops, so the two never disagree about which segment the train is in.
+function amtrakEstimatePosition(entry, nowMs) {
+  const shaped = trainPositionOnShape(entry, nowMs);
+  if (shaped) return shaped;
+  const stations = entry.stations;
+  if (!stations || stations.length < 2) return null;
+  let nextIdx = -1;
+  for (let i = 0; i < stations.length; i++) {
+    const ref = stations[i].arrMs != null ? stations[i].arrMs : stations[i].depMs;
+    if (ref == null || nowMs < ref) { nextIdx = i; break; }
+  }
+  if (nextIdx <= 0 || nextIdx >= stations.length) return null;
+  const prev = stations[nextIdx - 1], next = stations[nextIdx];
+  if (prev.lat == null || next.lat == null) return null;
+  const prevMs = prev.depMs != null ? prev.depMs : prev.arrMs;
+  const nextMs = next.arrMs != null ? next.arrMs : next.schedArrMs;
+  if (prevMs == null || nextMs == null || nextMs <= prevMs) {
+    // No usable timing to interpolate with — the midpoint is still a far
+    // better guess than a GPS fix that's a whole state away.
+    return [(prev.lat + next.lat) / 2, (prev.lon + next.lon) / 2];
+  }
+  const progress = Math.max(0, Math.min(1, (nowMs - prevMs) / (nextMs - prevMs)));
+  return [prev.lat + (next.lat - prev.lat) * progress, prev.lon + (next.lon - prev.lon) * progress];
+}
+
+// Great-circle distance in miles — only ever used to sanity-check a live GPS
+// fix against where the train ought to be, so it doesn't need to be exact.
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  const R = 3958.8;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 // Convert compass direction to bearing (0-360 degrees)
@@ -6729,11 +6794,15 @@ body {
         }
 
         // the train's own live GPS — bigger and higher-contrast than the
-        // fixed route dots, so it reads as "the one that moves" at a glance
+        // fixed route dots, so it reads as "the one that moves" at a glance.
+        // When amtraker.com's own fix looked stale (way off the train's
+        // schedule-timed position), the server substitutes an interpolated
+        // estimate instead — labeled "Estimated" rather than "Live" so it's
+        // never mistaken for a real fix, same convention NJT uses.
         if (livePt) {
           L.circleMarker(livePt, { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
           ttMarker = L.circleMarker(livePt, { radius: 9, color: "#000", weight: 2.5, fillColor: AMTRAK_LIVE_COLOR, fillOpacity: 1 })
-            .bindTooltip("Live position", { direction: "top" })
+            .bindTooltip(row.estimated ? "Estimated position" : "Live position", { direction: "top" })
             .addTo(ttMap);
         }
 
@@ -7974,7 +8043,7 @@ body {
         if (livePt) {
           L.circleMarker(livePt, { radius: 13, color: "#ffffff", weight: 0, fillColor: "#ffffff", fillOpacity: 1 }).addTo(ttMap);
           ttMarker = L.circleMarker(livePt, { radius: 9, color: "#000", weight: 2.5, fillColor: AMTRAK_LIVE_COLOR, fillOpacity: 1 })
-            .bindTooltip("Live position", { direction: "top" })
+            .bindTooltip(row.estimated ? "Estimated position" : "Live position", { direction: "top" })
             .addTo(ttMap);
         }
 
