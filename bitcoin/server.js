@@ -6082,7 +6082,7 @@ body {
 .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; opacity: 1; }
 .train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
 .train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
-.train-status-badge.verylate { background: rgba(239,68,68,0.25); color: #ffe1e1; }
+.train-status-badge.verylate { background: #ef4444; color: #fff; }
 .train-status-badge.gone { background: rgba(255,255,255,0.12); color: #fff; opacity: 0.75; font-style: italic; text-transform: none; }
 .train-detail-position {
   font-size: 12px; color: #fff; font-weight: 600; margin-top: 8px;
@@ -6693,8 +6693,15 @@ body {
   function positionPillHTML(stations, nextIdx) {
     if (!stations || !stations.length) return "";
     if (nextIdx === -1) return "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
-    if (nextIdx === 0) return "Not yet departed <b>" + esc(stations[0].name) + "</b>";
-    var prev = stations[nextIdx - 1], next = stations[nextIdx];
+    var next = stations[nextIdx];
+    // "Station" (Amtrak's own status, when reported) means it's sitting
+    // right there, not yet gone — same wording nextIdx === 0 already used
+    // for a train that hasn't even left its origin yet. NJT/LIRR stops
+    // never carry a status field, so this falls back to the old
+    // origin-only check for them, unchanged.
+    var atStation = next.status != null ? next.status === "Station" : nextIdx === 0;
+    if (atStation) return "Not yet departed <b>" + esc(next.name) + "</b>";
+    var prev = stations[Math.max(0, nextIdx - 1)];
     var eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
     return "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " &middot; due " + fmtBoardTime(eta) : "");
   }
@@ -6748,6 +6755,36 @@ body {
     return { arr: arr, dep: dep };
   }
 
+  // Amtrak's own per-stop status ("Departed"/"Station"/"Enroute") is
+  // authoritative when present — a train can keep sitting at a platform
+  // well past its own estimated departure time (a growing real-world delay
+  // that hasn't been folded into a new depMs estimate yet shows as "Station"
+  // the whole time it's happening), which comparing timestamps to now alone
+  // can't tell apart from having actually left. Falls back to the old
+  // timestamp comparison only when a stop carries no status at all.
+  function amtrakNextIdx(stations, now) {
+    if (!stations || !stations.length) return -1;
+    for (var ni = 0; ni < stations.length; ni++) {
+      var s = stations[ni];
+      var isLast = ni === stations.length - 1;
+      if (isLast) {
+        var arrived = s.status != null ? s.status !== "Enroute" : (function () {
+          var b = stopBest(s);
+          var ref = b.arr != null ? b.arr : b.dep;
+          return ref != null && now >= ref;
+        })();
+        return arrived ? -1 : ni;
+      }
+      var stillHere = s.status != null ? s.status !== "Departed" : (function () {
+        var b = stopBest(s);
+        var ref = b.arr != null ? b.arr : b.dep;
+        return ref == null || now < ref;
+      })();
+      if (stillHere) return ni;
+    }
+    return -1;
+  }
+
   // Amtrak's own iconColor field turns out to be a timeliness indicator
   // (green-ish on time, orange/red the more delayed, dark otherwise) rather
   // than a stable route/brand color — using it for the map meant the
@@ -6762,17 +6799,10 @@ body {
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
     var showMap = routeStops.length >= 2 || (row.lat != null && row.lon != null);
 
-    // The first stop with no arrival yet (or none confirmed) is "next" —
-    // everything before it is done, everything after is still ahead.
+    // The first stop not yet actually departed is "next" — everything
+    // before it is done, everything after is still ahead.
     var now = Date.now();
-    var nextIdx = -1;
-    if (row.stations && row.stations.length) {
-      for (var ni = 0; ni < row.stations.length; ni++) {
-        var best = stopBest(row.stations[ni]);
-        var ref = best.arr != null ? best.arr : best.dep;
-        if (ref == null || now < ref) { nextIdx = ni; break; }
-      }
-    }
+    var nextIdx = amtrakNextIdx(row.stations, now);
     var delayMin = stopDelayMin(row.schedMs, row.atMs);
     var speedBit = row.velocity != null
       ? " &middot; " + Math.round(row.velocity) + " mph" + (row.heading ? " " + esc(row.heading) : "")
@@ -7502,7 +7532,7 @@ body {
 .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; opacity: 1; }
 .train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
 .train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
-.train-status-badge.verylate { background: rgba(239,68,68,0.25); color: #ffe1e1; }
+.train-status-badge.verylate { background: #ef4444; color: #fff; }
 .train-status-badge.gone { background: rgba(255,255,255,0.12); color: #fff; opacity: 0.75; font-style: italic; text-transform: none; }
 .train-detail-position {
   font-size: 12px; color: #fff; font-weight: 600; margin-top: 8px;
@@ -8035,8 +8065,15 @@ body {
   function positionPillHTML(stations, nextIdx) {
     if (!stations || !stations.length) return "";
     if (nextIdx === -1) return "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
-    if (nextIdx === 0) return "Not yet departed <b>" + esc(stations[0].name) + "</b>";
-    var prev = stations[nextIdx - 1], next = stations[nextIdx];
+    var next = stations[nextIdx];
+    // "Station" (Amtrak's own status, when reported) means it's sitting
+    // right there, not yet gone — same wording nextIdx === 0 already used
+    // for a train that hasn't even left its origin yet. NJT/LIRR stops
+    // never carry a status field, so this falls back to the old
+    // origin-only check for them, unchanged.
+    var atStation = next.status != null ? next.status === "Station" : nextIdx === 0;
+    if (atStation) return "Not yet departed <b>" + esc(next.name) + "</b>";
+    var prev = stations[Math.max(0, nextIdx - 1)];
     var eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
     return "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " &middot; due " + fmtBoardTime(eta) : "");
   }
@@ -8081,6 +8118,36 @@ body {
     return { arr: arr, dep: dep };
   }
 
+  // Amtrak's own per-stop status ("Departed"/"Station"/"Enroute") is
+  // authoritative when present — a train can keep sitting at a platform
+  // well past its own estimated departure time (a growing real-world delay
+  // that hasn't been folded into a new depMs estimate yet shows as "Station"
+  // the whole time it's happening), which comparing timestamps to now alone
+  // can't tell apart from having actually left. Falls back to the old
+  // timestamp comparison only when a stop carries no status at all.
+  function amtrakNextIdx(stations, now) {
+    if (!stations || !stations.length) return -1;
+    for (var ni = 0; ni < stations.length; ni++) {
+      var s = stations[ni];
+      var isLast = ni === stations.length - 1;
+      if (isLast) {
+        var arrived = s.status != null ? s.status !== "Enroute" : (function () {
+          var b = stopBest(s);
+          var ref = b.arr != null ? b.arr : b.dep;
+          return ref != null && now >= ref;
+        })();
+        return arrived ? -1 : ni;
+      }
+      var stillHere = s.status != null ? s.status !== "Departed" : (function () {
+        var b = stopBest(s);
+        var ref = b.arr != null ? b.arr : b.dep;
+        return ref == null || now < ref;
+      })();
+      if (stillHere) return ni;
+    }
+    return -1;
+  }
+
   // Amtrak's own iconColor field is a timeliness indicator (green-ish on
   // time, orange/red the more delayed) rather than a stable route/brand
   // color — the map uses Amtrak's own brand red instead, always; the live
@@ -8107,14 +8174,7 @@ body {
     var showMap = routeStops.length >= 2 || (row.lat != null && row.lon != null);
 
     var now = Date.now();
-    var nextIdx = -1;
-    if (row.stations && row.stations.length) {
-      for (var ni = 0; ni < row.stations.length; ni++) {
-        var best = stopBest(row.stations[ni]);
-        var ref = best.arr != null ? best.arr : best.dep;
-        if (ref == null || now < ref) { nextIdx = ni; break; }
-      }
-    }
+    var nextIdx = amtrakNextIdx(row.stations, now);
     var delayMin = stopDelayMin(row.schedMs, row.atMs);
     var speedBit = row.velocity != null
       ? " &middot; " + Math.round(row.velocity) + " mph" + (row.heading ? " " + esc(row.heading) : "")
@@ -8500,7 +8560,7 @@ body {
 .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; opacity: 1; }
 .train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
 .train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
-.train-status-badge.verylate { background: rgba(239,68,68,0.25); color: #ffe1e1; }
+.train-status-badge.verylate { background: #ef4444; color: #fff; }
 .train-status-badge.gone { background: rgba(255,255,255,0.12); color: #fff; opacity: 0.75; font-style: italic; text-transform: none; }
 .train-detail-position {
   font-size: 12px; color: #fff; font-weight: 600; margin-top: 8px;
@@ -8974,8 +9034,15 @@ body {
   function positionPillHTML(stations, nextIdx) {
     if (!stations || !stations.length) return "";
     if (nextIdx === -1) return "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
-    if (nextIdx === 0) return "Not yet departed <b>" + esc(stations[0].name) + "</b>";
-    var prev = stations[nextIdx - 1], next = stations[nextIdx];
+    var next = stations[nextIdx];
+    // "Station" (Amtrak's own status, when reported) means it's sitting
+    // right there, not yet gone — same wording nextIdx === 0 already used
+    // for a train that hasn't even left its origin yet. NJT/LIRR stops
+    // never carry a status field, so this falls back to the old
+    // origin-only check for them, unchanged.
+    var atStation = next.status != null ? next.status === "Station" : nextIdx === 0;
+    if (atStation) return "Not yet departed <b>" + esc(next.name) + "</b>";
+    var prev = stations[Math.max(0, nextIdx - 1)];
     var eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
     return "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " &middot; due " + fmtBoardTime(eta) : "");
   }
@@ -9285,7 +9352,7 @@ const njtMapPage = `<!DOCTYPE html>
   .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; }
   .train-status-badge.ontime { background: rgba(34,197,94,0.16); color: var(--green); }
   .train-status-badge.late { background: rgba(245,197,24,0.18); color: var(--yellow); }
-  .train-status-badge.verylate { background: rgba(239,68,68,0.18); color: var(--red); }
+  .train-status-badge.verylate { background: #ef4444; color: #fff; }
   .train-detail-position {
     font-size: 12px; color: var(--text1); font-weight: 600; margin-top: 6px;
     background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
@@ -9679,7 +9746,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
   .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; }
   .train-status-badge.ontime { background: rgba(34,197,94,0.16); color: var(--green); }
   .train-status-badge.late { background: rgba(245,197,24,0.18); color: var(--yellow); }
-  .train-status-badge.verylate { background: rgba(239,68,68,0.18); color: var(--red); }
+  .train-status-badge.verylate { background: #ef4444; color: #fff; }
   .train-detail-position {
     font-size: 12px; color: var(--text1); font-weight: 600; margin-top: 6px;
     background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
@@ -10001,7 +10068,7 @@ const lirrMapPage = `<!DOCTYPE html>
   .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; }
   .train-status-badge.ontime { background: rgba(34,197,94,0.16); color: var(--green); }
   .train-status-badge.late { background: rgba(245,197,24,0.18); color: var(--yellow); }
-  .train-status-badge.verylate { background: rgba(239,68,68,0.18); color: var(--red); }
+  .train-status-badge.verylate { background: #ef4444; color: #fff; }
   .train-detail-position {
     font-size: 12px; color: var(--text1); font-weight: 600; margin-top: 6px;
     background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
@@ -10484,7 +10551,7 @@ const lirrBoardPage = `<!DOCTYPE html>
   .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; }
   .train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
   .train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
-  .train-status-badge.verylate { background: rgba(239,68,68,0.25); color: #ffe1e1; }
+  .train-status-badge.verylate { background: #ef4444; color: #fff; }
   .train-status-badge.gone { background: rgba(255,255,255,0.12); color: #fff; opacity: 0.75; font-style: italic; text-transform: none; }
   .detail-map { height: 38vh; flex-shrink: 0; background: #111; }
   .detail-stops { flex: 1; overflow-y: auto; }
