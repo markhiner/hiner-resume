@@ -5020,6 +5020,10 @@ const ACTIVITY_LOG_SKIP = new Set([
   "/lirrherotrain.png", "/njtherotrain.png",
 ]);
 
+// Sibling to this file's own bitcoin/ folder, at the repo root — the
+// Amtrak detail-sheet header photo pool (IMG_xxxx.jpg, dropped in by hand).
+const AMTRAK_PHOTOS_DIR = path.join(__dirname, "..", "Amtrak");
+
 // Ordered path -> module rules, most specific first (so e.g. a Kalshi
 // route is claimed before the generic BTC-ticker catch-all at the
 // bottom). A pathname is classified by the first rule it matches.
@@ -5064,7 +5068,7 @@ function logActivity(module, method, pathname, search, status, ip) {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  if (!ACTIVITY_LOG_SKIP.has(url.pathname)) {
+  if (!ACTIVITY_LOG_SKIP.has(url.pathname) && !url.pathname.startsWith("/amtrak-photos/")) {
     const module = classifyActivityModule(url.pathname);
     const ip = activityClientIp(req);
     const origEnd = res.end.bind(res);
@@ -5173,6 +5177,34 @@ const server = http.createServer((req, res) => {
     fs.readFile(path.join(__dirname, path.basename(url.pathname)), (err, buf) => {
       if (err) { res.writeHead(404); res.end(); return; }
       res.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "public, max-age=3600" });
+      res.end(buf);
+    });
+    return;
+  }
+
+  // Amtrak detail-sheet header photos, dropped in as IMG_xxxx.jpg (or .png)
+  // in an Amtrak/ folder beside this repo's bitcoin/ folder. Read fresh each
+  // time rather than listed at boot, so adding/removing one is just a file
+  // copy — no restart.
+  if (url.pathname === "/api/amtrak-photos") {
+    let photos = [];
+    try {
+      photos = fs.readdirSync(AMTRAK_PHOTOS_DIR).filter((f) => /\.(jpe?g|png)$/i.test(f)).sort();
+    } catch (e) { photos = []; }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ photos }));
+    return;
+  }
+  // Whitelisted by shape and reduced to a basename, so nothing outside
+  // AMTRAK_PHOTOS_DIR is reachable through it.
+  if (/^\/amtrak-photos\/[^\/]+\.(jpe?g|png)$/i.test(url.pathname)) {
+    const base = path.basename(decodeURIComponent(url.pathname));
+    fs.readFile(path.join(AMTRAK_PHOTOS_DIR, base), (err, buf) => {
+      if (err) { res.writeHead(404); res.end(); return; }
+      res.writeHead(200, {
+        "Content-Type": path.extname(base).toLowerCase() === ".png" ? "image/png" : "image/jpeg",
+        "Cache-Control": "public, max-age=3600",
+      });
       res.end(buf);
     });
     return;
@@ -6006,6 +6038,20 @@ body {
   clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
   mix-blend-mode: overlay;
 }
+/* Amtrak-only: a header photo picked client-side from the Amtrak/
+   photo pool sits as the element's own (lowest) background layer, with
+   a left-to-right darkening wash baked into the same layer stack so the
+   title/subtitle text (both already z-index:1 with their own
+   text-shadow) stays legible regardless of the photo's own brightness.
+   --tt-photo is only ever set alongside this class, by the same code
+   that picks the photo, so the two never disagree. */
+.tt-head.has-photo {
+  background-image:
+    linear-gradient(100deg, rgba(8,10,16,0.82) 0%, rgba(8,10,16,0.52) 45%, rgba(8,10,16,0.12) 85%),
+    var(--tt-photo);
+  background-size: cover;
+  background-position: center;
+}
 .tt-grip { width: 34px; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.22); margin: 0 auto 10px; position: relative; z-index: 1; }
 .tt-close {
   position: absolute; top: 8px; right: 10px; z-index: 2;
@@ -6497,6 +6543,40 @@ body {
     elTitle.innerHTML = titleHTML;
     elSub.innerHTML = subHTML;
     elPosition.innerHTML = positionHTML || "";
+  }
+  // Amtrak detail-sheet header photo pool — fetched once per page load
+  // from the Amtrak/ folder beside this repo's bitcoin/ folder (see
+  // /api/amtrak-photos); a file dropped in or removed there takes effect
+  // on the next page load, no deploy needed. Empty until the fetch
+  // resolves, which is fine — a sheet opened in that brief window just
+  // shows no photo rather than waiting on it.
+  var ttAmtrakPhotos = [];
+  fetch("/api/amtrak-photos").then(function (r) { return r.json(); }).then(function (d) {
+    ttAmtrakPhotos = (d && d.photos) || [];
+  }).catch(function () {});
+  // The last few photos shown, oldest first — excluded from the next
+  // pick so reopening sheets back-to-back doesn't keep putting the same
+  // one or two back up.
+  var ttPhotoHistory = [];
+  function pickAmtrakPhoto() {
+    if (!ttAmtrakPhotos.length) return null;
+    var avoid = ttPhotoHistory.slice(-Math.min(3, ttAmtrakPhotos.length - 1));
+    var candidates = ttAmtrakPhotos.filter(function (p) { return avoid.indexOf(p) === -1; });
+    if (!candidates.length) candidates = ttAmtrakPhotos;
+    var pick = candidates[Math.floor(Math.random() * candidates.length)];
+    ttPhotoHistory.push(pick);
+    if (ttPhotoHistory.length > 6) ttPhotoHistory.shift();
+    return pick;
+  }
+  function applyAmtrakHeaderPhoto(elHead) {
+    var photo = pickAmtrakPhoto();
+    if (photo) {
+      elHead.classList.add("has-photo");
+      elHead.style.setProperty("--tt-photo", 'url("/amtrak-photos/' + encodeURIComponent(photo) + '")');
+    } else {
+      elHead.classList.remove("has-photo");
+      elHead.style.removeProperty("--tt-photo");
+    }
   }
   var openTrain = null; // { event, idx } — kept so a live poll can re-render it
   var ttMap = null, ttMarker = null;
@@ -7062,11 +7142,27 @@ body {
   // rows from its own one system.
   function renderDetailForBoard(board, row) {
     var accent = rowAccentColors(board, row);
-    document.getElementById("ttHead").style.setProperty("--tt-accent", accent.bg);
-    document.getElementById("ttHead").style.setProperty("--tt-head-fg", accent.fg);
-    if (board === "njt") renderNjtDetail(row);
-    else if (board === "lirr") renderLirrDetail(row);
-    else renderAmtrakDetail(row);
+    var elHead = document.getElementById("ttHead");
+    elHead.style.setProperty("--tt-accent", accent.bg);
+    elHead.style.setProperty("--tt-head-fg", accent.fg);
+    if (board === "njt") {
+      elHead.classList.remove("has-photo");
+      elHead.style.removeProperty("--tt-photo");
+      renderNjtDetail(row);
+    } else if (board === "lirr") {
+      elHead.classList.remove("has-photo");
+      elHead.style.removeProperty("--tt-photo");
+      renderLirrDetail(row);
+    } else {
+      // A live board refresh re-renders whichever sheet is already open
+      // through this same path, so the photo is only (re)picked on a
+      // genuinely fresh tap — ttMapJustOpened is already exactly that
+      // signal, set in openDetail and still true the first time this runs.
+      // Picking again on every refresh would reshuffle the photo out from
+      // under someone mid-read.
+      if (ttMapJustOpened) applyAmtrakHeaderPhoto(elHead);
+      renderAmtrakDetail(row);
+    }
   }
 
   function openDetail(board, event, idx) {
@@ -7361,6 +7457,20 @@ body {
   background: linear-gradient(115deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 38%);
   clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
   mix-blend-mode: overlay;
+}
+/* Amtrak-only: a header photo picked client-side from the Amtrak/
+   photo pool sits as the element's own (lowest) background layer, with
+   a left-to-right darkening wash baked into the same layer stack so the
+   title/subtitle text (both already z-index:1 with their own
+   text-shadow) stays legible regardless of the photo's own brightness.
+   --tt-photo is only ever set alongside this class, by the same code
+   that picks the photo, so the two never disagree. */
+.tt-head.has-photo {
+  background-image:
+    linear-gradient(100deg, rgba(8,10,16,0.82) 0%, rgba(8,10,16,0.52) 45%, rgba(8,10,16,0.12) 85%),
+    var(--tt-photo);
+  background-size: cover;
+  background-position: center;
 }
 .tt-grip { width: 34px; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.22); margin: 0 auto 10px; position: relative; z-index: 1; }
 .tt-close {
@@ -7812,6 +7922,40 @@ body {
     elSub.innerHTML = subHTML;
     elPosition.innerHTML = positionHTML || "";
   }
+  // Amtrak detail-sheet header photo pool — fetched once per page load
+  // from the Amtrak/ folder beside this repo's bitcoin/ folder (see
+  // /api/amtrak-photos); a file dropped in or removed there takes effect
+  // on the next page load, no deploy needed. Empty until the fetch
+  // resolves, which is fine — a sheet opened in that brief window just
+  // shows no photo rather than waiting on it.
+  var ttAmtrakPhotos = [];
+  fetch("/api/amtrak-photos").then(function (r) { return r.json(); }).then(function (d) {
+    ttAmtrakPhotos = (d && d.photos) || [];
+  }).catch(function () {});
+  // The last few photos shown, oldest first — excluded from the next
+  // pick so reopening sheets back-to-back doesn't keep putting the same
+  // one or two back up.
+  var ttPhotoHistory = [];
+  function pickAmtrakPhoto() {
+    if (!ttAmtrakPhotos.length) return null;
+    var avoid = ttPhotoHistory.slice(-Math.min(3, ttAmtrakPhotos.length - 1));
+    var candidates = ttAmtrakPhotos.filter(function (p) { return avoid.indexOf(p) === -1; });
+    if (!candidates.length) candidates = ttAmtrakPhotos;
+    var pick = candidates[Math.floor(Math.random() * candidates.length)];
+    ttPhotoHistory.push(pick);
+    if (ttPhotoHistory.length > 6) ttPhotoHistory.shift();
+    return pick;
+  }
+  function applyAmtrakHeaderPhoto(elHead) {
+    var photo = pickAmtrakPhoto();
+    if (photo) {
+      elHead.classList.add("has-photo");
+      elHead.style.setProperty("--tt-photo", 'url("/amtrak-photos/' + encodeURIComponent(photo) + '")');
+    } else {
+      elHead.classList.remove("has-photo");
+      elHead.style.removeProperty("--tt-photo");
+    }
+  }
   var openTrain = null; // { event, idx } — kept so a live poll can re-render it
   var ttMap = null, ttMarker = null;
   var ttMapJustOpened = false;
@@ -7951,8 +8095,14 @@ body {
     // train actually is).
     var accentBg = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
     var accentFg = isYellowish(accentBg.replace("#", "").toLowerCase()) ? "#121212" : "#ffffff";
-    document.getElementById("ttHead").style.setProperty("--tt-accent", accentBg);
-    document.getElementById("ttHead").style.setProperty("--tt-head-fg", accentFg);
+    var elHead = document.getElementById("ttHead");
+    elHead.style.setProperty("--tt-accent", accentBg);
+    elHead.style.setProperty("--tt-head-fg", accentFg);
+    // A live board refresh re-renders whichever sheet is already open
+    // through this same function, so the photo is only (re)picked on a
+    // genuinely fresh tap — ttMapJustOpened is already exactly that
+    // signal, set in openDetail and still true the first time this runs.
+    if (ttMapJustOpened) applyAmtrakHeaderPhoto(elHead);
     var routeStops = (row.stations || []).filter(function (s) { return s.lat != null && s.lon != null; });
     var showMap = routeStops.length >= 2 || (row.lat != null && row.lon != null);
 
