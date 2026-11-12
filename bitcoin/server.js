@@ -3975,6 +3975,7 @@ function getActiveNationalTrains() {
           schedDepMs: s.schedDepMs,
           arrMs: s.arrMs,
           depMs: s.depMs,
+          status: s.status,
         })),
       });
     }
@@ -9919,6 +9920,41 @@ const amtrakNECMapPage = `<!DOCTYPE html>
       }
     }
 
+    // Amtrak's own per-stop status ("Departed"/"Station"/"Enroute") is
+    // authoritative when present — a train can keep sitting at a platform
+    // well past its own estimated departure time (a growing real-world
+    // delay that hasn't been folded into a new depMs estimate yet shows as
+    // "Station" the whole time it's happening), which comparing timestamps
+    // to now alone can't tell apart from having actually left. Falls back
+    // to the old timestamp comparison only when a stop carries no status.
+    function stopBest(s) {
+      const arr = s.arrMs != null ? s.arrMs : s.schedArrMs;
+      const dep = s.depMs != null ? s.depMs : s.schedDepMs;
+      return { arr, dep };
+    }
+    function amtrakNextIdx(stations, now) {
+      if (!stations || !stations.length) return -1;
+      for (let ni = 0; ni < stations.length; ni++) {
+        const s = stations[ni];
+        const isLast = ni === stations.length - 1;
+        if (isLast) {
+          const arrived = s.status != null ? s.status !== "Enroute" : (() => {
+            const b = stopBest(s);
+            const ref = b.arr != null ? b.arr : b.dep;
+            return ref != null && now >= ref;
+          })();
+          return arrived ? -1 : ni;
+        }
+        const stillHere = s.status != null ? s.status !== "Departed" : (() => {
+          const b = stopBest(s);
+          const ref = b.arr != null ? b.arr : b.dep;
+          return ref == null || now < ref;
+        })();
+        if (stillHere) return ni;
+      }
+      return -1;
+    }
+
     function formatTime(ms) {
       if (!ms) return "—";
       const d = new Date(ms);
@@ -10009,15 +10045,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
 
       const stations = train.stations || [];
       const now = Date.now();
-      // The first stop whose arrival (or, lacking one, departure) hasn't
-      // happened yet is "next" — everything before it is behind the train,
-      // everything after is still ahead.
-      let nextIdx = -1;
-      for (let i = 0; i < stations.length; i++) {
-        const s = stations[i];
-        const ref = s.arrMs != null ? s.arrMs : (s.schedArrMs != null ? s.schedArrMs : (s.depMs != null ? s.depMs : s.schedDepMs));
-        if (ref == null || now < ref) { nextIdx = i; break; }
-      }
+      const nextIdx = amtrakNextIdx(stations, now);
 
       const subParts = [];
       if (train.velocity != null) subParts.push(Math.round(train.velocity) + " mph");
@@ -10032,7 +10060,13 @@ const amtrakNECMapPage = `<!DOCTYPE html>
       } else if (nextIdx === -1) {
         posEl.innerHTML = "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
       } else if (nextIdx === 0) {
+        // The origin has no "prev" to be between — Amtrak reports a
+        // not-yet-started trip's own origin as "Enroute" same as every
+        // stop ahead of it, so this can't lean on status the way every
+        // later stop can.
         posEl.innerHTML = "Not yet departed <b>" + esc(stations[0].name) + "</b>";
+      } else if (stations[nextIdx].status === "Station") {
+        posEl.innerHTML = "Not yet departed <b>" + esc(stations[nextIdx].name) + "</b>";
       } else {
         const prev = stations[nextIdx - 1], next = stations[nextIdx];
         const eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
