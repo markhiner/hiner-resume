@@ -6048,7 +6048,7 @@ body {
    that picks the photo, so the two never disagree. */
 .tt-head.has-photo {
   background-image:
-    linear-gradient(100deg, rgba(8,10,16,0.82) 0%, rgba(8,10,16,0.52) 45%, rgba(8,10,16,0.12) 85%),
+    linear-gradient(100deg, rgba(8,10,16,0.5) 0%, rgba(8,10,16,0.28) 45%, rgba(8,10,16,0.05) 85%),
     var(--tt-photo);
   background-size: cover;
   background-position: center;
@@ -6090,7 +6090,28 @@ body {
   background: rgba(0,0,0,0.3); border-radius: 8px; padding: 6px 10px;
   position: relative; z-index: 1;
 }
+.train-detail-position:empty { display: none; }
 .train-detail-position b { color: #fff; }
+/* The Amtrak sheets no longer show a "Between X and Y" position line here
+   at all — the upcoming stop and speed move up into the header's own
+   color wedge instead (see .tt-wedge-info), so #ttPosition stays empty
+   and hidden for them; NJT/LIRR still use this element as before. */
+.tt-wedge-info {
+  position: absolute; right: 14px; bottom: 10px; z-index: 1;
+  text-align: right; color: var(--tt-head-fg, #fff);
+}
+.tt-wedge-next {
+  font-size: 12.5px; font-weight: 800; white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+.tt-wedge-next-tag {
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase;
+  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 1px 5px; margin-left: 5px; vertical-align: 1px;
+}
+.tt-wedge-speed {
+  font-size: 11px; font-weight: 700; opacity: 0.9; margin-top: 2px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}
 .tt-position {
   margin-top: 12px; background: var(--panel2); border: 1px solid var(--border);
   border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--text1);
@@ -6154,6 +6175,7 @@ body {
     <div class="tt-head" id="ttHead">
       <div class="tt-grip"></div>
       <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
+      <div class="tt-wedge-info" id="ttWedgeInfo"></div>
       <div class="tt-title" id="ttTitle"></div>
       <div class="tt-sub" id="ttSub"></div>
       <div class="train-detail-position" id="ttPosition"></div>
@@ -6788,6 +6810,22 @@ body {
     return -1;
   }
 
+  // The header's own color wedge now carries the upcoming stop (same
+  // "Next"/"Arrived" wording and meaning as the stop list just below it)
+  // and current speed, replacing the old "Between X and Y" line — which
+  // read as "Between NY Penn and NY Penn" for a train still at its
+  // origin, since there's no real "between" until it's actually moving.
+  function amtrakWedgeInfoHTML(stations, nextIdx, velocity, heading) {
+    if (!stations || !stations.length) return "";
+    var atIdx = nextIdx === -1 ? stations.length - 1 : nextIdx;
+    var tag = nextIdx === -1 ? "Arrived" : "Next";
+    var html = '<div class="tt-wedge-next">' + esc(stations[atIdx].name) + ' <span class="tt-wedge-next-tag">' + tag + '</span></div>';
+    if (velocity != null) {
+      html += '<div class="tt-wedge-speed">' + Math.round(velocity) + ' mph' + (heading ? ' ' + esc(heading) : '') + '</div>';
+    }
+    return html;
+  }
+
   // Amtrak's own iconColor field turns out to be a timeliness indicator
   // (green-ish on time, orange/red the more delayed, dark otherwise) rather
   // than a stable route/brand color — using it for the map meant the
@@ -6807,14 +6845,12 @@ body {
     var now = Date.now();
     var nextIdx = amtrakNextIdx(row.stations, now);
     var delayMin = stopDelayMin(row.schedMs, row.atMs);
-    var speedBit = row.velocity != null
-      ? " &middot; " + Math.round(row.velocity) + " mph" + (row.heading ? " " + esc(row.heading) : "")
-      : "";
     setTtHead(
       esc(row.trainNum) + " " + esc(row.routeName),
-      "Amtrak" + speedBit + " " + rowStatusBadgeHTML(row, delayMin),
-      positionPillHTML(row.stations, nextIdx)
+      rowStatusBadgeHTML(row, delayMin),
+      ""
     );
+    document.getElementById("ttWedgeInfo").innerHTML = amtrakWedgeInfoHTML(row.stations, nextIdx, row.velocity, row.heading);
     elBody.innerHTML =
       (showMap ? '<div id="ttMap"></div>' : '<div class="tt-position">Route map not available for this train right now.</div>') +
       '<div class="tt-stops" id="ttStops"></div>';
@@ -7500,7 +7536,7 @@ body {
    that picks the photo, so the two never disagree. */
 .tt-head.has-photo {
   background-image:
-    linear-gradient(100deg, rgba(8,10,16,0.82) 0%, rgba(8,10,16,0.52) 45%, rgba(8,10,16,0.12) 85%),
+    linear-gradient(100deg, rgba(8,10,16,0.5) 0%, rgba(8,10,16,0.28) 45%, rgba(8,10,16,0.05) 85%),
     var(--tt-photo);
   background-size: cover;
   background-position: center;
@@ -7542,7 +7578,28 @@ body {
   background: rgba(0,0,0,0.3); border-radius: 8px; padding: 6px 10px;
   position: relative; z-index: 1;
 }
+.train-detail-position:empty { display: none; }
 .train-detail-position b { color: #fff; }
+/* The Amtrak sheets no longer show a "Between X and Y" position line here
+   at all — the upcoming stop and speed move up into the header's own
+   color wedge instead (see .tt-wedge-info), so #ttPosition stays empty
+   and hidden for them; NJT/LIRR still use this element as before. */
+.tt-wedge-info {
+  position: absolute; right: 14px; bottom: 10px; z-index: 1;
+  text-align: right; color: var(--tt-head-fg, #fff);
+}
+.tt-wedge-next {
+  font-size: 12.5px; font-weight: 800; white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+.tt-wedge-next-tag {
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase;
+  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 1px 5px; margin-left: 5px; vertical-align: 1px;
+}
+.tt-wedge-speed {
+  font-size: 11px; font-weight: 700; opacity: 0.9; margin-top: 2px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}
 .tt-position {
   margin-top: 12px; background: var(--panel2); border: 1px solid var(--border);
   border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--text1);
@@ -7629,6 +7686,7 @@ body {
     <div class="tt-head" id="ttHead">
       <div class="tt-grip"></div>
       <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
+      <div class="tt-wedge-info" id="ttWedgeInfo"></div>
       <div class="tt-title" id="ttTitle"></div>
       <div class="tt-sub" id="ttSub"></div>
       <div class="train-detail-position" id="ttPosition"></div>
@@ -8153,6 +8211,22 @@ body {
     return -1;
   }
 
+  // The header's own color wedge now carries the upcoming stop (same
+  // "Next"/"Arrived" wording and meaning as the stop list just below it)
+  // and current speed, replacing the old "Between X and Y" line — which
+  // read as "Between NY Penn and NY Penn" for a train still at its
+  // origin, since there's no real "between" until it's actually moving.
+  function amtrakWedgeInfoHTML(stations, nextIdx, velocity, heading) {
+    if (!stations || !stations.length) return "";
+    var atIdx = nextIdx === -1 ? stations.length - 1 : nextIdx;
+    var tag = nextIdx === -1 ? "Arrived" : "Next";
+    var html = '<div class="tt-wedge-next">' + esc(stations[atIdx].name) + ' <span class="tt-wedge-next-tag">' + tag + '</span></div>';
+    if (velocity != null) {
+      html += '<div class="tt-wedge-speed">' + Math.round(velocity) + ' mph' + (heading ? ' ' + esc(heading) : '') + '</div>';
+    }
+    return html;
+  }
+
   // Amtrak's own iconColor field is a timeliness indicator (green-ish on
   // time, orange/red the more delayed) rather than a stable route/brand
   // color — the map uses Amtrak's own brand red instead, always; the live
@@ -8181,14 +8255,12 @@ body {
     var now = Date.now();
     var nextIdx = amtrakNextIdx(row.stations, now);
     var delayMin = stopDelayMin(row.schedMs, row.atMs);
-    var speedBit = row.velocity != null
-      ? " &middot; " + Math.round(row.velocity) + " mph" + (row.heading ? " " + esc(row.heading) : "")
-      : "";
     setTtHead(
       esc(row.trainNum) + " " + esc(row.routeName),
-      "Amtrak" + speedBit + " " + rowStatusBadgeHTML(row, delayMin),
-      positionPillHTML(row.stations, nextIdx)
+      rowStatusBadgeHTML(row, delayMin),
+      ""
     );
+    document.getElementById("ttWedgeInfo").innerHTML = amtrakWedgeInfoHTML(row.stations, nextIdx, row.velocity, row.heading);
     elBody.innerHTML =
       (showMap ? '<div id="ttMap"></div>' : '<div class="tt-position">Route map not available for this train right now.</div>') +
       '<div class="tt-stops" id="ttStops"></div>';
@@ -8572,7 +8644,28 @@ body {
   background: rgba(0,0,0,0.3); border-radius: 8px; padding: 6px 10px;
   position: relative; z-index: 1;
 }
+.train-detail-position:empty { display: none; }
 .train-detail-position b { color: #fff; }
+/* The Amtrak sheets no longer show a "Between X and Y" position line here
+   at all — the upcoming stop and speed move up into the header's own
+   color wedge instead (see .tt-wedge-info), so #ttPosition stays empty
+   and hidden for them; NJT/LIRR still use this element as before. */
+.tt-wedge-info {
+  position: absolute; right: 14px; bottom: 10px; z-index: 1;
+  text-align: right; color: var(--tt-head-fg, #fff);
+}
+.tt-wedge-next {
+  font-size: 12.5px; font-weight: 800; white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+.tt-wedge-next-tag {
+  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase;
+  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 1px 5px; margin-left: 5px; vertical-align: 1px;
+}
+.tt-wedge-speed {
+  font-size: 11px; font-weight: 700; opacity: 0.9; margin-top: 2px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}
 #ttMap { height: 260px; border-radius: 12px; margin-top: 12px; background: var(--panel2); }
 .tt-map-label {
   background: rgba(11,11,13,0.85); color: #fff; border: none; border-radius: 4px;
@@ -9770,7 +9863,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
   }
   .train-detail-header.has-photo {
     background-image:
-      linear-gradient(100deg, rgba(8,10,16,0.82) 0%, rgba(8,10,16,0.52) 45%, rgba(8,10,16,0.12) 85%),
+      linear-gradient(100deg, rgba(8,10,16,0.5) 0%, rgba(8,10,16,0.28) 45%, rgba(8,10,16,0.05) 85%),
       var(--tt-photo);
     background-size: cover;
     background-position: center;
@@ -9801,7 +9894,26 @@ const amtrakNECMapPage = `<!DOCTYPE html>
     background: rgba(0,0,0,0.3); border-radius: 8px; padding: 6px 10px;
     position: relative; z-index: 1;
   }
+  .train-detail-position:empty { display: none; }
   .train-detail-position b { color: #fff; }
+  /* The old "Between X and Y" line is gone — the upcoming stop and speed
+     move up into the header's own color wedge instead. */
+  .train-detail-wedge-info {
+    position: absolute; right: 14px; bottom: 10px; z-index: 1;
+    text-align: right; color: var(--tt-head-fg, #fff);
+  }
+  .train-detail-wedge-next {
+    font-size: 12.5px; font-weight: 800; white-space: nowrap;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+  .train-detail-wedge-next-tag {
+    font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase;
+    background: rgba(0,0,0,0.3); border-radius: 4px; padding: 1px 5px; margin-left: 5px; vertical-align: 1px;
+  }
+  .train-detail-wedge-speed {
+    font-size: 11px; font-weight: 700; opacity: 0.9; margin-top: 2px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  }
   .train-detail-close {
     position: absolute; top: 8px; right: 10px; z-index: 2;
     width: 30px; height: 30px; border-radius: 50%;
@@ -9845,6 +9957,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
       <div class="train-detail-title" id="trainTitle">Train</div>
       <div class="train-detail-sub" id="trainSubtitle"></div>
       <div class="train-detail-position" id="trainPosition"></div>
+      <div class="train-detail-wedge-info" id="trainDetailWedgeInfo"></div>
     </div>
     <div class="stops-list" id="stopsList"></div>
   </div>
@@ -10046,31 +10159,24 @@ const amtrakNECMapPage = `<!DOCTYPE html>
       const stations = train.stations || [];
       const now = Date.now();
       const nextIdx = amtrakNextIdx(stations, now);
-
-      const subParts = [];
-      if (train.velocity != null) subParts.push(Math.round(train.velocity) + " mph");
-      if (train.directionLabel) subParts.push(train.directionLabel + "-bound");
-      const subText = subParts.length ? subParts.join(" · ") : "Speed/direction unavailable";
       const delayMin = stations.length ? trainDelayMin(stations, nextIdx) : null;
-      document.getElementById("trainSubtitle").innerHTML = esc(subText) + " " + statusBadgeHTML(delayMin);
-
-      const posEl = document.getElementById("trainPosition");
+      document.getElementById("trainSubtitle").innerHTML = statusBadgeHTML(delayMin);
+      // The old "Between X and Y" line (and its separate speed/direction
+      // subtitle text) is gone — the upcoming stop and speed now live in
+      // the header's own color wedge instead, same as /trains and
+      // /amtrak-board.
+      document.getElementById("trainPosition").innerHTML = "";
+      const wedgeEl = document.getElementById("trainDetailWedgeInfo");
       if (!stations.length) {
-        posEl.textContent = "";
-      } else if (nextIdx === -1) {
-        posEl.innerHTML = "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
-      } else if (nextIdx === 0) {
-        // The origin has no "prev" to be between — Amtrak reports a
-        // not-yet-started trip's own origin as "Enroute" same as every
-        // stop ahead of it, so this can't lean on status the way every
-        // later stop can.
-        posEl.innerHTML = "Not yet departed <b>" + esc(stations[0].name) + "</b>";
-      } else if (stations[nextIdx].status === "Station") {
-        posEl.innerHTML = "Not yet departed <b>" + esc(stations[nextIdx].name) + "</b>";
+        wedgeEl.innerHTML = "";
       } else {
-        const prev = stations[nextIdx - 1], next = stations[nextIdx];
-        const eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
-        posEl.innerHTML = "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " · due " + formatTime(eta) : "");
+        const atIdx = nextIdx === -1 ? stations.length - 1 : nextIdx;
+        const tag = nextIdx === -1 ? "Arrived" : "Next";
+        let html = '<div class="train-detail-wedge-next">' + esc(stations[atIdx].name) + ' <span class="train-detail-wedge-next-tag">' + tag + '</span></div>';
+        if (train.velocity != null) {
+          html += '<div class="train-detail-wedge-speed">' + Math.round(train.velocity) + ' mph' + (train.directionLabel ? ' ' + esc(train.directionLabel) : '') + '</div>';
+        }
+        wedgeEl.innerHTML = html;
       }
 
       const stopsList = document.getElementById("stopsList");
