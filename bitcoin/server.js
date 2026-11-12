@@ -6694,14 +6694,16 @@ body {
     if (!stations || !stations.length) return "";
     if (nextIdx === -1) return "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
     var next = stations[nextIdx];
+    // The very first stop has no "prev" to be between — Amtrak's own feed
+    // reports a not-yet-started trip's origin as "Enroute" same as every
+    // other stop ahead of the train, so this can't lean on status here the
+    // way every later stop can.
+    if (nextIdx === 0) return "Not yet departed <b>" + esc(next.name) + "</b>";
     // "Station" (Amtrak's own status, when reported) means it's sitting
-    // right there, not yet gone — same wording nextIdx === 0 already used
-    // for a train that hasn't even left its origin yet. NJT/LIRR stops
-    // never carry a status field, so this falls back to the old
-    // origin-only check for them, unchanged.
-    var atStation = next.status != null ? next.status === "Station" : nextIdx === 0;
-    if (atStation) return "Not yet departed <b>" + esc(next.name) + "</b>";
-    var prev = stations[Math.max(0, nextIdx - 1)];
+    // right there, not yet gone. NJT/LIRR stops never carry a status
+    // field, so this is simply false for them, unchanged from before.
+    if (next.status === "Station") return "Not yet departed <b>" + esc(next.name) + "</b>";
+    var prev = stations[nextIdx - 1];
     var eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
     return "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " &middot; due " + fmtBoardTime(eta) : "");
   }
@@ -8066,14 +8068,16 @@ body {
     if (!stations || !stations.length) return "";
     if (nextIdx === -1) return "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
     var next = stations[nextIdx];
+    // The very first stop has no "prev" to be between — Amtrak's own feed
+    // reports a not-yet-started trip's origin as "Enroute" same as every
+    // other stop ahead of the train, so this can't lean on status here the
+    // way every later stop can.
+    if (nextIdx === 0) return "Not yet departed <b>" + esc(next.name) + "</b>";
     // "Station" (Amtrak's own status, when reported) means it's sitting
-    // right there, not yet gone — same wording nextIdx === 0 already used
-    // for a train that hasn't even left its origin yet. NJT/LIRR stops
-    // never carry a status field, so this falls back to the old
-    // origin-only check for them, unchanged.
-    var atStation = next.status != null ? next.status === "Station" : nextIdx === 0;
-    if (atStation) return "Not yet departed <b>" + esc(next.name) + "</b>";
-    var prev = stations[Math.max(0, nextIdx - 1)];
+    // right there, not yet gone. NJT/LIRR stops never carry a status
+    // field, so this is simply false for them, unchanged from before.
+    if (next.status === "Station") return "Not yet departed <b>" + esc(next.name) + "</b>";
+    var prev = stations[nextIdx - 1];
     var eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
     return "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " &middot; due " + fmtBoardTime(eta) : "");
   }
@@ -9035,14 +9039,16 @@ body {
     if (!stations || !stations.length) return "";
     if (nextIdx === -1) return "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
     var next = stations[nextIdx];
+    // The very first stop has no "prev" to be between — Amtrak's own feed
+    // reports a not-yet-started trip's origin as "Enroute" same as every
+    // other stop ahead of the train, so this can't lean on status here the
+    // way every later stop can.
+    if (nextIdx === 0) return "Not yet departed <b>" + esc(next.name) + "</b>";
     // "Station" (Amtrak's own status, when reported) means it's sitting
-    // right there, not yet gone — same wording nextIdx === 0 already used
-    // for a train that hasn't even left its origin yet. NJT/LIRR stops
-    // never carry a status field, so this falls back to the old
-    // origin-only check for them, unchanged.
-    var atStation = next.status != null ? next.status === "Station" : nextIdx === 0;
-    if (atStation) return "Not yet departed <b>" + esc(next.name) + "</b>";
-    var prev = stations[Math.max(0, nextIdx - 1)];
+    // right there, not yet gone. NJT/LIRR stops never carry a status
+    // field, so this is simply false for them, unchanged from before.
+    if (next.status === "Station") return "Not yet departed <b>" + esc(next.name) + "</b>";
+    var prev = stations[nextIdx - 1];
     var eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
     return "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " &middot; due " + fmtBoardTime(eta) : "");
   }
