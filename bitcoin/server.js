@@ -10415,7 +10415,8 @@ const lirrBoardPage = `<!DOCTYPE html>
   .dep { border-bottom: 2px solid #000; }
   .dep-bar { display: grid; grid-template-columns: 78px 1fr 56px; gap: 10px; padding: 12px 14px; align-items: baseline; }
   .dep-time { font-size: 22px; font-weight: bold; font-variant-numeric: tabular-nums; }
-  .dep-dest { font-size: 20px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dep-dest { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 20px; font-weight: bold; }
+  .dep-dest-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .dep-track { font-size: 20px; font-weight: bold; text-align: right; }
   /* A departed train stays on the board a few minutes past its own time
      (same grace window Amtrak/NJT already use) — dimmed, with "Departed"
@@ -10423,10 +10424,16 @@ const lirrBoardPage = `<!DOCTYPE html>
      rather than looking like a live upcoming row. */
   .dep.departed { opacity: 0.55; }
   .dep-gone { font-size: 11px; font-style: italic; font-weight: bold; white-space: nowrap; }
-  .dep-note-row { padding: 3px 14px 8px; background: #000; }
-  .dep-note { font-size: 12px; color: #ccc; }
-  .dep-note b { color: white; }
-  .dep-badge { display: inline-block; background: #3a3a3c; color: #ddd; padding: 2px 7px; border-radius: 3px; font-size: 11px; font-weight: bold; }
+  /* Same small airport-transfer badge every other board (Amtrak, NJT, the
+     combined page) already shows inline next to a train's destination —
+     it used to be its own line under the row instead ("JFK ✈"), which
+     added a black gap under nearly every single train, since almost every
+     LIRR train either stops at or skips Jamaica. */
+  .board-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 15px; height: 15px; border-radius: 50%; flex-shrink: 0;
+    background: rgba(0,0,0,0.4); color: #fff; font-size: 9px; font-weight: 800; line-height: 1;
+  }
   .dep { cursor: pointer; }
   .dep:active { filter: brightness(0.85); }
 
@@ -10632,6 +10639,8 @@ const lirrBoardPage = `<!DOCTYPE html>
 
     let allStations = [];
     let currentStation = "Penn Station";
+    const BADGE_PLANE_SVG = '<svg width="9" height="9" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">' +
+      '<path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2.5 1.5V22l4-1 4 1v-1.5L13 19v-5.5z"/></svg>';
 
     function formatTime(ms) {
       const d = new Date(ms);
@@ -10792,24 +10801,19 @@ const lirrBoardPage = `<!DOCTYPE html>
             else if (row.destName === "Grand Central") { bg = "000000"; fg = "34c759"; }
             const departed = row.state === "departed";
             const track = departed ? '<span class="dep-gone">Departed</span>' : (row.track ? esc(row.track) : "");
-            // The Jamaica-for-JFK note is Penn-specific — it's the one
-            // station where "do I need to change for Jamaica" is a live
-            // question riders actually have, so it's the only board that
-            // shows it. Everywhere else it just added a black gap row
-            // between every single train (nearly every LIRR train either
-            // stops at or skips Jamaica), with no benefit.
-            let note = "";
-            if (currentStation === "Penn Station") {
-              if (row.skipsJamaica) note = '<div class="dep-note">Will <b>not</b> stop at Jamaica</div>';
-              else if (row.viaJamaica) note = '<span class="dep-badge">JFK &#9992;</span>';
-            }
+            // The Jamaica-for-JFK badge is Penn/GCT-specific — those are the
+            // two terminals where "can I reach JFK from this train" is a
+            // live question riders actually have; standing at Jamaica
+            // itself (or anywhere past it) it's moot.
+            const badge = (currentStation === "Penn Station" || currentStation === "Grand Central") && row.viaJamaica
+              ? '<span class="board-badge" title="Stops at Jamaica (JFK AirTrain)">' + BADGE_PLANE_SVG + '</span>'
+              : "";
             return '<div class="dep' + (departed ? ' departed' : '') + '" data-trip-id="' + esc(row.tripId) + '">' +
               '<div class="dep-bar" style="background:#' + bg + '; color:#' + fg + ';">' +
               '<div class="dep-time">' + formatTime(row.depMs) + '</div>' +
-              '<div class="dep-dest">' + esc(row.destName) + '</div>' +
+              '<div class="dep-dest"><span class="dep-dest-name">' + esc(row.destName) + '</span>' + badge + '</div>' +
               '<div class="dep-track">' + track + '</div>' +
               '</div>' +
-              (note ? '<div class="dep-note-row">' + note + '</div>' : '') +
               '</div>';
           }).join("");
         }
