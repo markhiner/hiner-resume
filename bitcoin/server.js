@@ -9729,35 +9729,79 @@ const amtrakNECMapPage = `<!DOCTYPE html>
 
   /* Slide-up detail sheet — same grip/scrim-free bottom-docked pattern used
      by the other train pages in this app, just dark instead of the old
-     white card that clashed with everything else. */
+     white card that clashed with everything else. The header itself is
+     the exact same livery-stripe treatment (gradient + diagonal accent
+     wedge in the route's color + glossy sheen + pulsing signal-light dot,
+     optionally a rotating photo from the Amtrak/ pool) as the /trains and
+     /amtrak-board detail sheets — this page used to be a flat gray panel
+     with no connection to that design. */
   .train-detail {
     position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg);
-    border-top: 1px solid var(--border); border-radius: 16px 16px 0 0;
+    border-radius: 16px 16px 0 0;
     box-shadow: 0 -4px 24px rgba(0,0,0,0.6); max-height: 72vh; overflow-y: auto;
     transform: translateY(100%); transition: transform 0.25s cubic-bezier(0.2,0.8,0.3,1); z-index: 900;
     padding-bottom: env(safe-area-inset-bottom);
   }
   .train-detail.open { transform: translateY(0); }
-  .tt-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 7px auto 0; }
-  .train-detail-header { padding: 8px 14px 8px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .train-detail-header {
+    background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
+    border-radius: 16px 16px 0 0;
+    padding: 8px 14px 14px;
+    position: relative;
+    overflow: hidden;
+  }
+  .train-detail-header::before {
+    content: ""; position: absolute; inset: 0;
+    background: var(--tt-accent, var(--panel2));
+    clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
+  }
+  .train-detail-header::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(115deg, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0) 38%);
+    clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
+    mix-blend-mode: overlay;
+  }
+  .train-detail-header.has-photo {
+    background-image:
+      linear-gradient(100deg, rgba(8,10,16,0.82) 0%, rgba(8,10,16,0.52) 45%, rgba(8,10,16,0.12) 85%),
+      var(--tt-photo);
+    background-size: cover;
+    background-position: center;
+  }
+  .tt-grip { width: 34px; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.22); margin: 0 auto 10px; position: relative; z-index: 1; }
   .train-detail-title-wrap { min-width: 0; flex: 1; }
-  .train-detail-title { font-size: 15.5px; font-weight: 800; color: var(--text1); }
-  .train-detail-sub { font-size: 11.5px; color: var(--text2); margin-top: 3px; font-weight: 700; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-  .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; }
-  .train-status-badge.ontime { background: rgba(34,197,94,0.16); color: var(--green); }
-  .train-status-badge.late { background: rgba(245,197,24,0.18); color: var(--yellow); }
+  .train-detail-title { font-size: 15.5px; font-weight: 800; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); position: relative; z-index: 1; }
+  .train-detail-title::before {
+    content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 3px;
+    background: var(--tt-accent, var(--yellow)); margin-right: 7px; vertical-align: 1px;
+    animation: ttSignalPulse 2.4s ease-in-out infinite;
+  }
+  @keyframes ttSignalPulse {
+    0%, 100% { box-shadow: 0 0 5px 0px var(--tt-accent, transparent); }
+    50% { box-shadow: 0 0 9px 3px var(--tt-accent, transparent); }
+  }
+  .train-detail-sub {
+    font-size: 11.5px; color: rgba(255,255,255,0.8); opacity: 0.85; margin-top: 3px; font-weight: 700;
+    display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+    position: relative; z-index: 1; text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  }
+  .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; opacity: 1; }
+  .train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
+  .train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
   .train-status-badge.verylate { background: #ef4444; color: #fff; }
   .train-detail-position {
-    font-size: 12px; color: var(--text1); font-weight: 600; margin-top: 6px;
-    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+    font-size: 12px; color: #fff; font-weight: 600; margin-top: 8px;
+    background: rgba(0,0,0,0.3); border-radius: 8px; padding: 6px 10px;
+    position: relative; z-index: 1;
   }
-  .train-detail-position b { color: var(--yellow); }
+  .train-detail-position b { color: #fff; }
   .train-detail-close {
-    background: var(--panel2); border: 1px solid var(--border); color: var(--text2); cursor: pointer;
-    font-size: 17px; line-height: 1; flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
+    position: absolute; top: 8px; right: 10px; z-index: 2;
+    width: 30px; height: 30px; border-radius: 50%;
+    border: none; background: rgba(0,0,0,0.35); color: #fff;
+    font-size: 19px; line-height: 1; display: flex; align-items: center; justify-content: center;
   }
-  .train-detail-close:active { background: var(--panel); color: var(--text1); }
+  .train-detail-close:active { background: rgba(0,0,0,0.5); }
 
   /* Compact stop list — tight enough that a full route fits with minimal
      scrolling instead of one big padded card per stop. */
@@ -9788,14 +9832,12 @@ const amtrakNECMapPage = `<!DOCTYPE html>
   <button class="back-btn" onclick="window.location.href='/trains'" title="Back">←</button>
   <div id="map"></div>
   <div class="train-detail" id="trainDetail">
-    <div class="tt-grip"></div>
-    <div class="train-detail-header">
-      <div class="train-detail-title-wrap">
-        <div class="train-detail-title" id="trainTitle">Train</div>
-        <div class="train-detail-sub" id="trainSubtitle"></div>
-        <div class="train-detail-position" id="trainPosition"></div>
-      </div>
+    <div class="train-detail-header" id="trainDetailHeader">
+      <div class="tt-grip"></div>
       <button class="train-detail-close" onclick="document.getElementById('trainDetail').classList.remove('open')">×</button>
+      <div class="train-detail-title" id="trainTitle">Train</div>
+      <div class="train-detail-sub" id="trainSubtitle"></div>
+      <div class="train-detail-position" id="trainPosition"></div>
     </div>
     <div class="stops-list" id="stopsList"></div>
   </div>
@@ -9811,6 +9853,64 @@ const amtrakNECMapPage = `<!DOCTYPE html>
       return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
         return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
       });
+    }
+
+    // Same per-service accent used by the /trains and /amtrak-board detail
+    // sheets, so a train tapped here gets the identical livery-stripe color.
+    const SERVICE_COLORS = {
+      acela:    "#2fbaba",
+      regional: "#303ac2",
+      keystone: "#ebb402",
+      empire:   "#00985f",
+      longdist: "#c60c30",
+    };
+    function isYellowish(hex) {
+      const r = parseInt(hex.slice(0, 2), 16) / 255;
+      const g = parseInt(hex.slice(2, 4), 16) / 255;
+      const b = parseInt(hex.slice(4, 6), 16) / 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+      if (d === 0) return false;
+      let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h *= 60;
+      if (h < 0) h += 360;
+      const l = (max + min) / 2;
+      const s = d / (1 - Math.abs(2 * l - 1));
+      return h >= 35 && h <= 65 && s > 0.6;
+    }
+
+    // Amtrak detail-sheet header photo pool — fetched once per page load
+    // from the Amtrak/ folder beside this repo's bitcoin/ folder (see
+    // /api/amtrak-photos); a file dropped in or removed there takes effect
+    // on the next page load, no deploy needed. Empty until the fetch
+    // resolves, which is fine — a sheet opened in that brief window just
+    // shows no photo rather than waiting on it.
+    let necAmtrakPhotos = [];
+    fetch("/api/amtrak-photos").then(function (r) { return r.json(); }).then(function (d) {
+      necAmtrakPhotos = (d && d.photos) || [];
+    }).catch(function () {});
+    // The last few photos shown, oldest first — excluded from the next
+    // pick so reopening sheets back-to-back doesn't keep putting the same
+    // one or two back up.
+    let necPhotoHistory = [];
+    function pickAmtrakPhoto() {
+      if (!necAmtrakPhotos.length) return null;
+      const avoid = necPhotoHistory.slice(-Math.min(3, necAmtrakPhotos.length - 1));
+      let candidates = necAmtrakPhotos.filter(function (p) { return avoid.indexOf(p) === -1; });
+      if (!candidates.length) candidates = necAmtrakPhotos;
+      const pick = candidates[Math.floor(Math.random() * candidates.length)];
+      necPhotoHistory.push(pick);
+      if (necPhotoHistory.length > 6) necPhotoHistory.shift();
+      return pick;
+    }
+    function applyAmtrakHeaderPhoto(elHead) {
+      const photo = pickAmtrakPhoto();
+      if (photo) {
+        elHead.classList.add("has-photo");
+        elHead.style.setProperty("--tt-photo", 'url("/amtrak-photos/' + encodeURIComponent(photo) + '")');
+      } else {
+        elHead.classList.remove("has-photo");
+        elHead.style.removeProperty("--tt-photo");
+      }
     }
 
     function formatTime(ms) {
@@ -9887,8 +9987,18 @@ const amtrakNECMapPage = `<!DOCTYPE html>
       return '<span class="train-status-badge verylate">' + delayMin + 'm late</span>';
     }
 
-    function showTrain(train) {
+    function showTrain(train, isFreshOpen) {
       selectedTrainNum = train.trainNum;
+      const elHead = document.getElementById("trainDetailHeader");
+      const accentBg = SERVICE_COLORS[train.serviceType] || SERVICE_COLORS.longdist;
+      const accentFg = isYellowish(accentBg.replace("#", "").toLowerCase()) ? "#121212" : "#ffffff";
+      elHead.style.setProperty("--tt-accent", accentBg);
+      elHead.style.setProperty("--tt-head-fg", accentFg);
+      // A live poll re-renders whichever sheet is already open through this
+      // same function (see reopenIfStillOpen) — the photo is only (re)picked
+      // on a genuine marker tap, not every refresh, so it doesn't reshuffle
+      // out from under someone mid-read.
+      if (isFreshOpen) applyAmtrakHeaderPhoto(elHead);
       document.getElementById("trainTitle").textContent = train.trainNum + " " + train.routeName;
 
       const stations = train.stations || [];
@@ -9954,7 +10064,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
       if (selectedTrainNum == null) return;
       if (!document.getElementById("trainDetail").classList.contains("open")) return;
       const train = latestTrains.find(function (t) { return t.trainNum === selectedTrainNum; });
-      if (train) showTrain(train);
+      if (train) showTrain(train, false);
     }
 
     async function updateTrains() {
@@ -9985,7 +10095,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
           const icon = createArrowMarker(train.lat, train.lon, train.heading, color);
           const marker = L.marker([train.lat, train.lon], { icon })
             .addTo(map)
-            .on("click", () => showTrain(train));
+            .on("click", () => showTrain(train, true));
 
           markers.set(train.trainNum, marker);
         }
