@@ -6253,9 +6253,12 @@ body {
   // spells it (all-caps), not a guessed display form. Harmless for
   // Amtrak/LIRR names too (none of them hit these exact strings, and none
   // end in " Station" either).
+  // Values stay upper case — every other station name on this board is the
+  // feed's own raw (already upper case) stop_name shining straight through
+  // shortStopName's fallback, so a mixed-case override here was the one
+  // name on the board that looked different from the rest.
   var STOP_ABBR = {
-    "30TH ST. PHL.": "Philadelphia",
-    "ATLANTIC CITY": "Atlantic City",
+    "30TH ST. PHL.": "PHILADELPHIA",
   };
   function shortStopName(name) {
     if (!name) return name;
@@ -8878,11 +8881,13 @@ body {
   // as NJT's feed spells it (all-caps, no transform applied before this) —
   // these previously used guessed names that never matched anything real
   // and silently never fired.
+  // Values stay upper case — every other station name on this board is the
+  // feed's own raw (already upper case) stop_name shining straight through
+  // shortStopName's fallback, so a mixed-case override here was the one
+  // name on the board that looked different from the rest.
   var NJT_STOP_ABBR = {
-    "30TH ST. PHL.": "Philadelphia",
-    "ATLANTIC CITY": "Atlantic City",
-    "NEW YORK PENN STATION": "NY Penn",
-    "HOBOKEN": "Hoboken",
+    "30TH ST. PHL.": "PHILADELPHIA",
+    "NEW YORK PENN STATION": "NY PENN",
   };
   function shortStopName(name) {
     if (!name) return name;
