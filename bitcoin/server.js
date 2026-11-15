@@ -3228,14 +3228,14 @@ function amtrakTrainEntries(train, stationCode) {
     const from = stations[0];
     entries.push({
       ...common, event: "arr", other: amtrakCityName(from.code, from.name),
-      schedMs: at.schedArrMs, atMs: at.arrMs != null ? at.arrMs : at.schedArrMs, track: at.track,
+      schedMs: at.schedArrMs, atMs: at.arrMs != null ? at.arrMs : at.schedArrMs, track: at.track, status: at.status,
     });
   }
   if (idx < stations.length - 1) {
     const to = stations[stations.length - 1];
     entries.push({
       ...common, event: "dep", other: amtrakCityName(to.code, to.name),
-      schedMs: at.schedDepMs, atMs: at.depMs != null ? at.depMs : at.schedDepMs, track: at.track,
+      schedMs: at.schedDepMs, atMs: at.depMs != null ? at.depMs : at.schedDepMs, track: at.track, status: at.status,
     });
   }
   return entries;
@@ -3527,7 +3527,18 @@ function amtrakMergedEntries(now, stationCode) {
 // so this runs at request time rather than being baked into the fetch cache.
 function amtrakBoardRow(entry, nowMs, companionDep) {
   if (entry.schedMs == null || entry.atMs == null) return null;
-  const passed = nowMs >= entry.atMs;
+  // Amtrak's own per-stop status, when available, overrides a stale atMs
+  // estimate — amtraker.com doesn't reliably forecast a growing delay
+  // onto a stop/event the train hasn't reached yet, so a late train's
+  // estimate can sit stale near its original schedule while the train is
+  // genuinely still Enroute (or, for a departure, still sitting at the
+  // Station, not yet gone). Without this, "now" passing that stale
+  // estimate by the grace window dropped the row off the board — read as
+  // "already arrived/departed and gone" — well before it actually was.
+  const notYetHappened = entry.event === "dep"
+    ? entry.status === "Enroute" || entry.status === "Station"
+    : entry.status === "Enroute";
+  const passed = !notYetHappened && nowMs >= entry.atMs;
   if (entry.event === "dep") {
     if (passed && nowMs - entry.atMs > AMTRAK_DEP_GRACE_MS) return null;
   } else if (companionDep && companionDep.atMs != null) {
