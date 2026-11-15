@@ -6023,7 +6023,7 @@ body {
 .tt-head {
   background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
   border-radius: 18px 18px 0 0;
-  padding: 8px 16px 14px;
+  padding: 8px 16px 38px;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
@@ -6097,19 +6097,22 @@ body {
    color wedge instead (see .tt-wedge-info), so #ttPosition stays empty
    and hidden for them; NJT/LIRR still use this element as before. */
 .tt-wedge-info {
-  position: absolute; right: 14px; bottom: 10px; z-index: 1;
+  position: absolute; right: 14px; bottom: 12px; z-index: 1;
+  max-width: 60%;
   text-align: right; color: var(--tt-head-fg, #fff);
 }
+.tt-wedge-next-tag {
+  display: inline-block;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 7px;
+}
 .tt-wedge-next {
-  font-size: 12.5px; font-weight: 800; white-space: nowrap;
+  font-size: 14px; font-weight: 800; margin-top: 4px;
+  overflow-wrap: break-word;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5);
 }
-.tt-wedge-next-tag {
-  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase;
-  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 1px 5px; margin-left: 5px; vertical-align: 1px;
-}
 .tt-wedge-speed {
-  font-size: 11px; font-weight: 700; opacity: 0.9; margin-top: 2px;
+  font-size: 11px; font-weight: 700; opacity: 0.9; margin-top: 4px;
   text-shadow: 0 1px 2px rgba(0,0,0,0.4);
 }
 .tt-position {
@@ -6822,7 +6825,8 @@ body {
     if (!stations || !stations.length) return "";
     var atIdx = nextIdx === -1 ? stations.length - 1 : nextIdx;
     var tag = nextIdx === -1 ? "Arrived" : "Next";
-    var html = '<div class="tt-wedge-next">' + esc(stations[atIdx].name) + ' <span class="tt-wedge-next-tag">' + tag + '</span></div>';
+    var html = '<div class="tt-wedge-next-tag">' + tag + '</div>' +
+      '<div class="tt-wedge-next">' + esc(stations[atIdx].name) + '</div>';
     if (velocity != null) {
       html += '<div class="tt-wedge-speed">' + Math.round(velocity) + ' mph' + (heading ? ' ' + esc(heading) : '') + '</div>';
     }
@@ -7514,7 +7518,7 @@ body {
 .tt-head {
   background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
   border-radius: 18px 18px 0 0;
-  padding: 8px 16px 14px;
+  padding: 8px 16px 38px;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
@@ -7588,19 +7592,22 @@ body {
    color wedge instead (see .tt-wedge-info), so #ttPosition stays empty
    and hidden for them; NJT/LIRR still use this element as before. */
 .tt-wedge-info {
-  position: absolute; right: 14px; bottom: 10px; z-index: 1;
+  position: absolute; right: 14px; bottom: 12px; z-index: 1;
+  max-width: 60%;
   text-align: right; color: var(--tt-head-fg, #fff);
 }
+.tt-wedge-next-tag {
+  display: inline-block;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 7px;
+}
 .tt-wedge-next {
-  font-size: 12.5px; font-weight: 800; white-space: nowrap;
+  font-size: 14px; font-weight: 800; margin-top: 4px;
+  overflow-wrap: break-word;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5);
 }
-.tt-wedge-next-tag {
-  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase;
-  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 1px 5px; margin-left: 5px; vertical-align: 1px;
-}
 .tt-wedge-speed {
-  font-size: 11px; font-weight: 700; opacity: 0.9; margin-top: 2px;
+  font-size: 11px; font-weight: 700; opacity: 0.9; margin-top: 4px;
   text-shadow: 0 1px 2px rgba(0,0,0,0.4);
 }
 .tt-position {
@@ -8223,7 +8230,8 @@ body {
     if (!stations || !stations.length) return "";
     var atIdx = nextIdx === -1 ? stations.length - 1 : nextIdx;
     var tag = nextIdx === -1 ? "Arrived" : "Next";
-    var html = '<div class="tt-wedge-next">' + esc(stations[atIdx].name) + ' <span class="tt-wedge-next-tag">' + tag + '</span></div>';
+    var html = '<div class="tt-wedge-next-tag">' + tag + '</div>' +
+      '<div class="tt-wedge-next">' + esc(stations[atIdx].name) + '</div>';
     if (velocity != null) {
       html += '<div class="tt-wedge-speed">' + Math.round(velocity) + ' mph' + (heading ? ' ' + esc(heading) : '') + '</div>';
     }
@@ -8654,19 +8662,22 @@ body {
    color wedge instead (see .tt-wedge-info), so #ttPosition stays empty
    and hidden for them; NJT/LIRR still use this element as before. */
 .tt-wedge-info {
-  position: absolute; right: 14px; bottom: 10px; z-index: 1;
+  position: absolute; right: 14px; bottom: 12px; z-index: 1;
+  max-width: 60%;
   text-align: right; color: var(--tt-head-fg, #fff);
 }
+.tt-wedge-next-tag {
+  display: inline-block;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 7px;
+}
 .tt-wedge-next {
-  font-size: 12.5px; font-weight: 800; white-space: nowrap;
+  font-size: 14px; font-weight: 800; margin-top: 4px;
+  overflow-wrap: break-word;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5);
 }
-.tt-wedge-next-tag {
-  font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase;
-  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 1px 5px; margin-left: 5px; vertical-align: 1px;
-}
 .tt-wedge-speed {
-  font-size: 11px; font-weight: 700; opacity: 0.9; margin-top: 2px;
+  font-size: 11px; font-weight: 700; opacity: 0.9; margin-top: 4px;
   text-shadow: 0 1px 2px rgba(0,0,0,0.4);
 }
 #ttMap { height: 260px; border-radius: 12px; margin-top: 12px; background: var(--panel2); }
@@ -9851,7 +9862,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
   .train-detail-header {
     background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
     border-radius: 16px 16px 0 0;
-    padding: 8px 14px 14px;
+    padding: 8px 14px 38px;
     position: relative;
     overflow: hidden;
   }
@@ -9904,19 +9915,22 @@ const amtrakNECMapPage = `<!DOCTYPE html>
   /* The old "Between X and Y" line is gone — the upcoming stop and speed
      move up into the header's own color wedge instead. */
   .train-detail-wedge-info {
-    position: absolute; right: 14px; bottom: 10px; z-index: 1;
+    position: absolute; right: 14px; bottom: 12px; z-index: 1;
+    max-width: 60%;
     text-align: right; color: var(--tt-head-fg, #fff);
   }
+  .train-detail-wedge-next-tag {
+    display: inline-block;
+    font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+    background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 7px;
+  }
   .train-detail-wedge-next {
-    font-size: 12.5px; font-weight: 800; white-space: nowrap;
+    font-size: 14px; font-weight: 800; margin-top: 4px;
+    overflow-wrap: break-word;
     text-shadow: 0 1px 2px rgba(0,0,0,0.5);
   }
-  .train-detail-wedge-next-tag {
-    font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase;
-    background: rgba(0,0,0,0.3); border-radius: 4px; padding: 1px 5px; margin-left: 5px; vertical-align: 1px;
-  }
   .train-detail-wedge-speed {
-    font-size: 11px; font-weight: 700; opacity: 0.9; margin-top: 2px;
+    font-size: 11px; font-weight: 700; opacity: 0.9; margin-top: 4px;
     text-shadow: 0 1px 2px rgba(0,0,0,0.4);
   }
   .train-detail-close {
@@ -10177,7 +10191,8 @@ const amtrakNECMapPage = `<!DOCTYPE html>
       } else {
         const atIdx = nextIdx === -1 ? stations.length - 1 : nextIdx;
         const tag = nextIdx === -1 ? "Arrived" : "Next";
-        let html = '<div class="train-detail-wedge-next">' + esc(stations[atIdx].name) + ' <span class="train-detail-wedge-next-tag">' + tag + '</span></div>';
+        let html = '<div class="train-detail-wedge-next-tag">' + tag + '</div>' +
+          '<div class="train-detail-wedge-next">' + esc(stations[atIdx].name) + '</div>';
         if (train.velocity != null) {
           html += '<div class="train-detail-wedge-speed">' + Math.round(train.velocity) + ' mph' + (train.directionLabel ? ' ' + esc(train.directionLabel) : '') + '</div>';
         }
