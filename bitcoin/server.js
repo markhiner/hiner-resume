@@ -6114,6 +6114,7 @@ body {
 }
 .tt-wedge-next-tag {
   font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+  color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5);
 }
 .tt-wedge-next {
   display: inline-block;
@@ -7609,6 +7610,7 @@ body {
 }
 .tt-wedge-next-tag {
   font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+  color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5);
 }
 .tt-wedge-next {
   display: inline-block;
@@ -8679,6 +8681,7 @@ body {
 }
 .tt-wedge-next-tag {
   font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+  color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5);
 }
 .tt-wedge-next {
   display: inline-block;
@@ -9932,6 +9935,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
   }
   .train-detail-wedge-next-tag {
     font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+    color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5);
   }
   .train-detail-wedge-next {
     display: inline-block;
