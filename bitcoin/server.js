@@ -5035,6 +5035,10 @@ const ACTIVITY_LOG_SKIP = new Set([
 // Sibling to this file's own bitcoin/ folder, at the repo root — the
 // Amtrak detail-sheet header photo pool (IMG_xxxx.jpg, dropped in by hand).
 const AMTRAK_PHOTOS_DIR = path.join(__dirname, "..", "Amtrak");
+// Same idea, one folder each for NJ Transit and LIRR's own detail-sheet
+// header photos (njt1.jpg…njt7.jpg, lirr1.jpg…lirr7.jpg).
+const NJT_PHOTOS_DIR = path.join(__dirname, "..", "njt");
+const LIRR_PHOTOS_DIR = path.join(__dirname, "..", "lirr");
 
 // Ordered path -> module rules, most specific first (so e.g. a Kalshi
 // route is claimed before the generic BTC-ticker catch-all at the
@@ -5080,7 +5084,7 @@ function logActivity(module, method, pathname, search, status, ip) {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  if (!ACTIVITY_LOG_SKIP.has(url.pathname) && !url.pathname.startsWith("/amtrak-photos/")) {
+  if (!ACTIVITY_LOG_SKIP.has(url.pathname) && !/^\/(amtrak|njt|lirr)-photos\//.test(url.pathname)) {
     const module = classifyActivityModule(url.pathname);
     const ip = activityClientIp(req);
     const origEnd = res.end.bind(res);
@@ -5212,6 +5216,32 @@ const server = http.createServer((req, res) => {
   if (/^\/amtrak-photos\/[^\/]+\.(jpe?g|png)$/i.test(url.pathname)) {
     const base = path.basename(decodeURIComponent(url.pathname));
     fs.readFile(path.join(AMTRAK_PHOTOS_DIR, base), (err, buf) => {
+      if (err) { res.writeHead(404); res.end(); return; }
+      res.writeHead(200, {
+        "Content-Type": path.extname(base).toLowerCase() === ".png" ? "image/png" : "image/jpeg",
+        "Cache-Control": "public, max-age=3600",
+      });
+      res.end(buf);
+    });
+    return;
+  }
+
+  // NJ Transit and LIRR's own detail-sheet header photos — same pattern as
+  // Amtrak's, just a different source folder each.
+  if (url.pathname === "/api/njt-photos" || url.pathname === "/api/lirr-photos") {
+    const dir = url.pathname === "/api/njt-photos" ? NJT_PHOTOS_DIR : LIRR_PHOTOS_DIR;
+    let photos = [];
+    try {
+      photos = fs.readdirSync(dir).filter((f) => /\.(jpe?g|png)$/i.test(f)).sort();
+    } catch (e) { photos = []; }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ photos }));
+    return;
+  }
+  if (/^\/(njt|lirr)-photos\/[^\/]+\.(jpe?g|png)$/i.test(url.pathname)) {
+    const dir = url.pathname.startsWith("/njt-photos/") ? NJT_PHOTOS_DIR : LIRR_PHOTOS_DIR;
+    const base = path.basename(decodeURIComponent(url.pathname));
+    fs.readFile(path.join(dir, base), (err, buf) => {
       if (err) { res.writeHead(404); res.end(); return; }
       res.writeHead(200, {
         "Content-Type": path.extname(base).toLowerCase() === ".png" ? "image/png" : "image/jpeg",
@@ -6433,7 +6463,7 @@ body {
       rowbg = "#ffffff";
     } else if (boardKey === "amtrak" && row.serviceType === "acela" && row.direction === "north") {
       rowbg = "#c6f7f7";
-      rowfg = "#121212";
+      rowfg = "#169494";
     }
     var routeName = boardKey === "njt"
       ? (NJT_ROUTE_LABEL_OVERRIDES[row.routeShortName] || row.routeShortName || row.routeName)
@@ -6591,35 +6621,39 @@ body {
     elSub.innerHTML = subHTML;
     elPosition.innerHTML = positionHTML || "";
   }
-  // Amtrak detail-sheet header photo pool — fetched once per page load
-  // from the Amtrak/ folder beside this repo's bitcoin/ folder (see
-  // /api/amtrak-photos); a file dropped in or removed there takes effect
-  // on the next page load, no deploy needed. Empty until the fetch
-  // resolves, which is fine — a sheet opened in that brief window just
-  // shows no photo rather than waiting on it.
-  var ttAmtrakPhotos = [];
-  fetch("/api/amtrak-photos").then(function (r) { return r.json(); }).then(function (d) {
-    ttAmtrakPhotos = (d && d.photos) || [];
-  }).catch(function () {});
-  // The last few photos shown, oldest first — excluded from the next
-  // pick so reopening sheets back-to-back doesn't keep putting the same
-  // one or two back up.
-  var ttPhotoHistory = [];
-  function pickAmtrakPhoto() {
-    if (!ttAmtrakPhotos.length) return null;
-    var avoid = ttPhotoHistory.slice(-Math.min(3, ttAmtrakPhotos.length - 1));
-    var candidates = ttAmtrakPhotos.filter(function (p) { return avoid.indexOf(p) === -1; });
-    if (!candidates.length) candidates = ttAmtrakPhotos;
+  // Detail-sheet header photo pools, one per operator — fetched once per
+  // page load from Amtrak/njt/lirr folders beside this repo's bitcoin/
+  // folder (see /api/<op>-photos); a file dropped in or removed there
+  // takes effect on the next page load, no deploy needed. Empty until the
+  // fetch resolves, which is fine — a sheet opened in that brief window
+  // just shows no photo rather than waiting on it.
+  var ttPhotoPools = { amtrak: [], njt: [], lirr: [] };
+  Object.keys(ttPhotoPools).forEach(function (op) {
+    fetch("/api/" + op + "-photos").then(function (r) { return r.json(); }).then(function (d) {
+      ttPhotoPools[op] = (d && d.photos) || [];
+    }).catch(function () {});
+  });
+  // The last few photos shown per operator, oldest first — excluded from
+  // the next pick so reopening sheets back-to-back doesn't keep putting
+  // the same one or two back up.
+  var ttPhotoHistories = { amtrak: [], njt: [], lirr: [] };
+  function pickTtPhoto(op) {
+    var pool = ttPhotoPools[op];
+    if (!pool.length) return null;
+    var history = ttPhotoHistories[op];
+    var avoid = history.slice(-Math.min(3, pool.length - 1));
+    var candidates = pool.filter(function (p) { return avoid.indexOf(p) === -1; });
+    if (!candidates.length) candidates = pool;
     var pick = candidates[Math.floor(Math.random() * candidates.length)];
-    ttPhotoHistory.push(pick);
-    if (ttPhotoHistory.length > 6) ttPhotoHistory.shift();
+    history.push(pick);
+    if (history.length > 6) history.shift();
     return pick;
   }
-  function applyAmtrakHeaderPhoto(elHead) {
-    var photo = pickAmtrakPhoto();
+  function applyTtHeaderPhoto(elHead, op) {
+    var photo = pickTtPhoto(op);
     if (photo) {
       elHead.classList.add("has-photo");
-      elHead.style.setProperty("--tt-photo", 'url("/amtrak-photos/' + encodeURIComponent(photo) + '")');
+      elHead.style.setProperty("--tt-photo", 'url("/' + op + '-photos/' + encodeURIComponent(photo) + '")');
     } else {
       elHead.classList.remove("has-photo");
       elHead.style.removeProperty("--tt-photo");
@@ -7268,22 +7302,20 @@ body {
     var elHead = document.getElementById("ttHead");
     elHead.style.setProperty("--tt-accent", accent.bg);
     elHead.style.setProperty("--tt-head-fg", accent.fg);
+    // A live board refresh re-renders whichever sheet is already open
+    // through this same path, so the photo is only (re)picked on a
+    // genuinely fresh tap — ttMapJustOpened is already exactly that
+    // signal, set in openDetail and still true the first time this runs.
+    // Picking again on every refresh would reshuffle the photo out from
+    // under someone mid-read.
     if (board === "njt") {
-      elHead.classList.remove("has-photo");
-      elHead.style.removeProperty("--tt-photo");
+      if (ttMapJustOpened) applyTtHeaderPhoto(elHead, "njt");
       renderNjtDetail(row);
     } else if (board === "lirr") {
-      elHead.classList.remove("has-photo");
-      elHead.style.removeProperty("--tt-photo");
+      if (ttMapJustOpened) applyTtHeaderPhoto(elHead, "lirr");
       renderLirrDetail(row);
     } else {
-      // A live board refresh re-renders whichever sheet is already open
-      // through this same path, so the photo is only (re)picked on a
-      // genuinely fresh tap — ttMapJustOpened is already exactly that
-      // signal, set in openDetail and still true the first time this runs.
-      // Picking again on every refresh would reshuffle the photo out from
-      // under someone mid-read.
-      if (ttMapJustOpened) applyAmtrakHeaderPhoto(elHead);
+      if (ttMapJustOpened) applyTtHeaderPhoto(elHead, "amtrak");
       renderAmtrakDetail(row);
     }
   }
@@ -7866,7 +7898,7 @@ body {
       rowbg = "#ffffff";
     } else if (row.serviceType === "acela" && row.direction === "north") {
       rowbg = "#c6f7f7";
-      rowfg = "#121212";
+      rowfg = "#169494";
     }
     return '<div class="board-row" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
@@ -8696,6 +8728,16 @@ body {
   clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
   mix-blend-mode: overlay;
 }
+/* NJT-only: a header photo picked client-side from the njt/ photo pool
+   sits as the element's own (lowest) background layer, same treatment
+   the Amtrak board already uses. */
+.tt-head.has-photo {
+  background-image:
+    linear-gradient(100deg, rgba(8,10,16,0.5) 0%, rgba(8,10,16,0.28) 45%, rgba(8,10,16,0.05) 85%),
+    var(--tt-photo);
+  background-size: cover;
+  background-position: center;
+}
 .tt-grip { width: 34px; height: 4px; border-radius: 3px; background: rgba(255,255,255,0.22); margin: 0 auto 10px; position: relative; z-index: 1; }
 .tt-close {
   position: absolute; top: 8px; right: 10px; z-index: 2;
@@ -9148,6 +9190,40 @@ body {
     elSub.innerHTML = subHTML;
     elPosition.innerHTML = positionHTML || "";
   }
+  // Detail-sheet header photo pool — fetched once per page load from an
+  // njt/ folder beside this repo's bitcoin/ folder (see /api/njt-photos);
+  // a file dropped in or removed there takes effect on the next page
+  // load, no deploy needed. Empty until the fetch resolves, which is
+  // fine — a sheet opened in that brief window just shows no photo
+  // rather than waiting on it.
+  var ttNjtPhotos = [];
+  fetch("/api/njt-photos").then(function (r) { return r.json(); }).then(function (d) {
+    ttNjtPhotos = (d && d.photos) || [];
+  }).catch(function () {});
+  // The last few photos shown, oldest first — excluded from the next
+  // pick so reopening sheets back-to-back doesn't keep putting the same
+  // one or two back up.
+  var ttPhotoHistory = [];
+  function pickNjtPhoto() {
+    if (!ttNjtPhotos.length) return null;
+    var avoid = ttPhotoHistory.slice(-Math.min(3, ttNjtPhotos.length - 1));
+    var candidates = ttNjtPhotos.filter(function (p) { return avoid.indexOf(p) === -1; });
+    if (!candidates.length) candidates = ttNjtPhotos;
+    var pick = candidates[Math.floor(Math.random() * candidates.length)];
+    ttPhotoHistory.push(pick);
+    if (ttPhotoHistory.length > 6) ttPhotoHistory.shift();
+    return pick;
+  }
+  function applyNjtHeaderPhoto(elHead) {
+    var photo = pickNjtPhoto();
+    if (photo) {
+      elHead.classList.add("has-photo");
+      elHead.style.setProperty("--tt-photo", 'url("/njt-photos/' + encodeURIComponent(photo) + '")');
+    } else {
+      elHead.classList.remove("has-photo");
+      elHead.style.removeProperty("--tt-photo");
+    }
+  }
   var openTrain = null; // { event, idx } — kept so a live poll can re-render it
   var ttMap = null;
   var ttStopMarkers = {}; // station index (into row.stations) -> { marker, name }
@@ -9326,8 +9402,14 @@ body {
     var hasVehicle = row.vehicle && row.vehicle.lat != null && row.vehicle.lon != null;
     var showMap = routeStops.length >= 2 || hasVehicle;
     ttRouteColor = "#" + (row.color || "0039a6");
-    document.getElementById("ttHead").style.setProperty("--tt-accent", ttRouteColor);
-    document.getElementById("ttHead").style.setProperty("--tt-head-fg", "#" + (row.textColor || "ffffff"));
+    var elHead = document.getElementById("ttHead");
+    elHead.style.setProperty("--tt-accent", ttRouteColor);
+    elHead.style.setProperty("--tt-head-fg", "#" + (row.textColor || "ffffff"));
+    // A live board refresh re-renders whichever sheet is already open
+    // through this same function, so the photo is only (re)picked on a
+    // genuinely fresh tap — ttMapJustOpened is already exactly that
+    // signal, set in openDetail and still true the first time this runs.
+    if (ttMapJustOpened) applyNjtHeaderPhoto(elHead);
 
     var now = Date.now();
     var nextIdx = -1;
@@ -10900,6 +10982,17 @@ const lirrBoardPage = `<!DOCTYPE html>
     clip-path: polygon(58% 100%, 100% 18%, 100% 100%);
     mix-blend-mode: overlay;
   }
+  /* LIRR-only: a header photo picked client-side from the lirr/ photo
+     pool sits as .detail-head's own (lowest) background layer — --tt-photo
+     and this class are set on #detailOverlay (the parent), and inherit
+     down the same way --tt-accent already does. */
+  .detail-overlay.has-photo .detail-head {
+    background-image:
+      linear-gradient(100deg, rgba(8,10,16,0.5) 0%, rgba(8,10,16,0.28) 45%, rgba(8,10,16,0.05) 85%),
+      var(--tt-photo);
+    background-size: cover;
+    background-position: center;
+  }
   .detail-title-wrap { min-width: 0; flex: 1; position: relative; z-index: 1; }
   .detail-close {
     background: rgba(0,0,0,0.35); border: none; color: #fff; font-size: 20px; cursor: pointer;
@@ -11207,6 +11300,40 @@ const lirrBoardPage = `<!DOCTYPE html>
         el.addEventListener(evt, mark, { passive: true });
       });
     }
+    // Detail-sheet header photo pool — fetched once per page load from a
+    // lirr/ folder beside this repo's bitcoin/ folder (see
+    // /api/lirr-photos); a file dropped in or removed there takes effect
+    // on the next page load, no deploy needed. Empty until the fetch
+    // resolves, which is fine — a sheet opened in that brief window just
+    // shows no photo rather than waiting on it.
+    let lirrPhotoPool = [];
+    fetch("/api/lirr-photos").then(r => r.json()).then(d => {
+      lirrPhotoPool = (d && d.photos) || [];
+    }).catch(() => {});
+    // The last few photos shown, oldest first — excluded from the next
+    // pick so reopening sheets back-to-back doesn't keep putting the same
+    // one or two back up.
+    let lirrPhotoHistory = [];
+    function pickLirrPhoto() {
+      if (!lirrPhotoPool.length) return null;
+      const avoid = lirrPhotoHistory.slice(-Math.min(3, lirrPhotoPool.length - 1));
+      let candidates = lirrPhotoPool.filter(p => avoid.indexOf(p) === -1);
+      if (!candidates.length) candidates = lirrPhotoPool;
+      const pick = candidates[Math.floor(Math.random() * candidates.length)];
+      lirrPhotoHistory.push(pick);
+      if (lirrPhotoHistory.length > 6) lirrPhotoHistory.shift();
+      return pick;
+    }
+    function applyLirrHeaderPhoto(elOverlay) {
+      const photo = pickLirrPhoto();
+      if (photo) {
+        elOverlay.classList.add("has-photo");
+        elOverlay.style.setProperty("--tt-photo", 'url("/lirr-photos/' + encodeURIComponent(photo) + '")');
+      } else {
+        elOverlay.classList.remove("has-photo");
+        elOverlay.style.removeProperty("--tt-photo");
+      }
+    }
     function tightBoundsAround(stops, centerIdx, livePt) {
       if (!stops.length) return null;
       const idx = centerIdx == null || centerIdx < 0 ? stops.length - 1 : Math.min(centerIdx, stops.length - 1);
@@ -11386,8 +11513,14 @@ const lirrBoardPage = `<!DOCTYPE html>
       currentStops = stops;
       currentBoardIdx = boardIdx;
       currentRouteColor = "#" + (route.color || "888888");
-      document.getElementById("detailOverlay").style.setProperty("--tt-accent", currentRouteColor);
-      document.getElementById("detailOverlay").style.setProperty("--tt-head-fg", "#" + (route.textColor || "ffffff"));
+      const detailOverlayEl = document.getElementById("detailOverlay");
+      detailOverlayEl.style.setProperty("--tt-accent", currentRouteColor);
+      detailOverlayEl.style.setProperty("--tt-head-fg", "#" + (route.textColor || "ffffff"));
+      // A live board refresh re-renders whichever sheet is already open
+      // through this same function, so the photo is only (re)picked on a
+      // genuinely fresh tap — mapJustOpened is already exactly that
+      // signal, set in openDetail and still true the first time this runs.
+      if (mapJustOpened) applyLirrHeaderPhoto(detailOverlayEl);
       stopMarkers = [];
       document.getElementById("detailStops").innerHTML = stops.map((s, i) => {
         const isBoard = i === boardIdx;
