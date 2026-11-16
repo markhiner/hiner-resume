@@ -6132,6 +6132,8 @@ body {
   border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--text1);
 }
 .tt-position b { color: var(--yellow); }
+.tt-map-wrap { flex-shrink: 0; padding: 0 16px; }
+.tt-map-wrap:empty { padding: 0; }
 #ttMap { height: 260px; border-radius: 12px; margin-top: 12px; background: var(--panel2); }
 .tt-map-label {
   background: rgba(11,11,13,0.85); color: #fff; border: none; border-radius: 4px;
@@ -6195,6 +6197,7 @@ body {
       <div class="tt-sub" id="ttSub"></div>
       <div class="train-detail-position" id="ttPosition"></div>
     </div>
+    <div class="tt-map-wrap" id="ttMapWrap"></div>
     <div class="tt-body" id="ttBody"></div>
   </div>
 </div>
@@ -6689,6 +6692,18 @@ body {
     if (livePt) pts.push(livePt);
     return L.latLngBounds(pts);
   }
+  // The midpoint of two bounds' corners — used for the "medium" zoom stage
+  // that sits between a freshly-opened sheet's full-route view and the
+  // train's own tight neighborhood, so the eye isn't asked to jump straight
+  // from one extreme to the other in a single cut.
+  function interpolateBounds(a, b, t) {
+    var aSW = a.getSouthWest(), aNE = a.getNorthEast();
+    var bSW = b.getSouthWest(), bNE = b.getNorthEast();
+    return L.latLngBounds(
+      [aSW.lat + (bSW.lat - aSW.lat) * t, aSW.lng + (bSW.lng - aSW.lng) * t],
+      [aNE.lat + (bNE.lat - aNE.lat) * t, aNE.lng + (bNE.lng - aNE.lng) * t]
+    );
+  }
   function closeTrain() {
     elSheet.classList.remove("on");
     document.body.style.overflow = "";
@@ -6873,8 +6888,9 @@ body {
       ""
     );
     document.getElementById("ttWedgeInfo").innerHTML = amtrakWedgeInfoHTML(row.stations, nextIdx, row.velocity, row.heading);
+    document.getElementById("ttMapWrap").innerHTML = showMap ? '<div id="ttMap"></div>' : "";
     elBody.innerHTML =
-      (showMap ? '<div id="ttMap"></div>' : '<div class="tt-position">Route map not available for this train right now.</div>') +
+      (showMap ? "" : '<div class="tt-position">Route map not available for this train right now.</div>') +
       '<div class="tt-stops" id="ttStops"></div>';
 
     renderStopsList(row.stations, nextIdx, function (s) {
@@ -6946,16 +6962,17 @@ body {
           ttMap.on("zoomend moveend", declutterLabels);
           ttWatchUserInteraction();
           // Recreated on every refresh, so without this it would land back on
-          // the wide fit above every time — jump straight to the tight
-          // framing the 3-second zoom already settled on instead. Once the
-          // rider has actually touched the map themselves, their own last
-          // view wins over that recomputed target instead.
+          // the wide fit above every time — jump straight to whichever zoom
+          // stage the reveal sequence last reached instead. Once the rider
+          // has actually touched the map themselves, their own last view
+          // wins over that recomputed target instead.
+          var wideBounds = L.latLngBounds(latlngs);
           if (ttSavedView) {
             ttMap.setView(ttSavedView.center, ttSavedView.zoom, { animate: false });
           } else if (ttTightBounds) {
             ttMap.fitBounds(ttTightBounds, { padding: [32, 32] });
           } else {
-            ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+            ttMap.fitBounds(wideBounds, { padding: [24, 24] });
           }
           declutterLabels();
         } else if (ttSavedView) {
@@ -6978,22 +6995,31 @@ body {
         }
 
         // Whole route first, so it reads as a map before it reads as a
-        // train — then, after a real 2-second hold (not just a moment),
-        // one pull into the train's own neighborhood: its current position
-        // plus the nearest few stations. Only on the tap that opened the
-        // sheet: a periodic re-render of an already-open sheet must never
-        // yank the view out from under someone still looking at it.
+        // train — then a medium pull-in at 1s, then a tight one at 2s onto
+        // the train's own neighborhood (its current position plus the
+        // nearest few stations), where it then stays put: ttTightBounds
+        // keeps every later refresh right there instead of recomputing the
+        // wide fit, so the view never snaps back out on its own — only a
+        // fresh close/reopen (or the rider's own touch) changes it from
+        // here. Only on the tap that opened the sheet: a periodic
+        // re-render of an already-open sheet must never yank the view out
+        // from under someone still looking at it.
         if (ttMapJustOpened) {
           ttMapJustOpened = false;
-          var mapAtOpen = ttMap;
-          setTimeout(function () {
-            if (ttMap !== mapAtOpen) return;
-            scrollStopsIntoView(nextIdx);
-            if (tightBounds) {
+          scrollStopsIntoView(nextIdx);
+          if (tightBounds && routeStops.length >= 2) {
+            var mapAtOpen = ttMap;
+            var mediumBounds = interpolateBounds(wideBounds, tightBounds, 0.5);
+            setTimeout(function () {
+              if (ttMap !== mapAtOpen) return;
+              ttMap.flyToBounds(mediumBounds, { padding: [32, 32], duration: 1 });
+            }, 1000);
+            setTimeout(function () {
+              if (ttMap !== mapAtOpen) return;
               ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
               ttTightBounds = tightBounds;
-            }
-          }, 2000);
+            }, 2000);
+          }
         }
        } catch (e) {
         // Anything thrown anywhere above (bad shape data, a stale map
@@ -7099,6 +7125,7 @@ body {
       ? routeStops.findIndex(function (s) { return (s.code != null && s.code === centerStation.code) || (s.stopId != null && s.stopId === centerStation.stopId); })
       : -1;
     var tightBounds = routeStops.length ? tightBoundsAround(routeStops, routeCenterIdx, livePt) : null;
+    var wideBounds = latlngs.length >= 2 ? L.latLngBounds(latlngs) : null;
     if (latlngs.length >= 2) {
       ttMap.on("zoomend moveend", declutterLabels);
       ttWatchUserInteraction();
@@ -7107,7 +7134,7 @@ body {
       } else if (ttTightBounds) {
         ttMap.fitBounds(ttTightBounds, { padding: [32, 32] });
       } else {
-        ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+        ttMap.fitBounds(wideBounds, { padding: [24, 24] });
       }
       declutterLabels();
     } else if (ttSavedView) {
@@ -7122,21 +7149,28 @@ body {
     }
     setTimeout(function () { if (ttMap) ttMap.invalidateSize(); }, 60);
 
-    // Same choreography as Amtrak's own map: whole route first, then after
-    // a real 2-second hold, one pull into the train's own neighborhood.
+    // Same choreography as Amtrak's own map: whole route first, then a
+    // medium pull-in at 1s, then a tight one at 2s onto the train's own
+    // neighborhood — where it then stays put, since ttTightBounds keeps
+    // every later refresh right there instead of recomputing the wide fit.
     // Only on the tap that opened the sheet — a periodic board refresh
     // re-rendering an already-open sheet must never yank the view.
     if (ttMapJustOpened) {
       ttMapJustOpened = false;
-      var mapAtOpen = ttMap;
-      setTimeout(function () {
-        if (ttMap !== mapAtOpen) return;
-        scrollStopsIntoView(centerIdx);
-        if (tightBounds) {
+      scrollStopsIntoView(centerIdx);
+      if (tightBounds && wideBounds) {
+        var mapAtOpen = ttMap;
+        var mediumBounds = interpolateBounds(wideBounds, tightBounds, 0.5);
+        setTimeout(function () {
+          if (ttMap !== mapAtOpen) return;
+          ttMap.flyToBounds(mediumBounds, { padding: [32, 32], duration: 1 });
+        }, 1000);
+        setTimeout(function () {
+          if (ttMap !== mapAtOpen) return;
           ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
           ttTightBounds = tightBounds;
-        }
-      }, 2000);
+        }, 2000);
+      }
     }
   }
 
@@ -7160,9 +7194,8 @@ body {
       "NJ Transit " + rowStatusBadgeHTML(row, delayMin),
       positionPillHTML(row.stations, nextIdx)
     );
-    elBody.innerHTML =
-      (showMap ? '<div id="ttMap"></div>' : '') +
-      '<div class="tt-stops" id="ttStops"></div>';
+    document.getElementById("ttMapWrap").innerHTML = showMap ? '<div id="ttMap"></div>' : "";
+    elBody.innerHTML = '<div class="tt-stops" id="ttStops"></div>';
 
     renderStopsList(row.stations, nextIdx, function (s) {
       return [stopTimeHTML("Arr", s.schedArrMs, s.arrMs), stopTimeHTML("Dep", s.schedDepMs, s.depMs)].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
@@ -7205,9 +7238,8 @@ body {
       "LIRR " + rowStatusBadgeHTML(row, delayMin),
       positionPillHTML(row.stations, nextIdx)
     );
-    elBody.innerHTML =
-      (showMap ? '<div id="ttMap"></div>' : '') +
-      '<div class="tt-stops" id="ttStops"></div>';
+    document.getElementById("ttMapWrap").innerHTML = showMap ? '<div id="ttMap"></div>' : "";
+    elBody.innerHTML = '<div class="tt-stops" id="ttStops"></div>';
 
     renderStopsList(row.stations, nextIdx, function (s) {
       return [stopTimeHTML("Arr", s.schedArrMs, s.arrMs), stopTimeHTML("Dep", s.schedDepMs, s.depMs)].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
@@ -7630,6 +7662,8 @@ body {
   margin-top: 12px; background: var(--panel2); border: 1px solid var(--border);
   border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--text1);
 }
+.tt-map-wrap { flex-shrink: 0; padding: 0 16px; }
+.tt-map-wrap:empty { padding: 0; }
 #ttMap { height: 260px; border-radius: 12px; margin-top: 12px; background: var(--panel2); }
 .tt-map-label {
   background: rgba(11,11,13,0.85); color: #fff; border: none; border-radius: 4px;
@@ -7717,6 +7751,7 @@ body {
       <div class="tt-sub" id="ttSub"></div>
       <div class="train-detail-position" id="ttPosition"></div>
     </div>
+    <div class="tt-map-wrap" id="ttMapWrap"></div>
     <div class="tt-body" id="ttBody"></div>
   </div>
 </div>
@@ -8110,6 +8145,18 @@ body {
     if (livePt) pts.push(livePt);
     return L.latLngBounds(pts);
   }
+  // The midpoint of two bounds' corners — used for the "medium" zoom stage
+  // that sits between a freshly-opened sheet's full-route view and the
+  // train's own tight neighborhood, so the eye isn't asked to jump straight
+  // from one extreme to the other in a single cut.
+  function interpolateBounds(a, b, t) {
+    var aSW = a.getSouthWest(), aNE = a.getNorthEast();
+    var bSW = b.getSouthWest(), bNE = b.getNorthEast();
+    return L.latLngBounds(
+      [aSW.lat + (bSW.lat - aSW.lat) * t, aSW.lng + (bSW.lng - aSW.lng) * t],
+      [aNE.lat + (bNE.lat - aNE.lat) * t, aNE.lng + (bNE.lng - aNE.lng) * t]
+    );
+  }
   function closeTrain() {
     elSheet.classList.remove("on");
     document.body.style.overflow = "";
@@ -8291,8 +8338,9 @@ body {
       ""
     );
     document.getElementById("ttWedgeInfo").innerHTML = amtrakWedgeInfoHTML(row.stations, nextIdx, row.velocity, row.heading);
+    document.getElementById("ttMapWrap").innerHTML = showMap ? '<div id="ttMap"></div>' : "";
     elBody.innerHTML =
-      (showMap ? '<div id="ttMap"></div>' : '<div class="tt-position">Route map not available for this train right now.</div>') +
+      (showMap ? "" : '<div class="tt-position">Route map not available for this train right now.</div>') +
       '<div class="tt-stops" id="ttStops"></div>';
 
     renderStopsList(row.stations, nextIdx, function (s) {
@@ -8343,12 +8391,13 @@ body {
           }
           ttMap.on("zoomend moveend", declutterLabels);
           ttWatchUserInteraction();
+          var wideBounds = L.latLngBounds(latlngs);
           if (ttSavedView) {
             ttMap.setView(ttSavedView.center, ttSavedView.zoom, { animate: false });
           } else if (ttTightBounds) {
             ttMap.fitBounds(ttTightBounds, { padding: [32, 32] });
           } else {
-            ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+            ttMap.fitBounds(wideBounds, { padding: [24, 24] });
           }
           declutterLabels();
         } else if (ttSavedView) {
@@ -8364,17 +8413,27 @@ body {
             .addTo(ttMap);
         }
 
+        // Whole route first, then a medium pull-in at 1s, then a tight one
+        // at 2s onto the train's own neighborhood — where it then stays
+        // put: ttTightBounds keeps every later refresh right there instead
+        // of recomputing the wide fit, so the view never snaps back out on
+        // its own. Only on the tap that opened the sheet.
         if (ttMapJustOpened) {
           ttMapJustOpened = false;
-          var mapAtOpen = ttMap;
-          setTimeout(function () {
-            if (ttMap !== mapAtOpen) return;
-            scrollStopsIntoView(nextIdx);
-            if (tightBounds) {
+          scrollStopsIntoView(nextIdx);
+          if (tightBounds && routeStops.length >= 2) {
+            var mapAtOpen = ttMap;
+            var mediumBounds = interpolateBounds(wideBounds, tightBounds, 0.5);
+            setTimeout(function () {
+              if (ttMap !== mapAtOpen) return;
+              ttMap.flyToBounds(mediumBounds, { padding: [32, 32], duration: 1 });
+            }, 1000);
+            setTimeout(function () {
+              if (ttMap !== mapAtOpen) return;
               ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
               ttTightBounds = tightBounds;
-            }
-          }, 2000);
+            }, 2000);
+          }
         }
        } catch (e) {
         console.error("Train detail map failed to build:", e);
@@ -8700,6 +8759,8 @@ body {
   font-size: 11px; font-weight: 700; opacity: 0.9; margin-top: 4px;
   text-shadow: 0 1px 2px rgba(0,0,0,0.4);
 }
+.tt-map-wrap { flex-shrink: 0; padding: 0 16px; }
+.tt-map-wrap:empty { padding: 0; }
 #ttMap { height: 260px; border-radius: 12px; margin-top: 12px; background: var(--panel2); }
 .tt-map-label {
   background: rgba(11,11,13,0.85); color: #fff; border: none; border-radius: 4px;
@@ -8788,6 +8849,7 @@ body {
       <div class="tt-sub" id="ttSub"></div>
       <div class="train-detail-position" id="ttPosition"></div>
     </div>
+    <div class="tt-map-wrap" id="ttMapWrap"></div>
     <div class="tt-body" id="ttBody"></div>
   </div>
 </div>
@@ -9123,6 +9185,18 @@ body {
     if (livePt) pts.push(livePt);
     return L.latLngBounds(pts);
   }
+  // The midpoint of two bounds' corners — used for the "medium" zoom stage
+  // that sits between a freshly-opened sheet's full-route view and the
+  // train's own tight neighborhood, so the eye isn't asked to jump straight
+  // from one extreme to the other in a single cut.
+  function interpolateBounds(a, b, t) {
+    var aSW = a.getSouthWest(), aNE = a.getNorthEast();
+    var bSW = b.getSouthWest(), bNE = b.getNorthEast();
+    return L.latLngBounds(
+      [aSW.lat + (bSW.lat - aSW.lat) * t, aSW.lng + (bSW.lng - aSW.lng) * t],
+      [aNE.lat + (bNE.lat - aNE.lat) * t, aNE.lng + (bNE.lng - aNE.lng) * t]
+    );
+  }
   function closeTrain() {
     elSheet.classList.remove("on");
     document.body.style.overflow = "";
@@ -9270,9 +9344,8 @@ body {
       "NJ Transit " + rowStatusBadgeHTML(row, delayMin),
       positionPillHTML(row.stations, nextIdx)
     );
-    elBody.innerHTML =
-      (showMap ? '<div id="ttMap"></div>' : '') +
-      '<div class="tt-stops" id="ttStops"></div>';
+    document.getElementById("ttMapWrap").innerHTML = showMap ? '<div id="ttMap"></div>' : "";
+    elBody.innerHTML = '<div class="tt-stops" id="ttStops"></div>';
 
     renderStopsList(row.stations, nextIdx, function (s) {
       return [stopTimeHTML("Arr", s.schedArrMs, s.arrMs), stopTimeHTML("Dep", s.schedDepMs, s.depMs)].filter(Boolean).join(" &nbsp;&middot;&nbsp; ");
@@ -9337,6 +9410,7 @@ body {
           ? routeStops.findIndex(function (s) { return s.code === row.stations[nextIdx].code; })
           : -1;
         var tightBounds = routeStops.length ? tightBoundsAround(routeStops, routeNextIdx, livePt) : null;
+        var wideBounds = latlngs.length >= 2 ? L.latLngBounds(latlngs) : null;
         if (latlngs.length >= 2) {
           ttMap.on("zoomend moveend", declutterLabels);
           ttWatchUserInteraction();
@@ -9345,7 +9419,7 @@ body {
           } else if (ttTightBounds) {
             ttMap.fitBounds(ttTightBounds, { padding: [32, 32] });
           } else {
-            ttMap.fitBounds(L.latLngBounds(latlngs), { padding: [24, 24] });
+            ttMap.fitBounds(wideBounds, { padding: [24, 24] });
           }
           declutterLabels();
         } else if (ttSavedView) {
@@ -9369,20 +9443,27 @@ body {
         }
         setTimeout(function () { if (ttMap) ttMap.invalidateSize(); }, 60);
 
-        // Whole route first, then after a real 2-second hold, one pull into
-        // the train's own neighborhood — same choreography as the Amtrak
-        // board's map. Only on the tap that opened the sheet.
+        // Whole route first, then a medium pull-in at 1s, then a tight one
+        // at 2s onto the train's own neighborhood — where it then stays
+        // put, since ttTightBounds keeps every later refresh right there
+        // instead of recomputing the wide fit. Only on the tap that opened
+        // the sheet.
         if (ttMapJustOpened) {
           ttMapJustOpened = false;
-          var mapAtOpen = ttMap;
-          setTimeout(function () {
-            if (ttMap !== mapAtOpen) return;
-            scrollStopsIntoView(nextIdx);
-            if (tightBounds) {
+          scrollStopsIntoView(nextIdx);
+          if (tightBounds && wideBounds) {
+            var mapAtOpen = ttMap;
+            var mediumBounds = interpolateBounds(wideBounds, tightBounds, 0.5);
+            setTimeout(function () {
+              if (ttMap !== mapAtOpen) return;
+              ttMap.flyToBounds(mediumBounds, { padding: [32, 32], duration: 1 });
+            }, 1000);
+            setTimeout(function () {
+              if (ttMap !== mapAtOpen) return;
               ttMap.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
               ttTightBounds = tightBounds;
-            }
-          }, 2000);
+            }, 2000);
+          }
         }
       } catch (e) {
         console.error("NJT train detail map failed to build:", e);
@@ -11135,6 +11216,14 @@ const lirrBoardPage = `<!DOCTYPE html>
       if (livePt) pts.push(livePt);
       return L.latLngBounds(pts);
     }
+    function interpolateBounds(a, b, t) {
+      const aSW = a.getSouthWest(), aNE = a.getNorthEast();
+      const bSW = b.getSouthWest(), bNE = b.getNorthEast();
+      return L.latLngBounds(
+        [aSW.lat + (bSW.lat - aSW.lat) * t, aSW.lng + (bSW.lng - aSW.lng) * t],
+        [aNE.lat + (bNE.lat - aNE.lat) * t, aNE.lng + (bNE.lng - aNE.lng) * t]
+      );
+    }
 
     async function loadBoard() {
       try {
@@ -11331,6 +11420,7 @@ const lirrBoardPage = `<!DOCTYPE html>
       // boarding station is still the one place on this route a rider
       // actually cares about, so it stands in as the zoom's center.
       const tightBounds = pts.length ? tightBoundsAround(pts.map((p, i) => ({ lat: p[0], lon: p[1] })), boardIdx, livePt) : null;
+      const wideBounds = pts.length ? L.latLngBounds(pts) : null;
       if (pts.length) {
         L.polyline(pts, { color: currentRouteColor, weight: 4 }).addTo(detailMapInstance);
         stops.forEach((s, i) => {
@@ -11347,7 +11437,7 @@ const lirrBoardPage = `<!DOCTYPE html>
         } else if (tightBoundsCache) {
           detailMapInstance.fitBounds(tightBoundsCache, { padding: [32, 32] });
         } else {
-          detailMapInstance.fitBounds(L.latLngBounds(pts), { padding: [24, 24] });
+          detailMapInstance.fitBounds(wideBounds, { padding: [24, 24] });
         }
       } else if (savedDetailMapView) {
         detailMapInstance.setView(savedDetailMapView.center, savedDetailMapView.zoom, { animate: false });
@@ -11366,13 +11456,21 @@ const lirrBoardPage = `<!DOCTYPE html>
       }
       setTimeout(() => { if (detailMapInstance) detailMapInstance.invalidateSize(); }, 60);
 
-      // Whole route first, then after a real 2-second hold, one pull into
-      // the train's own neighborhood — same choreography every other
-      // board's detail map now uses. Only on the tap that opened the sheet.
+      // Whole route first, then a medium pull-in at 1s, then a tight one at
+      // 2s onto the train's own neighborhood — where it then stays put,
+      // since tightBoundsCache keeps every later refresh right there
+      // instead of recomputing the wide fit. Only on the tap that opened
+      // the sheet.
       if (mapJustOpened) {
         mapJustOpened = false;
-        if (tightBounds) {
+        if (tightBounds && wideBounds) {
           const mapAtOpen = detailMapInstance;
+          const mediumBounds = interpolateBounds(wideBounds, tightBounds, 0.5);
+          setTimeout(() => {
+            if (detailMapInstance === mapAtOpen) {
+              detailMapInstance.flyToBounds(mediumBounds, { padding: [32, 32], duration: 1 });
+            }
+          }, 1000);
           setTimeout(() => {
             if (detailMapInstance === mapAtOpen) {
               detailMapInstance.flyToBounds(tightBounds, { padding: [32, 32], duration: 1 });
