@@ -3830,10 +3830,11 @@ function trainPositionOnShape(entry, nowMs) {
 // it comes back empty while a train is dwelling at a stop (arrived but not
 // yet past its own recorded departure, which amtraker.com sometimes pads
 // well past when it realistically should have left) or when a stop's
-// actual times are missing. positionPillHTML's "Between X and Y" already
-// has to handle exactly that with a looser, arrival-only rule — this uses
-// the same rule to fall back to a straight line between those same two
-// stops, so the two never disagree about which segment the train is in.
+// actual times are missing. The client's own "next stop" determination
+// already has to handle exactly that with a looser, arrival-only rule —
+// this uses the same rule to fall back to a straight line between those
+// same two stops, so the two never disagree about which segment the
+// train is in.
 function amtrakEstimatePosition(entry, nowMs) {
   const shaped = trainPositionOnShape(entry, nowMs);
   if (shaped) return shaped;
@@ -6781,26 +6782,6 @@ body {
     }
     return statusBadgeHTML(delayMin);
   }
-  // "Between X and Y · due HH:MM" / "Arrived at X" / "Not yet departed X" —
-  // same position pill the live map pages' own train-detail sheet shows.
-  function positionPillHTML(stations, nextIdx) {
-    if (!stations || !stations.length) return "";
-    if (nextIdx === -1) return "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
-    var next = stations[nextIdx];
-    // The very first stop has no "prev" to be between — Amtrak's own feed
-    // reports a not-yet-started trip's origin as "Enroute" same as every
-    // other stop ahead of the train, so this can't lean on status here the
-    // way every later stop can.
-    if (nextIdx === 0) return "Not yet departed <b>" + esc(next.name) + "</b>";
-    // "Station" (Amtrak's own status, when reported) means it's sitting
-    // right there, not yet gone. NJT/LIRR stops never carry a status
-    // field, so this is simply false for them, unchanged from before.
-    if (next.status === "Station") return "Not yet departed <b>" + esc(next.name) + "</b>";
-    var prev = stations[nextIdx - 1];
-    var eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
-    return "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " &middot; due " + fmtBoardTime(eta) : "");
-  }
-
   // Same flat stop list (and the next-stop-in-green call-out) the live map
   // pages' own train-detail sheet already uses — no "show earlier stops"
   // toggle; timesHTMLFor(stop, i) supplies just the time portion, since
@@ -6880,12 +6861,15 @@ body {
     return -1;
   }
 
-  // The header's own color wedge now carries the upcoming stop (same
+  // The header's own color wedge carries the upcoming stop (same
   // "Next"/"Arrived" wording and meaning as the stop list just below it)
   // and current speed, replacing the old "Between X and Y" line — which
   // read as "Between NY Penn and NY Penn" for a train still at its
   // origin, since there's no real "between" until it's actually moving.
-  function amtrakWedgeInfoHTML(stations, nextIdx, velocity, heading) {
+  // Shared by all three operators: only Amtrak's feed carries an actual
+  // mph figure, so velocity/heading simply come in null for NJT/LIRR and
+  // the speed line never appears for them.
+  function wedgeInfoHTML(stations, nextIdx, velocity, heading) {
     if (!stations || !stations.length) return "";
     var atIdx = nextIdx === -1 ? stations.length - 1 : nextIdx;
     var tag = nextIdx === -1 ? "Arrived" : "Next";
@@ -6921,7 +6905,7 @@ body {
       rowStatusBadgeHTML(row, delayMin),
       ""
     );
-    document.getElementById("ttWedgeInfo").innerHTML = amtrakWedgeInfoHTML(row.stations, nextIdx, row.velocity, row.heading);
+    document.getElementById("ttWedgeInfo").innerHTML = wedgeInfoHTML(row.stations, nextIdx, row.velocity, row.heading);
     document.getElementById("ttMapWrap").innerHTML = showMap ? '<div id="ttMap"></div>' : "";
     elBody.innerHTML =
       (showMap ? "" : '<div class="tt-position">Route map not available for this train right now.</div>') +
@@ -7226,8 +7210,9 @@ body {
     setTtHead(
       esc(row.trainNum) + " " + esc(row.routeName),
       "NJ Transit " + rowStatusBadgeHTML(row, delayMin),
-      positionPillHTML(row.stations, nextIdx)
+      ""
     );
+    document.getElementById("ttWedgeInfo").innerHTML = wedgeInfoHTML(row.stations, nextIdx, null, null);
     document.getElementById("ttMapWrap").innerHTML = showMap ? '<div id="ttMap"></div>' : "";
     elBody.innerHTML = '<div class="tt-stops" id="ttStops"></div>';
 
@@ -7270,8 +7255,9 @@ body {
     setTtHead(
       esc(row.trainNum) + " " + esc(row.routeName),
       "LIRR " + rowStatusBadgeHTML(row, delayMin),
-      positionPillHTML(row.stations, nextIdx)
+      ""
     );
+    document.getElementById("ttWedgeInfo").innerHTML = wedgeInfoHTML(row.stations, nextIdx, null, null);
     document.getElementById("ttMapWrap").innerHTML = showMap ? '<div id="ttMap"></div>' : "";
     elBody.innerHTML = '<div class="tt-stops" id="ttStops"></div>';
 
@@ -8229,26 +8215,6 @@ body {
     }
     return statusBadgeHTML(delayMin);
   }
-  // "Between X and Y · due HH:MM" / "Arrived at X" / "Not yet departed X" —
-  // same position pill the live map pages' own train-detail sheet shows.
-  function positionPillHTML(stations, nextIdx) {
-    if (!stations || !stations.length) return "";
-    if (nextIdx === -1) return "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
-    var next = stations[nextIdx];
-    // The very first stop has no "prev" to be between — Amtrak's own feed
-    // reports a not-yet-started trip's origin as "Enroute" same as every
-    // other stop ahead of the train, so this can't lean on status here the
-    // way every later stop can.
-    if (nextIdx === 0) return "Not yet departed <b>" + esc(next.name) + "</b>";
-    // "Station" (Amtrak's own status, when reported) means it's sitting
-    // right there, not yet gone. NJT/LIRR stops never carry a status
-    // field, so this is simply false for them, unchanged from before.
-    if (next.status === "Station") return "Not yet departed <b>" + esc(next.name) + "</b>";
-    var prev = stations[nextIdx - 1];
-    var eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
-    return "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " &middot; due " + fmtBoardTime(eta) : "");
-  }
-
   // Same flat stop list (and the next-stop-in-green call-out) the live map
   // pages' own train-detail sheet already uses — no "show earlier stops"
   // toggle; timesHTMLFor(stop, i) supplies just the time portion.
@@ -8712,7 +8678,7 @@ body {
 .tt-head {
   background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
   border-radius: 18px 18px 0 0;
-  padding: 8px 16px 14px;
+  padding: 8px 16px 38px;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
@@ -8887,6 +8853,7 @@ body {
     <div class="tt-head" id="ttHead">
       <div class="tt-grip"></div>
       <button class="tt-close" id="ttClose" aria-label="Close">&times;</button>
+      <div class="tt-wedge-info" id="ttWedgeInfo"></div>
       <div class="tt-title" id="ttTitle"></div>
       <div class="tt-sub" id="ttSub"></div>
       <div class="train-detail-position" id="ttPosition"></div>
@@ -9313,26 +9280,23 @@ body {
     }
     return statusBadgeHTML(delayMin);
   }
-  // "Between X and Y · due HH:MM" / "Arrived at X" / "Not yet departed X" —
-  // same position pill the live map pages' own train-detail sheet shows.
-  function positionPillHTML(stations, nextIdx) {
+  // The header's own color wedge carries the upcoming stop (same
+  // "Next"/"Arrived" wording and meaning as the stop list just below it) —
+  // same treatment Amtrak's own detail sheet uses, replacing the old
+  // "Between X and Y" line, which read as "Between X and X" for a train
+  // still at its origin. NJT carries no mph telemetry, so velocity/heading
+  // always come in null here and the speed line never appears.
+  function wedgeInfoHTML(stations, nextIdx, velocity, heading) {
     if (!stations || !stations.length) return "";
-    if (nextIdx === -1) return "Arrived at <b>" + esc(stations[stations.length - 1].name) + "</b>";
-    var next = stations[nextIdx];
-    // The very first stop has no "prev" to be between — Amtrak's own feed
-    // reports a not-yet-started trip's origin as "Enroute" same as every
-    // other stop ahead of the train, so this can't lean on status here the
-    // way every later stop can.
-    if (nextIdx === 0) return "Not yet departed <b>" + esc(next.name) + "</b>";
-    // "Station" (Amtrak's own status, when reported) means it's sitting
-    // right there, not yet gone. NJT/LIRR stops never carry a status
-    // field, so this is simply false for them, unchanged from before.
-    if (next.status === "Station") return "Not yet departed <b>" + esc(next.name) + "</b>";
-    var prev = stations[nextIdx - 1];
-    var eta = next.arrMs != null ? next.arrMs : next.schedArrMs;
-    return "Between <b>" + esc(prev.name) + "</b> and <b>" + esc(next.name) + "</b>" + (eta != null ? " &middot; due " + fmtBoardTime(eta) : "");
+    var atIdx = nextIdx === -1 ? stations.length - 1 : nextIdx;
+    var tag = nextIdx === -1 ? "Arrived" : "Next";
+    var html = '<div class="tt-wedge-next-tag">' + tag + '</div>' +
+      '<div class="tt-wedge-next">' + esc(stations[atIdx].name) + '</div>';
+    if (velocity != null) {
+      html += '<div class="tt-wedge-speed">' + Math.round(velocity) + ' mph' + (heading ? ' ' + esc(heading) : '') + '</div>';
+    }
+    return html;
   }
-
   // Same flat stop list (and the next-stop-in-green call-out) the live map
   // pages' own train-detail sheet already uses — no "show earlier stops"
   // toggle; timesHTMLFor(stop, i) supplies just the time portion.
@@ -9424,8 +9388,9 @@ body {
     setTtHead(
       esc(row.trainNum) + " " + esc(row.routeName),
       "NJ Transit " + rowStatusBadgeHTML(row, delayMin),
-      positionPillHTML(row.stations, nextIdx)
+      ""
     );
+    document.getElementById("ttWedgeInfo").innerHTML = wedgeInfoHTML(row.stations, nextIdx, null, null);
     document.getElementById("ttMapWrap").innerHTML = showMap ? '<div id="ttMap"></div>' : "";
     elBody.innerHTML = '<div class="tt-stops" id="ttStops"></div>';
 
@@ -10967,7 +10932,7 @@ const lirrBoardPage = `<!DOCTYPE html>
   .detail-overlay { position: fixed; inset: 0; background: #000; z-index: 2000; display: none; flex-direction: column; }
   .detail-overlay.show { display: flex; }
   .detail-head {
-    padding: 10px 14px; display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 14px 34px; display: flex; align-items: flex-start; gap: 12px;
     background: linear-gradient(165deg, #11141f 0%, #1a2033 60%, #11141f 100%);
     flex-shrink: 0; position: relative; overflow: hidden;
   }
@@ -11019,6 +10984,24 @@ const lirrBoardPage = `<!DOCTYPE html>
     background: rgba(0,0,0,0.3); border-radius: 8px; padding: 6px 10px;
   }
   .detail-position b { color: #fff; }
+  /* The header's own color wedge carries the upcoming stop — same
+     "Next"/"Arrived" treatment the Amtrak/NJT detail sheets use. */
+  .detail-wedge-info {
+    position: absolute; right: 14px; bottom: 12px; z-index: 1;
+    max-width: 60%;
+    text-align: right; color: var(--tt-head-fg, #fff);
+  }
+  .detail-wedge-next-tag {
+    font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
+    color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+  .detail-wedge-next {
+    display: inline-block;
+    font-size: 9px; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase; margin-top: 4px;
+    background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 8px;
+    overflow-wrap: break-word;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
   .train-status-badge { font-size: 9.5px; font-weight: 800; padding: 2px 6px; border-radius: 5px; text-transform: uppercase; letter-spacing: 0.3px; }
   .train-status-badge.ontime { background: rgba(34,197,94,0.22); color: #d7ffe8; }
   .train-status-badge.late { background: rgba(245,197,24,0.25); color: #fff6d6; }
@@ -11092,6 +11075,7 @@ const lirrBoardPage = `<!DOCTYPE html>
 
   <div class="detail-overlay" id="detailOverlay">
     <div class="detail-head">
+      <div class="detail-wedge-info" id="detailWedgeInfo"></div>
       <div class="detail-title-wrap">
         <div class="detail-title" id="detailTitle"></div>
         <div class="detail-sub" id="detailSub"></div>
@@ -11496,6 +11480,21 @@ const lirrBoardPage = `<!DOCTYPE html>
       return statusBadgeHTML(row.delayMs != null ? Math.round(row.delayMs / 60000) : null);
     }
 
+    // The header's own color wedge carries the upcoming stop (same
+    // "Next"/"Arrived" wording the Amtrak/NJT detail sheets use) — a live,
+    // in-progress read on where the train actually is right now, distinct
+    // from "Board here"/"Final stop" in the stop list below, which stay
+    // anchored on the boarding station regardless of the train's position.
+    // LIRR's interpolated trains carry no mph figure, so there's no speed
+    // line here the way Amtrak's wedge has one.
+    function wedgeInfoHTML(stations, nextIdx) {
+      if (!stations || !stations.length) return "";
+      const atIdx = nextIdx === -1 ? stations.length - 1 : nextIdx;
+      const tag = nextIdx === -1 ? "Arrived" : "Next";
+      return '<div class="detail-wedge-next-tag">' + tag + '</div>' +
+        '<div class="detail-wedge-next">' + esc(stations[atIdx].name) + '</div>';
+    }
+
     function renderDetail(row) {
       const route = row.route || {};
       document.getElementById("detailTitle").textContent =
@@ -11510,6 +11509,16 @@ const lirrBoardPage = `<!DOCTYPE html>
       // necessarily index 0 — everything before it is earlier on this same
       // run and gets dimmed rather than treated as "not boarding here".
       const boardIdx = stops.findIndex(s => s.stopId === row.boardStopId);
+      // Separate from boardIdx — the first stop not yet actually reached,
+      // same "next" the other boards' detail sheets compute, feeding just
+      // the header wedge above.
+      const now = Date.now();
+      let nextIdx = -1;
+      for (let ni = 0; ni < stops.length; ni++) {
+        const ref = stops[ni].arrMs != null ? stops[ni].arrMs : stops[ni].depMs;
+        if (ref == null || now < ref) { nextIdx = ni; break; }
+      }
+      document.getElementById("detailWedgeInfo").innerHTML = wedgeInfoHTML(stops, nextIdx);
       currentStops = stops;
       currentBoardIdx = boardIdx;
       currentRouteColor = "#" + (route.color || "888888");
