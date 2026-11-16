@@ -6336,7 +6336,7 @@ body {
   // LINE_COLOR_OVERRIDES below for the NJT/LIRR side of the same palette)
   // rather than left as each operator's own native shade.
   var SERVICE_COLORS = {
-    acela:    "#2fbaba",
+    acela:    "#5e3d85",
     regional: "#303ac2",
     keystone: "#ebb402",
     empire:   "#00985f",
@@ -6463,8 +6463,8 @@ body {
       rowfg = rowbg;
       rowbg = "#ffffff";
     } else if (boardKey === "amtrak" && row.serviceType === "acela" && row.direction === "north") {
-      rowbg = "#c6f7f7";
-      rowfg = "#169494";
+      rowbg = "#d2c2fc";
+      rowfg = "#494063";
     }
     var routeName = boardKey === "njt"
       ? (NJT_ROUTE_LABEL_OVERRIDES[row.routeShortName] || row.routeShortName || row.routeName)
@@ -7837,7 +7837,7 @@ body {
   // AMTRAK_LINE_COLOR note further down: it's a timeliness indicator, not
   // a brand color), so this small fixed set stands in for it instead.
   var SERVICE_COLORS = {
-    acela:    "#2fbaba",
+    acela:    "#5e3d85",
     regional: "#303ac2",
     keystone: "#ebb402",
     empire:   "#00985f",
@@ -7883,8 +7883,8 @@ body {
       rowfg = rowbg;
       rowbg = "#ffffff";
     } else if (row.serviceType === "acela" && row.direction === "north") {
-      rowbg = "#c6f7f7";
-      rowfg = "#169494";
+      rowbg = "#d2c2fc";
+      rowfg = "#494063";
     }
     return '<div class="board-row" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
@@ -10146,7 +10146,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
     // Same per-service accent used by the /trains and /amtrak-board detail
     // sheets, so a train tapped here gets the identical livery-stripe color.
     const SERVICE_COLORS = {
-      acela:    "#2fbaba",
+      acela:    "#5e3d85",
       regional: "#303ac2",
       keystone: "#ebb402",
       empire:   "#00985f",
