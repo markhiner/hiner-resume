@@ -6428,6 +6428,9 @@ body {
     if (boardKey === "amtrak" && row.serviceType === "regional" && row.direction === "north") {
       rowfg = rowbg;
       rowbg = "#ffffff";
+    } else if (boardKey === "amtrak" && row.serviceType === "acela" && row.direction === "north") {
+      rowbg = "#c6f7f7";
+      rowfg = "#121212";
     }
     var routeName = boardKey === "njt"
       ? (NJT_ROUTE_LABEL_OVERRIDES[row.routeShortName] || row.routeShortName || row.routeName)
@@ -7826,6 +7829,9 @@ body {
     if (row.serviceType === "regional" && row.direction === "north") {
       rowfg = rowbg;
       rowbg = "#ffffff";
+    } else if (row.serviceType === "acela" && row.direction === "north") {
+      rowbg = "#c6f7f7";
+      rowfg = "#121212";
     }
     return '<div class="board-row" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
