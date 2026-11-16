@@ -6113,12 +6113,12 @@ body {
   text-align: right; color: var(--tt-head-fg, #fff);
 }
 .tt-wedge-next-tag {
-  display: inline-block;
   font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
-  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 7px;
 }
 .tt-wedge-next {
+  display: inline-block;
   font-size: 14px; font-weight: 800; margin-top: 4px;
+  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 8px;
   overflow-wrap: break-word;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5);
 }
@@ -7608,12 +7608,12 @@ body {
   text-align: right; color: var(--tt-head-fg, #fff);
 }
 .tt-wedge-next-tag {
-  display: inline-block;
   font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
-  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 7px;
 }
 .tt-wedge-next {
+  display: inline-block;
   font-size: 14px; font-weight: 800; margin-top: 4px;
+  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 8px;
   overflow-wrap: break-word;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5);
 }
@@ -8678,12 +8678,12 @@ body {
   text-align: right; color: var(--tt-head-fg, #fff);
 }
 .tt-wedge-next-tag {
-  display: inline-block;
   font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
-  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 7px;
 }
 .tt-wedge-next {
+  display: inline-block;
   font-size: 14px; font-weight: 800; margin-top: 4px;
+  background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 8px;
   overflow-wrap: break-word;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5);
 }
@@ -9931,12 +9931,12 @@ const amtrakNECMapPage = `<!DOCTYPE html>
     text-align: right; color: var(--tt-head-fg, #fff);
   }
   .train-detail-wedge-next-tag {
-    display: inline-block;
     font-size: 9px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;
-    background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 7px;
   }
   .train-detail-wedge-next {
+    display: inline-block;
     font-size: 14px; font-weight: 800; margin-top: 4px;
+    background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 8px;
     overflow-wrap: break-word;
     text-shadow: 0 1px 2px rgba(0,0,0,0.5);
   }
