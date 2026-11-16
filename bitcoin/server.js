@@ -6118,7 +6118,7 @@ body {
 }
 .tt-wedge-next {
   display: inline-block;
-  font-size: 14px; font-weight: 800; margin-top: 4px;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase; margin-top: 4px;
   background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 8px;
   overflow-wrap: break-word;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5);
@@ -7617,7 +7617,7 @@ body {
 }
 .tt-wedge-next {
   display: inline-block;
-  font-size: 14px; font-weight: 800; margin-top: 4px;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase; margin-top: 4px;
   background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 8px;
   overflow-wrap: break-word;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5);
@@ -8691,7 +8691,7 @@ body {
 }
 .tt-wedge-next {
   display: inline-block;
-  font-size: 14px; font-weight: 800; margin-top: 4px;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase; margin-top: 4px;
   background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 8px;
   overflow-wrap: break-word;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5);
@@ -9945,7 +9945,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
   }
   .train-detail-wedge-next {
     display: inline-block;
-    font-size: 14px; font-weight: 800; margin-top: 4px;
+    font-size: 9px; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase; margin-top: 4px;
     background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px 8px;
     overflow-wrap: break-word;
     text-shadow: 0 1px 2px rgba(0,0,0,0.5);
