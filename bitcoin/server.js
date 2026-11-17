@@ -3639,6 +3639,172 @@ function amtrakBoard(stationCode) {
   };
 }
 
+// ---------- fake Amtrak board (/settings toggle) ----------
+// Standing in for amtrakBoard() above while amtraker.com's own feed is
+// misbehaving — a representative mix of Acela/Regional/Keystone/Empire/
+// long-distance trains, both directions, spread across a typical day.
+// Builds plain "entries" in exactly the shape amtrakMergedEntries() would
+// (see amtrakTrainEntries above) and runs them through the real
+// amtrakBoardRow()/amtrakServiceType()/amtrakRowDirection() — so a fake
+// row behaves identically to a real one everywhere downstream: grace
+// windows, delay badges, service colors, the northbound overrides, and a
+// tapped row's own detail sheet (map, wedge, stop list) all just work.
+//
+// Each stop's time is a minute-of-day offset — recomputed against TODAY's
+// actual date on every call (see nyWallTimeToMs below), not a timestamp
+// baked in once — so the same fixed daily "schedule" keeps producing a
+// believable live-looking board (scheduled -> on-time/delayed ->
+// departed/arrived -> dropped) for as long as this stays switched on,
+// with no day-rollover logic needed.
+const FAKE_AMTRAK_STATIONS = {
+  BOS: { name: "Boston", lat: 42.3519, lon: -71.0552 },
+  PVD: { name: "Providence", lat: 41.8296, lon: -71.4147 },
+  NHV: { name: "New Haven", lat: 41.2968, lon: -72.9273 },
+  STM: { name: "Stamford", lat: 41.0467, lon: -73.5423 },
+  NYP: { name: "New York", lat: 40.7506, lon: -73.9935 },
+  NWK: { name: "Newark", lat: 40.7342, lon: -74.1644 },
+  TRE: { name: "Trenton", lat: 40.2171, lon: -74.7429 },
+  PHL: { name: "Philadelphia", lat: 39.9566, lon: -75.1819 },
+  WIL: { name: "Wilmington", lat: 39.7378, lon: -75.5496 },
+  BAL: { name: "Baltimore", lat: 39.3098, lon: -76.6155 },
+  BWI: { name: "BWI Airport", lat: 39.1954, lon: -76.6946 },
+  WAS: { name: "Washington", lat: 38.8973, lon: -77.0063 },
+  YNY: { name: "Yonkers", lat: 40.9312, lon: -73.8987 },
+  PKO: { name: "Poughkeepsie", lat: 41.7004, lon: -73.9327 },
+  ALB: { name: "Albany", lat: 42.6526, lon: -73.7549 },
+  LNC: { name: "Lancaster", lat: 40.0379, lon: -76.3055 },
+  HAR: { name: "Harrisburg", lat: 40.2663, lon: -76.8861 },
+  RVR: { name: "Richmond", lat: 37.6185, lon: -77.4925 },
+  SAV: { name: "Savannah", lat: 32.0772, lon: -81.1066 },
+  JAX: { name: "Jacksonville", lat: 30.3274, lon: -81.6386 },
+  MIA: { name: "Miami", lat: 25.7807, lon: -80.1900 },
+  CLT: { name: "Charlotte", lat: 35.2143, lon: -80.8411 },
+  ATL: { name: "Atlanta", lat: 33.7576, lon: -84.3908 },
+  NOL: { name: "New Orleans", lat: 29.9469, lon: -90.0703 },
+};
+// legs[0] is the origin (travelMin/dwellMin ignored); every later leg is
+// `travelMin` after the previous stop's departure, dwelling `dwellMin`
+// (default 2) before its own departure — unless it's the last leg, which
+// gets only an arrival (the train's actual terminus).
+function fakeAmtrakStops(startMinOfDay, legs) {
+  let clock = startMinOfDay;
+  return legs.map((leg, i) => {
+    if (i === 0) return { code: leg.code, dep: clock };
+    clock += leg.travelMin;
+    const arr = clock;
+    if (i === legs.length - 1) return { code: leg.code, arr };
+    clock += leg.dwellMin || 2;
+    return { code: leg.code, arr, dep: clock };
+  });
+}
+const FAKE_AMTRAK_TRAINS = [
+  { trainNum: "2151", routeName: "Acela", mph: 125, delayMin: 0,
+    stops: fakeAmtrakStops(365, [{ code: "BOS" }, { code: "NHV", travelMin: 100 }, { code: "NYP", travelMin: 70, dwellMin: 3 }, { code: "PHL", travelMin: 60, dwellMin: 3 }, { code: "BAL", travelMin: 85 }, { code: "WAS", travelMin: 40 }]) },
+  { trainNum: "2254", routeName: "Acela", mph: 125, delayMin: 3,
+    stops: fakeAmtrakStops(600, [{ code: "WAS" }, { code: "BAL", travelMin: 40 }, { code: "PHL", travelMin: 85, dwellMin: 3 }, { code: "NYP", travelMin: 60, dwellMin: 3 }, { code: "NHV", travelMin: 70 }, { code: "BOS", travelMin: 100 }]) },
+  { trainNum: "2173", routeName: "Acela", mph: 125, delayMin: 0,
+    stops: fakeAmtrakStops(1010, [{ code: "BOS" }, { code: "NHV", travelMin: 100 }, { code: "NYP", travelMin: 70, dwellMin: 3 }, { code: "PHL", travelMin: 60, dwellMin: 3 }, { code: "BAL", travelMin: 85 }, { code: "WAS", travelMin: 40 }]) },
+  { trainNum: "2160", routeName: "Acela", mph: 125, delayMin: 1,
+    stops: fakeAmtrakStops(780, [{ code: "WAS" }, { code: "BAL", travelMin: 40 }, { code: "PHL", travelMin: 85, dwellMin: 3 }, { code: "NYP", travelMin: 60, dwellMin: 3 }, { code: "NHV", travelMin: 70 }, { code: "BOS", travelMin: 100 }]) },
+  { trainNum: "95", routeName: "Northeast Regional", mph: 80, delayMin: 0,
+    stops: fakeAmtrakStops(420, [{ code: "BOS" }, { code: "PVD", travelMin: 47 }, { code: "NHV", travelMin: 53 }, { code: "STM", travelMin: 27 }, { code: "NYP", travelMin: 45, dwellMin: 3 }, { code: "NWK", travelMin: 10 }, { code: "TRE", travelMin: 35 }, { code: "PHL", travelMin: 32 }, { code: "WIL", travelMin: 20 }, { code: "BAL", travelMin: 26 }, { code: "BWI", travelMin: 12 }, { code: "WAS", travelMin: 32 }]) },
+  { trainNum: "66", routeName: "Northeast Regional", mph: 80, delayMin: 22,
+    stops: fakeAmtrakStops(690, [{ code: "WAS" }, { code: "BWI", travelMin: 32 }, { code: "BAL", travelMin: 12 }, { code: "WIL", travelMin: 26 }, { code: "PHL", travelMin: 20 }, { code: "TRE", travelMin: 32 }, { code: "NWK", travelMin: 35 }, { code: "NYP", travelMin: 10, dwellMin: 3 }, { code: "STM", travelMin: 45 }, { code: "NHV", travelMin: 27 }, { code: "PVD", travelMin: 53 }, { code: "BOS", travelMin: 47 }]) },
+  { trainNum: "171", routeName: "Northeast Regional", mph: 80, delayMin: 0,
+    stops: fakeAmtrakStops(920, [{ code: "BOS" }, { code: "PVD", travelMin: 47 }, { code: "NHV", travelMin: 53 }, { code: "STM", travelMin: 27 }, { code: "NYP", travelMin: 45, dwellMin: 3 }, { code: "NWK", travelMin: 10 }, { code: "TRE", travelMin: 35 }, { code: "PHL", travelMin: 32 }, { code: "WIL", travelMin: 20 }, { code: "BAL", travelMin: 26 }, { code: "BWI", travelMin: 12 }, { code: "WAS", travelMin: 32 }]) },
+  { trainNum: "94", routeName: "Northeast Regional", mph: 80, delayMin: 5,
+    stops: fakeAmtrakStops(1130, [{ code: "WAS" }, { code: "BWI", travelMin: 32 }, { code: "BAL", travelMin: 12 }, { code: "WIL", travelMin: 26 }, { code: "PHL", travelMin: 20 }, { code: "TRE", travelMin: 32 }, { code: "NWK", travelMin: 35 }, { code: "NYP", travelMin: 10, dwellMin: 3 }, { code: "STM", travelMin: 45 }, { code: "NHV", travelMin: 27 }, { code: "PVD", travelMin: 53 }, { code: "BOS", travelMin: 47 }]) },
+  { trainNum: "643", routeName: "Keystone Service", mph: 70, delayMin: 0,
+    stops: fakeAmtrakStops(530, [{ code: "HAR" }, { code: "LNC", travelMin: 35 }, { code: "PHL", travelMin: 75, dwellMin: 3 }, { code: "NYP", travelMin: 75 }]) },
+  { trainNum: "648", routeName: "Keystone Service", mph: 70, delayMin: 8,
+    stops: fakeAmtrakStops(1050, [{ code: "NYP" }, { code: "PHL", travelMin: 75, dwellMin: 3 }, { code: "LNC", travelMin: 75 }, { code: "HAR", travelMin: 35 }]) },
+  { trainNum: "283", routeName: "Empire Service", mph: 70, delayMin: 0,
+    stops: fakeAmtrakStops(480, [{ code: "ALB" }, { code: "PKO", travelMin: 70 }, { code: "YNY", travelMin: 70 }, { code: "NYP", travelMin: 35 }]) },
+  { trainNum: "280", routeName: "Empire Service", mph: 70, delayMin: 4,
+    stops: fakeAmtrakStops(960, [{ code: "NYP" }, { code: "YNY", travelMin: 35 }, { code: "PKO", travelMin: 70 }, { code: "ALB", travelMin: 70 }]) },
+  { trainNum: "19", routeName: "Crescent", mph: 79, delayMin: 12,
+    stops: fakeAmtrakStops(740, [{ code: "NYP" }, { code: "PHL", travelMin: 65, dwellMin: 3 }, { code: "WAS", travelMin: 125, dwellMin: 3 }, { code: "CLT", travelMin: 390, dwellMin: 3 }, { code: "ATL", travelMin: 150, dwellMin: 3 }, { code: "NOL", travelMin: 480 }]) },
+  { trainNum: "91", routeName: "Silver Meteor", mph: 79, delayMin: 0,
+    stops: fakeAmtrakStops(830, [{ code: "NYP" }, { code: "PHL", travelMin: 65, dwellMin: 3 }, { code: "WAS", travelMin: 125, dwellMin: 3 }, { code: "RVR", travelMin: 130, dwellMin: 3 }, { code: "SAV", travelMin: 330, dwellMin: 3 }, { code: "JAX", travelMin: 90, dwellMin: 3 }, { code: "MIA", travelMin: 360 }]) },
+  { trainNum: "55", routeName: "Vermonter", mph: 79, delayMin: 30,
+    stops: fakeAmtrakStops(650, [{ code: "WAS" }, { code: "BAL", travelMin: 40, dwellMin: 2 }, { code: "PHL", travelMin: 70, dwellMin: 2 }, { code: "NYP", travelMin: 115, dwellMin: 3 }, { code: "NHV", travelMin: 100 }]) },
+  { trainNum: "89", routeName: "Palmetto", mph: 79, delayMin: 0,
+    stops: fakeAmtrakStops(1090, [{ code: "NYP" }, { code: "PHL", travelMin: 65, dwellMin: 3 }, { code: "WAS", travelMin: 125, dwellMin: 3 }, { code: "RVR", travelMin: 130, dwellMin: 3 }, { code: "SAV", travelMin: 330 }]) },
+];
+// A stop's status is the one real per-stop field amtrakBoardRow() leans on
+// to override a stale timestamp (see notYetHappened there) — derived the
+// same way Amtrak's own feed reports it: "Enroute" until the train's
+// actually reached this stop, "Station" while it's sitting here having
+// arrived but not yet left, "Departed" once it has.
+function fakeAmtrakStopStatus(nowMs, arrAtMs, depAtMs) {
+  if (depAtMs != null && nowMs >= depAtMs) return "Departed";
+  if (arrAtMs != null && nowMs >= arrAtMs) return "Station";
+  return "Enroute";
+}
+function fakeAmtrakEntries(stationCode, nowMs) {
+  const dateParts = nyDateParts(new Date(nowMs));
+  const minToMs = (min) => min == null ? null : nyWallTimeToMs(dateParts, Math.floor(min / 60), min - Math.floor(min / 60) * 60, 0);
+  const entries = [];
+  for (const train of FAKE_AMTRAK_TRAINS) {
+    const idx = train.stops.findIndex((s) => s.code === stationCode);
+    if (idx === -1) continue;
+    const delayMs = train.delayMin * 60000;
+    const stations = train.stops.map((s) => {
+      const info = FAKE_AMTRAK_STATIONS[s.code];
+      const schedArrMs = minToMs(s.arr), schedDepMs = minToMs(s.dep);
+      const arrMs = schedArrMs != null ? schedArrMs + delayMs : null;
+      const depMs = schedDepMs != null ? schedDepMs + delayMs : null;
+      return {
+        code: s.code, name: info.name, lat: info.lat, lon: info.lon,
+        schedArrMs, schedDepMs, arrMs, depMs,
+        status: fakeAmtrakStopStatus(nowMs, arrMs, depMs), track: null,
+      };
+    });
+    const at = stations[idx];
+    const first = stations[0], last = stations[stations.length - 1];
+    // Only moving (nonzero speed) once genuinely underway — sitting at a
+    // station, or not yet reached it at all, shows no speed, same as a
+    // real train's wedge.
+    const moving = at.status === "Enroute" && idx > 0;
+    const common = {
+      trainNum: train.trainNum, trainID: train.trainNum, routeName: train.routeName,
+      color: "0039a6", textColor: "ffffff",
+      lat: moving ? at.lat : null, lon: moving ? at.lon : null,
+      velocity: moving ? train.mph : null, heading: null,
+      stations, live: true,
+    };
+    if (idx > 0) {
+      entries.push({ ...common, event: "arr", other: first.name, schedMs: at.schedArrMs, atMs: at.arrMs, track: at.track, status: at.status });
+    }
+    if (idx < stations.length - 1) {
+      entries.push({ ...common, event: "dep", other: last.name, schedMs: at.schedDepMs, atMs: at.depMs, track: at.track, status: at.status });
+    }
+  }
+  return entries;
+}
+function fakeAmtrakBoard(stationCode) {
+  const nowMs = Date.now();
+  const entries = fakeAmtrakEntries(stationCode, nowMs);
+  const depByTrain = new Map();
+  for (const e of entries) if (e.event === "dep") depByTrain.set(e.trainNum, e);
+  const departures = [], arrivals = [];
+  for (const entry of entries) {
+    const row = amtrakBoardRow(entry, nowMs, entry.event === "arr" ? depByTrain.get(entry.trainNum) : null);
+    if (!row) continue;
+    (entry.event === "dep" ? departures : arrivals).push(row);
+  }
+  departures.sort((a, b) => a.schedMs - b.schedMs);
+  arrivals.sort((a, b) => a.schedMs - b.schedMs);
+  return {
+    station: stationCode,
+    departures: departures.slice(0, AMTRAK_BOARD_MAX_ROWS),
+    arrivals: arrivals.slice(0, AMTRAK_BOARD_MAX_ROWS),
+    updatedAt: nowMs,
+    warming: false,
+    fake: true,
+  };
+}
+
 // LIRR's own trip_short_name is a real train number (e.g. "2607"), same
 // idea as Amtrak/NJT's — the raw GTFS tripId ("GO202_26_2") is an internal
 // schedule-generator ID, never something a rider would recognize.
@@ -5006,6 +5172,36 @@ setInterval(() => {
   broadcast({ type: "trend", ...forecast });
 }, 10000);
 
+// ---------- settings ----------
+// A small set of runtime-editable flags, persisted to disk next to
+// server.js so they survive a restart (this runs under launchd, which can
+// restart the process at any time without anyone asking it to). Both
+// settings below are read fresh at request time rather than baked into a
+// page template at startup (the way AMTRAK_DEFAULT_STATION etc. are, see
+// the trainsPage/amtrakBoardPage template literals) — a change here takes
+// effect on the very next request, no restart needed.
+const SETTINGS_PATH = path.join(__dirname, "settings.json");
+let SETTINGS = {
+  // Amtrak's own feed has been misbehaving — this stands in a representative
+  // mix of fake departures/arrivals on the Amtrak board until someone
+  // switches it back off from /settings.
+  fakeAmtrakBoard: true,
+  activityLoggingEnabled: true,
+};
+try {
+  const loadedSettings = JSON.parse(fs.readFileSync(SETTINGS_PATH, "utf8"));
+  SETTINGS = { ...SETTINGS, ...loadedSettings };
+} catch (e) {
+  // No settings.json yet (first run) or it's unreadable — defaults above stand.
+}
+function saveSettings() {
+  try {
+    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(SETTINGS, null, 2));
+  } catch (e) {
+    console.error("Could not write settings.json:", e.message);
+  }
+}
+
 // ---------- activity log ----------
 // A verbose, human-readable record of every real interaction with this
 // server — which module was touched, what was requested, and when —
@@ -5031,6 +5227,10 @@ const ACTIVITY_LOG_SKIP = new Set([
   "/amtraklogowide.png", "/njtlogowide.png", "/lirrlogowide.png",
   "/amtrakherotrain.png", "/amtrakherotrain2.png", "/amtrakskyline.jpg", "/amtrakskylinedusk.jpg", "/amtrakskylinenight.jpg",
   "/lirrherotrain.png", "/njtherotrain.png",
+  // The settings page polls both of these every few seconds while it's
+  // open — real traffic, but not a "module interaction" worth a line in
+  // the very log it's there to display.
+  "/api/settings", "/api/activity-log",
 ]);
 
 // Sibling to this file's own bitcoin/ folder, at the repo root — the
@@ -5054,6 +5254,7 @@ const ACTIVITY_MODULE_RULES = [
   { module: "Transcribe / Download", test: (p) => p === "/transcribe" || p.startsWith("/api/transcribe") || p.startsWith("/api/download-audio") || p.startsWith("/api/download-video") },
   { module: "Rundown Builder", test: (p) => p === "/rundown" },
   { module: "Stealth / Decoy", test: (p) => p === "/api/decoy" || /^\/pic[a-z]\.png$/i.test(p) },
+  { module: "Settings", test: (p) => p === "/settings" || p.startsWith("/api/settings") || p.startsWith("/api/activity-log") },
   { module: "BTC Ticker", test: (p) => p === "/" || p === "/calibration" || p === "/api/latest" || p === "/api/history" || p === "/api/trend" || p === "/api/calibration" || p === "/api/brti" || p === "/stream" },
 ];
 
@@ -5074,6 +5275,10 @@ function activityClientIp(req) {
 }
 
 function logActivity(module, method, pathname, search, status, ip) {
+  // The settings page's own "logging enabled" toggle — paused means
+  // neither the console nor the file gets a new line at all, not just a
+  // filtered view of one that kept growing underneath.
+  if (!SETTINGS.activityLoggingEnabled) return;
   const ts = new Date().toLocaleString("en-US", {
     timeZone: NY_TZ, year: "numeric", month: "short", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true,
@@ -5081,6 +5286,25 @@ function logActivity(module, method, pathname, search, status, ip) {
   const line = `[${ts} ET] ${module.padEnd(24)} ${method} ${pathname}${search || ""} -> ${status}  (${ip})`;
   console.log(line);
   if (activityLogStream) activityLogStream.write(line + "\n");
+}
+
+// Tail of the log file for the /settings page's viewer — read fresh off
+// disk each call rather than kept in memory, so it's correct even right
+// after a restart (when activityLogStream is a brand new, empty-seeming
+// append stream but the file itself still has every prior line).
+function readActivityLogTail(maxLines) {
+  try {
+    const text = fs.readFileSync(ACTIVITY_LOG_PATH, "utf8");
+    const lines = text.split("\n").filter(Boolean);
+    return lines.slice(-maxLines);
+  } catch (e) {
+    return [];
+  }
+}
+function clearActivityLog() {
+  if (activityLogStream) { activityLogStream.end(); }
+  fs.writeFileSync(ACTIVITY_LOG_PATH, "");
+  activityLogStream = fs.createWriteStream(ACTIVITY_LOG_PATH, { flags: "a" });
 }
 
 const server = http.createServer((req, res) => {
@@ -5436,7 +5660,7 @@ const server = http.createServer((req, res) => {
     const requested = (url.searchParams.get("station") || "").toUpperCase();
     const station = AMTRAK_BOARD_STATIONS[requested] ? requested : AMTRAK_DEFAULT_STATION;
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(amtrakBoard(station)));
+    res.end(JSON.stringify(SETTINGS.fakeAmtrakBoard ? fakeAmtrakBoard(station) : amtrakBoard(station)));
     return;
   }
   if (url.pathname === "/api/lirr-penn-board") {
@@ -5497,6 +5721,47 @@ const server = http.createServer((req, res) => {
   if (url.pathname === "/trains") {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(trainsPage);
+    return;
+  }
+  if (url.pathname === "/settings") {
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(settingsPage);
+    return;
+  }
+  if (url.pathname === "/api/settings" && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(SETTINGS));
+    return;
+  }
+  if (url.pathname === "/api/settings" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => { body += c; if (body.length > 4096) req.destroy(); });
+    req.on("end", () => {
+      let payload;
+      try { payload = JSON.parse(body || "{}"); } catch { res.writeHead(400); res.end(); return; }
+      // Only ever merge in the known keys above — an unrecognized key in
+      // the posted body is silently ignored rather than growing the
+      // settings object with something nothing else here will ever read.
+      for (const key of Object.keys(SETTINGS)) {
+        if (Object.prototype.hasOwnProperty.call(payload, key)) SETTINGS[key] = payload[key];
+      }
+      saveSettings();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(SETTINGS));
+    });
+    return;
+  }
+  if (url.pathname === "/api/activity-log" && req.method === "GET") {
+    const requestedLines = parseInt(url.searchParams.get("lines"), 10);
+    const maxLines = Number.isFinite(requestedLines) ? Math.min(Math.max(requestedLines, 1), 5000) : 500;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ lines: readActivityLogTail(maxLines) }));
+    return;
+  }
+  if (url.pathname === "/api/activity-log/clear" && req.method === "POST") {
+    clearActivityLog();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true }));
     return;
   }
   if (url.pathname === "/amtrak-board") {
@@ -13716,6 +13981,211 @@ body {
 </body>
 </html>`;
 
+const settingsPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<title>Settings</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #000000;
+  --panel: #0b0b0d;
+  --panel2: #131317;
+  --border: #232329;
+  --text1: #ffffff;
+  --text2: #9a9aa2;
+  --text3: #5c5c66;
+  --green: #22c55e;
+  --red: #ef4444;
+  --yellow: #f5c518;
+}
+html, body { background: var(--bg); color: var(--text1); height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  min-height: 100%;
+}
+#app { max-width: 640px; margin: 0 auto; padding: 14px 14px 40px; }
+.st-head { display: flex; align-items: center; gap: 10px; padding: 2px 2px 24px; }
+.st-back { color: var(--text2); text-decoration: none; font-size: 20px; line-height: 1; padding: 4px; }
+.st-title { font-size: 17px; font-weight: 800; letter-spacing: 0.3px; }
+.st-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 16px; margin-bottom: 16px;
+}
+.st-card-title { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text2); margin-bottom: 4px; }
+.st-card-desc { font-size: 12.5px; color: var(--text3); line-height: 1.45; margin-bottom: 14px; }
+.st-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.st-row:first-of-type { border-top: none; padding-top: 0; }
+.st-row-label { font-size: 14px; font-weight: 700; }
+.st-row-sub { font-size: 11.5px; color: var(--text3); margin-top: 2px; }
+.st-switch { position: relative; width: 44px; height: 26px; flex-shrink: 0; }
+.st-switch input { position: relative; z-index: 1; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.st-switch-track {
+  position: absolute; inset: 0; background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 999px; transition: background 0.15s ease; pointer-events: none;
+}
+.st-switch-thumb {
+  position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--text2); transition: transform 0.15s ease, background 0.15s ease;
+}
+.st-switch input:checked ~ .st-switch-track { background: rgba(34,197,94,0.35); border-color: var(--green); }
+.st-switch input:checked ~ .st-switch-track .st-switch-thumb { transform: translateX(18px); background: var(--green); }
+.st-pill { font-size: 10.5px; font-weight: 800; padding: 3px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.4px; }
+.st-pill.on { background: rgba(34,197,94,0.18); color: var(--green); }
+.st-pill.off { background: rgba(255,255,255,0.08); color: var(--text3); }
+.st-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
+.st-btn {
+  background: var(--panel2); color: var(--text1); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 12px; font-size: 12px; font-weight: 700;
+  font-family: inherit; cursor: pointer;
+}
+.st-btn:active { filter: brightness(0.85); }
+.st-btn.danger { color: var(--red); }
+.st-log-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.st-log-check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text2); }
+#stLog {
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px; height: 46vh; overflow-y: auto; overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; line-height: 1.6; white-space: pre; color: var(--text2);
+}
+#stLog .stlog-line:last-child { color: var(--text1); }
+.st-status { font-size: 11.5px; color: var(--text3); margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="st-head">
+    <a class="st-back" href="/" title="Back">&larr;</a>
+    <div class="st-title">Settings</div>
+  </div>
+
+  <div class="st-card">
+    <div class="st-card-title">Amtrak Board</div>
+    <div class="st-card-desc">
+      Amtrak's own feed has been acting up, so the board can be switched over to a
+      representative mix of fake departures/arrivals (Acela, Regional, Keystone, Empire, and a
+      few long-distance trains, spread across a typical day) instead of live data. Affects
+      <code>/trains</code> and <code>/amtrak-board</code> only — the NEC live map still shows
+      real trains. Takes effect immediately, no restart, and stays on until switched off here.
+    </div>
+    <div class="st-row">
+      <div>
+        <div class="st-row-label">Serve fake Amtrak board data</div>
+        <div class="st-row-sub" id="stFakeSub">&mdash;</div>
+      </div>
+      <label class="st-switch">
+        <input type="checkbox" id="stFakeToggle">
+        <span class="st-switch-track"><span class="st-switch-thumb"></span></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="st-card">
+    <div class="st-card-title">Activity Log</div>
+    <div class="st-card-desc">
+      Every real request this server has handled, newest at the bottom &mdash; the same lines
+      written to <code>activity.log</code> next to <code>server.js</code>.
+    </div>
+    <div class="st-row">
+      <div>
+        <div class="st-row-label">Logging enabled</div>
+        <div class="st-row-sub">Pausing stops new lines from being written at all, not just hides them here.</div>
+      </div>
+      <label class="st-switch">
+        <input type="checkbox" id="stLogToggle">
+        <span class="st-switch-track"><span class="st-switch-thumb"></span></span>
+      </label>
+    </div>
+    <div class="st-log-head" style="margin-top: 14px;">
+      <div class="st-log-check">
+        <input type="checkbox" id="stAutoRefresh" checked>
+        <label for="stAutoRefresh">Auto-refresh</label>
+      </div>
+      <div class="st-actions">
+        <button class="st-btn" id="stRefreshBtn">Refresh</button>
+        <button class="st-btn danger" id="stClearBtn">Clear log</button>
+      </div>
+    </div>
+    <div id="stLog">Loading&hellip;</div>
+    <div class="st-status" id="stLogStatus">&mdash;</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var fakeToggle = document.getElementById("stFakeToggle");
+  var fakeSub = document.getElementById("stFakeSub");
+  var logToggle = document.getElementById("stLogToggle");
+  var logEl = document.getElementById("stLog");
+  var logStatus = document.getElementById("stLogStatus");
+  var autoRefreshEl = document.getElementById("stAutoRefresh");
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function applySettings(s) {
+    fakeToggle.checked = !!s.fakeAmtrakBoard;
+    fakeSub.textContent = s.fakeAmtrakBoard
+      ? "On \\u2014 /trains and /amtrak-board are showing fake data right now."
+      : "Off \\u2014 boards are showing Amtrak's real feed.";
+    logToggle.checked = !!s.activityLoggingEnabled;
+  }
+  function loadSettings() {
+    fetch("/api/settings").then(function (r) { return r.json(); }).then(applySettings).catch(function () {});
+  }
+  function postSetting(key, value) {
+    var payload = {};
+    payload[key] = value;
+    fetch("/api/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    }).then(function (r) { return r.json(); }).then(applySettings).catch(function () {});
+  }
+  fakeToggle.addEventListener("change", function () { postSetting("fakeAmtrakBoard", fakeToggle.checked); });
+  logToggle.addEventListener("change", function () { postSetting("activityLoggingEnabled", logToggle.checked); });
+  loadSettings();
+
+  var logTimer = null;
+  function loadLog() {
+    fetch("/api/activity-log?lines=500").then(function (r) { return r.json(); }).then(function (d) {
+      var lines = d.lines || [];
+      var wasAtBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 12;
+      logEl.innerHTML = lines.length
+        ? lines.map(function (l) { return '<div class="stlog-line">' + esc(l) + "</div>"; }).join("")
+        : '<div class="stlog-line">No activity logged yet.</div>';
+      if (wasAtBottom) logEl.scrollTop = logEl.scrollHeight;
+      logStatus.textContent = "Showing last " + lines.length + " line" + (lines.length === 1 ? "" : "s") + " \\u2014 updated " + new Date().toLocaleTimeString();
+    }).catch(function () {
+      logStatus.textContent = "Could not load the activity log.";
+    });
+  }
+  function scheduleAutoRefresh() {
+    if (logTimer) clearInterval(logTimer);
+    logTimer = autoRefreshEl.checked ? setInterval(loadLog, 4000) : null;
+  }
+  document.getElementById("stRefreshBtn").addEventListener("click", loadLog);
+  document.getElementById("stClearBtn").addEventListener("click", function () {
+    if (!confirm("Clear the activity log? This can't be undone.")) return;
+    fetch("/api/activity-log/clear", { method: "POST" }).then(loadLog);
+  });
+  autoRefreshEl.addEventListener("change", scheduleAutoRefresh);
+  loadLog();
+  scheduleAutoRefresh();
+})();
+</script>
+</body>
+</html>`;
+
 const transcribePage = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -14728,6 +15198,7 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
     <a class="jump-flights" href="/travel" aria-label="Open travel page" title="Flights &amp; hotels">&#9992;</a>
     <a class="jump-flights rundown-btn" href="/rundown" aria-label="Open rundown builder" title="Rundown">&#128203;</a>
     <a class="jump-flights transcribe-btn" href="/transcribe" aria-label="Open video transcription" title="Transcribe">&#127908;</a>
+    <a class="jump-flights" href="/settings" aria-label="Open settings" title="Settings">&#9881;&#65039;</a>
     <button class="jump-flights stealth-btn" id="stealthBtn" aria-label="Stealth mode">&#9680;</button>
   </div>
 
