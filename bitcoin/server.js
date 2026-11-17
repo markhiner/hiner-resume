@@ -11169,7 +11169,11 @@ const lirrBoardPage = `<!DOCTYPE html>
   .board { flex: 1; overflow-y: auto; background: #000; }
   .board-empty { text-align: center; color: #666; padding: 60px 16px; font-size: 15px; }
 
-  .dep { border-bottom: 2px solid #000; }
+  /* A black separator here used to vanish between two consecutive rows
+     that both happen to render on a black/near-black background (several
+     LIRR routes' own real GTFS color, e.g. Penn Station runs) — a thin
+     white line stays visible against any row color, dark or light. */
+  .dep { border-bottom: 1px solid rgba(255,255,255,0.3); }
   .dep-bar { display: grid; grid-template-columns: 78px 1fr 56px; gap: 10px; padding: 12px 14px; align-items: baseline; }
   .dep-time { font-size: 22px; font-weight: bold; font-variant-numeric: tabular-nums; }
   .dep-dest { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 20px; font-weight: bold; }
