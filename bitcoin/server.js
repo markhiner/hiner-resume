@@ -6601,7 +6601,7 @@ body {
   // LINE_COLOR_OVERRIDES below for the NJT/LIRR side of the same palette)
   // rather than left as each operator's own native shade.
   var SERVICE_COLORS = {
-    acela:    "#7a4bb3",
+    acela:    "#a626aa",
     regional: "#303ac2",
     keystone: "#ebb402",
     empire:   "#00985f",
@@ -8120,7 +8120,7 @@ body {
   // AMTRAK_LINE_COLOR note further down: it's a timeliness indicator, not
   // a brand color), so this small fixed set stands in for it instead.
   var SERVICE_COLORS = {
-    acela:    "#7a4bb3",
+    acela:    "#a626aa",
     regional: "#303ac2",
     keystone: "#ebb402",
     empire:   "#00985f",
@@ -10510,7 +10510,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
     // Same per-service accent used by the /trains and /amtrak-board detail
     // sheets, so a train tapped here gets the identical livery-stripe color.
     const SERVICE_COLORS = {
-      acela:    "#7a4bb3",
+      acela:    "#a626aa",
       regional: "#303ac2",
       keystone: "#ebb402",
       empire:   "#00985f",
