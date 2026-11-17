@@ -6219,7 +6219,7 @@ body {
 .board-row {
   display: flex; align-items: center; gap: 6px; position: relative;
   background: var(--rowbg, #273670); color: var(--rowfg, #fff); padding: 5px 10px;
-  border-bottom: 2px solid #050914; font-weight: 700; font-size: 11px;
+  border-bottom: var(--rowborder, none); font-weight: 700; font-size: 11px;
   text-align: left;
 }
 .board-row:last-child { border-bottom: none; }
@@ -6650,6 +6650,19 @@ body {
     var s = d / (1 - Math.abs(2 * l - 1));
     return h >= 35 && h <= 65 && s > 0.6;
   }
+  // Whether a row's own background is dark enough to risk blending into
+  // the board's near-black card background (or into another row that
+  // happens to share the same dark color right below it) — the only
+  // case that still needs a visible separator now that --rowborder
+  // defaults to none; two differently-colored rows already read apart
+  // from each other without one.
+  function isDarkBg(hex) {
+    var r = parseInt(hex.slice(0, 2), 16);
+    var g = parseInt(hex.slice(2, 4), 16);
+    var b = parseInt(hex.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) < 50;
+  }
+
   function standardizeLineColor(boardKey, hex) {
     hex = (hex || "").toLowerCase();
     return LINE_COLOR_OVERRIDES[hex] || hex;
@@ -6731,6 +6744,11 @@ body {
       rowbg = "#b996e3";
       rowfg = "#494063";
     }
+    // Two differently-colored rows already read apart from each other with
+    // no line needed — only a row dark enough to risk vanishing into the
+    // board's own near-black background (or into an identically-dark row
+    // right below it) gets one.
+    var rowborder = isDarkBg(rowbg.replace("#", "")) ? "1px solid rgba(255,255,255,0.3)" : "none";
     var routeName = boardKey === "njt"
       ? (NJT_ROUTE_LABEL_OVERRIDES[row.routeShortName] || row.routeShortName || row.routeName)
       : row.routeName;
@@ -6758,7 +6776,7 @@ body {
       trainCol = '<span class="nm">' + esc(row.trainNum) + " " + esc(routeName) + '</span>';
       toCol = '<span class="nm">' + esc(shortStopName(row.other)) + '</span>' + stationBadgesHTML(boardKey, row);
     }
-    return '<div class="board-row" data-board="' + boardKey + '" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
+    return '<div class="board-row" data-board="' + boardKey + '" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + '; --rowborder:' + rowborder + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train">' + trainCol + '</span>' +
       '<span class="c-to">' + toCol + '</span>' +
@@ -7758,7 +7776,7 @@ body {
 .board-row {
   display: flex; align-items: center; gap: 6px; position: relative;
   background: var(--rowbg, #273670); color: var(--rowfg, #fff); padding: 5px 14px;
-  border-bottom: 2px solid #050914; font-weight: 700; font-size: 11px;
+  border-bottom: var(--rowborder, none); font-weight: 700; font-size: 11px;
   text-align: left;
 }
 .board-row:last-child { border-bottom: none; }
@@ -8124,6 +8142,18 @@ body {
     var s = d / (1 - Math.abs(2 * l - 1));
     return h >= 35 && h <= 65 && s > 0.6;
   }
+  // Whether a row's own background is dark enough to risk blending into
+  // the board's near-black card background (or into another row that
+  // happens to share the same dark color right below it) — the only
+  // case that still needs a visible separator now that --rowborder
+  // defaults to none; two differently-colored rows already read apart
+  // from each other without one.
+  function isDarkBg(hex) {
+    var r = parseInt(hex.slice(0, 2), 16);
+    var g = parseInt(hex.slice(2, 4), 16);
+    var b = parseInt(hex.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) < 50;
+  }
 
   var AMTRAK_EWR_STOP_CODE = "EWR"; // Newark Airport, Amtrak's own code for it
   var BADGE_PLANE_SVG = '<svg width="9" height="9" viewBox="0 0 24 24" fill="#fff" xmlns="http://www.w3.org/2000/svg">' +
@@ -8151,7 +8181,12 @@ body {
       rowbg = "#b996e3";
       rowfg = "#494063";
     }
-    return '<div class="board-row" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
+    // Two differently-colored rows already read apart from each other with
+    // no line needed — only a row dark enough to risk vanishing into the
+    // board's own near-black background (or into an identically-dark row
+    // right below it) gets one.
+    var rowborder = isDarkBg(rowbg.replace("#", "")) ? "1px solid rgba(255,255,255,0.3)" : "none";
+    return '<div class="board-row" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + '; --rowborder:' + rowborder + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
       '<span class="c-badge-col">' + stationBadgesHTML(row) + '</span>' +
@@ -8846,7 +8881,7 @@ body {
 .board-row {
   display: flex; align-items: center; gap: 6px; position: relative;
   background: var(--rowbg, #273670); color: var(--rowfg, #fff); padding: 5px 14px;
-  border-bottom: 2px solid #050914; font-weight: 700; font-size: 11px;
+  border-bottom: var(--rowborder, none); font-weight: 700; font-size: 11px;
   text-align: left;
 }
 .board-row:last-child { border-bottom: none; }
@@ -9301,6 +9336,19 @@ body {
     return html ? '<span class="c-badges">' + html + '</span>' : '';
   }
 
+  // Whether a row's own background is dark enough to risk blending into
+  // the board's near-black card background (or into another row that
+  // happens to share the same dark color right below it) — the only
+  // case that still needs a visible separator now that --rowborder
+  // defaults to none; two differently-colored rows already read apart
+  // from each other without one.
+  function isDarkBg(hex) {
+    var r = parseInt(hex.slice(0, 2), 16);
+    var g = parseInt(hex.slice(2, 4), 16);
+    var b = parseInt(hex.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) < 50;
+  }
+
   function boardRowHTML(row, idx, kind) {
     var status = njtStatus(row);
     // Unlike the Amtrak board's small fixed service-type palette, NJT's own
@@ -9309,7 +9357,8 @@ body {
     // rather than bucketed into a small palette or reduced to an accent bar.
     var rowbg = "#" + (row.color || "0039a6");
     var rowfg = "#" + (row.textColor || "ffffff");
-    return '<div class="board-row" data-kind="njt" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + ';">' +
+    var rowborder = isDarkBg(rowbg.replace("#", "")) ? "1px solid rgba(255,255,255,0.3)" : "none";
+    return '<div class="board-row" data-kind="njt" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + '; --rowborder:' + rowborder + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(shortRouteName(row.routeName, row.routeShortName)) + '</span>' + stationBadgesHTML(row) + '</span>' +
       '<span class="c-to"><span class="c-to-name">' + esc(shortStopName(row.other)) + '</span></span>' +
