@@ -9875,6 +9875,16 @@ const njtMapPage = `<!DOCTYPE html>
   .train-detail.open { transform: translateY(0); }
   .tt-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 7px auto 0; }
   .train-detail-header { padding: 8px 14px 8px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  /* NJT-only: a header photo picked client-side from the njt/ photo pool,
+     same treatment the /trains and /njt-board detail sheets already use —
+     this map's own sheet never had it. */
+  .train-detail-header.has-photo {
+    background-image:
+      linear-gradient(100deg, rgba(8,10,16,0.5) 0%, rgba(8,10,16,0.28) 45%, rgba(8,10,16,0.05) 85%),
+      var(--tt-photo);
+    background-size: cover;
+    background-position: center;
+  }
   .train-detail-title-wrap { min-width: 0; flex: 1; }
   .train-detail-title { font-size: 15.5px; font-weight: 800; color: var(--text1); }
   .train-detail-sub { font-size: 11.5px; color: var(--text2); margin-top: 3px; font-weight: 700; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
@@ -9930,7 +9940,7 @@ const njtMapPage = `<!DOCTYPE html>
   <div id="map"></div>
   <div class="train-detail" id="trainDetail">
     <div class="tt-grip"></div>
-    <div class="train-detail-header">
+    <div class="train-detail-header" id="trainDetailHeader">
       <div class="train-detail-title-wrap">
         <div class="train-detail-title" id="trainTitle">Train</div>
         <div class="train-detail-sub" id="trainSubtitle"></div>
@@ -9947,6 +9957,45 @@ const njtMapPage = `<!DOCTYPE html>
     let map = null;
     let markers = new Map();
     let selectedTripId = null;
+    // true only for the showTrain() call that follows a genuine marker
+    // tap — a live 10s poll re-renders whatever's already open through
+    // the same function (see reopenIfStillOpen), and re-picking the photo
+    // on every one of those would reshuffle it out from under someone
+    // still looking at it.
+    let mapJustOpened = false;
+    // NJT detail-sheet header photo pool — fetched once per page load
+    // from the njt/ folder beside this repo's bitcoin/ folder (see
+    // /api/njt-photos); empty until the fetch resolves, which is fine —
+    // a sheet opened in that brief window just shows no photo.
+    let njtPhotoPool = [];
+    fetch("/api/njt-photos").then(function (r) { return r.json(); }).then(function (d) {
+      njtPhotoPool = (d && d.photos) || [];
+    }).catch(function () {});
+    // The last few photos shown, oldest first — excluded from the next
+    // pick so reopening sheets back-to-back doesn't keep putting the same
+    // one or two back up.
+    let njtPhotoHistory = [];
+    function pickNjtPhoto() {
+      if (!njtPhotoPool.length) return null;
+      const avoid = njtPhotoHistory.slice(-Math.min(3, njtPhotoPool.length - 1));
+      let candidates = njtPhotoPool.filter(function (p) { return avoid.indexOf(p) === -1; });
+      if (!candidates.length) candidates = njtPhotoPool;
+      const pick = candidates[Math.floor(Math.random() * candidates.length)];
+      njtPhotoHistory.push(pick);
+      if (njtPhotoHistory.length > 6) njtPhotoHistory.shift();
+      return pick;
+    }
+    function applyNjtHeaderPhoto() {
+      const elHead = document.getElementById("trainDetailHeader");
+      const photo = pickNjtPhoto();
+      if (photo) {
+        elHead.classList.add("has-photo");
+        elHead.style.setProperty("--tt-photo", 'url("/njt-photos/' + encodeURIComponent(photo) + '")');
+      } else {
+        elHead.classList.remove("has-photo");
+        elHead.style.removeProperty("--tt-photo");
+      }
+    }
     let latestTrains = [];
     let detailMapInstance = null;
     let stationMarkers = []; // { marker, name } — static layer, built once
@@ -10070,6 +10119,7 @@ const njtMapPage = `<!DOCTYPE html>
     function showTrain(train) {
       selectedTripId = train.tripId;
       document.getElementById("trainTitle").textContent = train.trainNum + " " + train.routeName;
+      if (mapJustOpened) { applyNjtHeaderPhoto(); mapJustOpened = false; }
 
       const stations = train.stations || [];
       const now = Date.now();
@@ -10147,7 +10197,7 @@ const njtMapPage = `<!DOCTYPE html>
           const icon = createArrowMarker(train.lat, train.lon, train.heading, color);
           const marker = L.marker([train.lat, train.lon], { icon })
             .addTo(map)
-            .on("click", () => showTrain(train));
+            .on("click", () => { mapJustOpened = true; showTrain(train); });
           markers.set(train.tripId, marker);
         }
 
@@ -10752,6 +10802,16 @@ const lirrMapPage = `<!DOCTYPE html>
   .train-detail.open { transform: translateY(0); }
   .tt-grip { width: 34px; height: 4px; border-radius: 3px; background: var(--border); margin: 7px auto 0; }
   .train-detail-header { padding: 8px 14px 8px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  /* LIRR-only: a header photo picked client-side from the lirr/ photo
+     pool, same treatment the /trains and /lirr-board detail sheets
+     already use — this map's own sheet never had it. */
+  .train-detail-header.has-photo {
+    background-image:
+      linear-gradient(100deg, rgba(8,10,16,0.5) 0%, rgba(8,10,16,0.28) 45%, rgba(8,10,16,0.05) 85%),
+      var(--tt-photo);
+    background-size: cover;
+    background-position: center;
+  }
   .train-detail-title-wrap { min-width: 0; flex: 1; }
   .train-detail-title { font-size: 15.5px; font-weight: 800; color: var(--text1); }
   .train-detail-sub { font-size: 11.5px; color: var(--text2); margin-top: 3px; font-weight: 700; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
@@ -10807,7 +10867,7 @@ const lirrMapPage = `<!DOCTYPE html>
   <div id="map"></div>
   <div class="train-detail" id="trainDetail">
     <div class="tt-grip"></div>
-    <div class="train-detail-header">
+    <div class="train-detail-header" id="trainDetailHeader">
       <div class="train-detail-title-wrap">
         <div class="train-detail-title" id="trainTitle">Train</div>
         <div class="train-detail-sub" id="trainSubtitle"></div>
@@ -10824,6 +10884,45 @@ const lirrMapPage = `<!DOCTYPE html>
     let map = null;
     let markers = new Map();
     let selectedTripId = null;
+    // true only for the showTrain() call that follows a genuine marker
+    // tap — a live 10s poll re-renders whatever's already open through
+    // the same function (see reopenIfStillOpen), and re-picking the photo
+    // on every one of those would reshuffle it out from under someone
+    // still looking at it.
+    let mapJustOpened = false;
+    // LIRR detail-sheet header photo pool — fetched once per page load
+    // from the lirr/ folder beside this repo's bitcoin/ folder (see
+    // /api/lirr-photos); empty until the fetch resolves, which is fine —
+    // a sheet opened in that brief window just shows no photo.
+    let lirrPhotoPool = [];
+    fetch("/api/lirr-photos").then(function (r) { return r.json(); }).then(function (d) {
+      lirrPhotoPool = (d && d.photos) || [];
+    }).catch(function () {});
+    // The last few photos shown, oldest first — excluded from the next
+    // pick so reopening sheets back-to-back doesn't keep putting the same
+    // one or two back up.
+    let lirrPhotoHistory = [];
+    function pickLirrPhoto() {
+      if (!lirrPhotoPool.length) return null;
+      const avoid = lirrPhotoHistory.slice(-Math.min(3, lirrPhotoPool.length - 1));
+      let candidates = lirrPhotoPool.filter(function (p) { return avoid.indexOf(p) === -1; });
+      if (!candidates.length) candidates = lirrPhotoPool;
+      const pick = candidates[Math.floor(Math.random() * candidates.length)];
+      lirrPhotoHistory.push(pick);
+      if (lirrPhotoHistory.length > 6) lirrPhotoHistory.shift();
+      return pick;
+    }
+    function applyLirrHeaderPhoto() {
+      const elHead = document.getElementById("trainDetailHeader");
+      const photo = pickLirrPhoto();
+      if (photo) {
+        elHead.classList.add("has-photo");
+        elHead.style.setProperty("--tt-photo", 'url("/lirr-photos/' + encodeURIComponent(photo) + '")');
+      } else {
+        elHead.classList.remove("has-photo");
+        elHead.style.removeProperty("--tt-photo");
+      }
+    }
     let latestTrains = [];
     let detailMapInstance = null;
     let stationMarkers = []; // { marker, name } — static layer, built once
@@ -10946,6 +11045,7 @@ const lirrMapPage = `<!DOCTYPE html>
     function showTrain(train) {
       selectedTripId = train.tripId;
       document.getElementById("trainTitle").textContent = train.trainNum + " " + train.routeName;
+      if (mapJustOpened) { applyLirrHeaderPhoto(); mapJustOpened = false; }
 
       const stations = train.stations || [];
       const now = Date.now();
@@ -11023,7 +11123,7 @@ const lirrMapPage = `<!DOCTYPE html>
           const icon = createArrowMarker(train.lat, train.lon, train.heading, color);
           const marker = L.marker([train.lat, train.lon], { icon })
             .addTo(map)
-            .on("click", () => showTrain(train));
+            .on("click", () => { mapJustOpened = true; showTrain(train); });
           markers.set(train.tripId, marker);
         }
 
