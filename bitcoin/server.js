@@ -15216,7 +15216,8 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
 .jump-trains { right: 32px; }
 .rundown-btn { right: 64px; }
 .transcribe-btn { right: 96px; }
-.stealth-btn { right: 128px; font-size: 14px; }
+.settings-btn { right: 128px; }
+.stealth-btn { right: 160px; font-size: 14px; }
 
 
 /* ── passcode ──
@@ -15363,7 +15364,7 @@ canvas#chart2m { width: 100%; height: 64px; display: block; }
     <a class="jump-flights" href="/travel" aria-label="Open travel page" title="Flights &amp; hotels">&#9992;</a>
     <a class="jump-flights rundown-btn" href="/rundown" aria-label="Open rundown builder" title="Rundown">&#128203;</a>
     <a class="jump-flights transcribe-btn" href="/transcribe" aria-label="Open video transcription" title="Transcribe">&#127908;</a>
-    <a class="jump-flights" href="/settings" aria-label="Open settings" title="Settings">&#9881;&#65039;</a>
+    <a class="jump-flights settings-btn" href="/settings" aria-label="Open settings" title="Settings">&#9881;&#65039;</a>
     <button class="jump-flights stealth-btn" id="stealthBtn" aria-label="Stealth mode">&#9680;</button>
   </div>
 
