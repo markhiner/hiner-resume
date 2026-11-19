@@ -6739,18 +6739,13 @@ body {
     rowbg = "#" + stdHex;
     var rowfg = (isYellowish(stdHex) || DARK_TEXT_COLORS[stdHex]) ? "#121212" : "#ffffff";
     // Northbound Regional and Acela both get the inverse of their usual
-    // look — the line's own color as the text instead of the background —
-    // so the two directions read apart from each other at a glance.
-    // Southbound stays exactly as every other line already renders
-    // (colored background, white text). Acela's own inverted background is
-    // a light tint of its purple rather than plain white, so it still
-    // reads as "Acela" rather than looking like any other northbound row.
-    if (boardKey === "amtrak" && row.direction === "north" && row.serviceType === "regional") {
+    // look — white background, the line's own color as the text — so the
+    // two directions read apart from each other at a glance. Southbound
+    // stays exactly as every other line already renders (colored
+    // background, white text).
+    if (boardKey === "amtrak" && row.direction === "north" && (row.serviceType === "regional" || row.serviceType === "acela")) {
       rowfg = rowbg;
       rowbg = "#ffffff";
-    } else if (boardKey === "amtrak" && row.direction === "north" && row.serviceType === "acela") {
-      rowfg = rowbg;
-      rowbg = "#dbd4fc";
     }
     // Two differently-colored rows already read apart from each other with
     // no line needed — only a row dark enough to risk vanishing into the
@@ -8185,18 +8180,12 @@ body {
     var stdHex = rowbg.replace("#", "").toLowerCase();
     var rowfg = isYellowish(stdHex) ? "#121212" : "#ffffff";
     // Northbound Regional and Acela both get the inverse of their usual
-    // look — the line's own color as the text instead of the background —
-    // so the two directions read apart from each other at a glance.
-    // Southbound stays exactly as before (colored background, white
-    // text). Acela's own inverted background is a light tint of its
-    // purple rather than plain white, so it still reads as "Acela" rather
-    // than looking like any other northbound row.
-    if (row.direction === "north" && row.serviceType === "regional") {
+    // look — white background, the line's own color as the text — so the
+    // two directions read apart from each other at a glance. Southbound
+    // stays exactly as before (colored background, white text).
+    if (row.direction === "north" && (row.serviceType === "regional" || row.serviceType === "acela")) {
       rowfg = rowbg;
       rowbg = "#ffffff";
-    } else if (row.direction === "north" && row.serviceType === "acela") {
-      rowfg = rowbg;
-      rowbg = "#dbd4fc";
     }
     // Two differently-colored rows already read apart from each other with
     // no line needed — only a row dark enough to risk vanishing into the
