@@ -6601,8 +6601,8 @@ body {
   // LINE_COLOR_OVERRIDES below for the NJT/LIRR side of the same palette)
   // rather than left as each operator's own native shade.
   var SERVICE_COLORS = {
-    acela:    "#a626aa",
-    regional: "#303ac2",
+    acela:    "#7126aa",
+    regional: "#232ec4",
     keystone: "#ebb402",
     empire:   "#00985f",
     longdist: "#c60c30",
@@ -6738,16 +6738,14 @@ body {
     var stdHex = standardizeLineColor(boardKey, rawHex);
     rowbg = "#" + stdHex;
     var rowfg = (isYellowish(stdHex) || DARK_TEXT_COLORS[stdHex]) ? "#121212" : "#ffffff";
-    // Northbound Regional gets the inverse of its usual look — white
-    // background, the line's own blue as the text — so the two
-    // directions read apart from each other at a glance. Northbound
-    // Acela instead gets its own distinct, slightly darker purple
-    // (still white text) rather than an inversion.
+    // Northbound Regional and Acela each get their own distinct shade
+    // (both still white text, like every other colored row) rather than
+    // an inversion — so the two directions read apart from each other at
+    // a glance without either one going to a plain white background.
     if (boardKey === "amtrak" && row.direction === "north" && row.serviceType === "regional") {
-      rowfg = rowbg;
-      rowbg = "#ffffff";
+      rowbg = "#2967d9";
     } else if (boardKey === "amtrak" && row.direction === "north" && row.serviceType === "acela") {
-      rowbg = "#7126aa";
+      rowbg = "#a626aa";
     }
     // Two differently-colored rows already read apart from each other with
     // no line needed — only a row dark enough to risk vanishing into the
@@ -8125,8 +8123,8 @@ body {
   // AMTRAK_LINE_COLOR note further down: it's a timeliness indicator, not
   // a brand color), so this small fixed set stands in for it instead.
   var SERVICE_COLORS = {
-    acela:    "#a626aa",
-    regional: "#303ac2",
+    acela:    "#7126aa",
+    regional: "#232ec4",
     keystone: "#ebb402",
     empire:   "#00985f",
     longdist: "#c60c30",
@@ -8181,16 +8179,14 @@ body {
     var rowbg = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
     var stdHex = rowbg.replace("#", "").toLowerCase();
     var rowfg = isYellowish(stdHex) ? "#121212" : "#ffffff";
-    // Northbound Regional gets the inverse of its usual look — white
-    // background, the line's own blue as the text — so the two
-    // directions read apart from each other at a glance. Northbound
-    // Acela instead gets its own distinct, slightly darker purple
-    // (still white text) rather than an inversion.
+    // Northbound Regional and Acela each get their own distinct shade
+    // (both still white text, like every other colored row) rather than
+    // an inversion — so the two directions read apart from each other at
+    // a glance without either one going to a plain white background.
     if (row.direction === "north" && row.serviceType === "regional") {
-      rowfg = rowbg;
-      rowbg = "#ffffff";
+      rowbg = "#2967d9";
     } else if (row.direction === "north" && row.serviceType === "acela") {
-      rowbg = "#7126aa";
+      rowbg = "#a626aa";
     }
     // Two differently-colored rows already read apart from each other with
     // no line needed — only a row dark enough to risk vanishing into the
@@ -10527,8 +10523,8 @@ const amtrakNECMapPage = `<!DOCTYPE html>
     // Same per-service accent used by the /trains and /amtrak-board detail
     // sheets, so a train tapped here gets the identical livery-stripe color.
     const SERVICE_COLORS = {
-      acela:    "#a626aa",
-      regional: "#303ac2",
+      acela:    "#7126aa",
+      regional: "#232ec4",
       keystone: "#ebb402",
       empire:   "#00985f",
       longdist: "#c60c30",
