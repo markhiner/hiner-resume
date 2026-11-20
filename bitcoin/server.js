@@ -7151,7 +7151,7 @@ body {
       }
       var stillHere = s.status != null ? s.status !== "Departed" : (function () {
         var b = stopBest(s);
-        var ref = b.arr != null ? b.arr : b.dep;
+        var ref = b.dep != null ? b.dep : b.arr;
         return ref == null || now < ref;
       })();
       if (stillHere) return ni;
@@ -8605,7 +8605,7 @@ body {
       }
       var stillHere = s.status != null ? s.status !== "Departed" : (function () {
         var b = stopBest(s);
-        var ref = b.arr != null ? b.arr : b.dep;
+        var ref = b.dep != null ? b.dep : b.arr;
         return ref == null || now < ref;
       })();
       if (stillHere) return ni;
@@ -10627,7 +10627,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
         }
         const stillHere = s.status != null ? s.status !== "Departed" : (() => {
           const b = stopBest(s);
-          const ref = b.arr != null ? b.arr : b.dep;
+          const ref = b.dep != null ? b.dep : b.arr;
           return ref == null || now < ref;
         })();
         if (stillHere) return ni;
