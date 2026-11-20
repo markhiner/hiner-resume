@@ -6742,10 +6742,14 @@ body {
     // (both still white text, like every other colored row) rather than
     // an inversion — so the two directions read apart from each other at
     // a glance without either one going to a plain white background.
+    // Keystone's own direction split goes the other way: southbound gets
+    // a distinct shade, northbound keeps the base color.
     if (boardKey === "amtrak" && row.direction === "north" && row.serviceType === "regional") {
       rowbg = "#2967d9";
     } else if (boardKey === "amtrak" && row.direction === "north" && row.serviceType === "acela") {
       rowbg = "#a626aa";
+    } else if (boardKey === "amtrak" && row.direction === "south" && row.serviceType === "keystone") {
+      rowbg = "#f0e65b";
     }
     // Two differently-colored rows already read apart from each other with
     // no line needed — only a row dark enough to risk vanishing into the
@@ -8183,10 +8187,14 @@ body {
     // (both still white text, like every other colored row) rather than
     // an inversion — so the two directions read apart from each other at
     // a glance without either one going to a plain white background.
+    // Keystone's own direction split goes the other way: southbound gets
+    // a distinct shade, northbound keeps the base color.
     if (row.direction === "north" && row.serviceType === "regional") {
       rowbg = "#2967d9";
     } else if (row.direction === "north" && row.serviceType === "acela") {
       rowbg = "#a626aa";
+    } else if (row.direction === "south" && row.serviceType === "keystone") {
+      rowbg = "#f0e65b";
     }
     // Two differently-colored rows already read apart from each other with
     // no line needed — only a row dark enough to risk vanishing into the
