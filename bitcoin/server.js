@@ -6650,23 +6650,17 @@ body {
     var s = d / (1 - Math.abs(2 * l - 1));
     return h >= 35 && h <= 65 && s > 0.6;
   }
-  // A row's own background only needs a visible separator when it's dark
-  // or light enough to risk blending into either the board's near-black
-  // card background or an identically (near-)colored row right next to
-  // it — two differently-colored mid-tone rows already read apart from
-  // each other with no line needed. Dark rows (near-black, like LIRR's
-  // own Penn Station color) get a light line; light rows (white, or the
-  // northbound Regional/Acela rows' own white/pale-tint inversion) get a
-  // dark one — either one alone left the other half of this still
-  // invisible against its own kind.
-  function rowBorderFor(hex) {
+  // Which contrasting line (light or dark) actually shows up against a
+  // given row color — called only once boardRowHTML has already decided
+  // a separator is needed at all (see nextRowBg there), so this just
+  // picks the side of the color that reads against it, not whether one
+  // is needed.
+  function rowSeparatorFor(hex) {
     var r = parseInt(hex.slice(0, 2), 16);
     var g = parseInt(hex.slice(2, 4), 16);
     var b = parseInt(hex.slice(4, 6), 16);
     var lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    if (lum < 50) return "1px solid rgba(255,255,255,0.3)";
-    if (lum > 200) return "1px solid rgba(0,0,0,0.3)";
-    return "none";
+    return lum < 128 ? "1px solid rgba(255,255,255,0.3)" : "1px solid rgba(0,0,0,0.3)";
   }
 
   function standardizeLineColor(boardKey, hex) {
@@ -6726,8 +6720,12 @@ body {
     return reserveSlot ? '<span class="c-badges"></span>' : "";
   }
 
-  function boardRowHTML(boardKey, row, idx, kind) {
-    var status = rowStatus(row);
+  // All of a row's color logic, pulled out so the render loop can look
+  // one row ahead (see boardRowHTML's nextRowBg) without duplicating
+  // these rules — called twice per row (once to precompute the whole
+  // visible list's colors, once from inside boardRowHTML itself) rather
+  // than threading the whole rule set through as data.
+  function rowColorsFor(boardKey, row) {
     var rowbg;
     if (boardKey === "amtrak") {
       rowbg = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
@@ -6758,11 +6756,21 @@ body {
     } else if (boardKey === "amtrak" && row.direction === "north" && row.serviceType === "empire") {
       rowbg = "#0b6644";
     }
-    // Two differently-colored rows already read apart from each other with
-    // no line needed — only a row dark enough to risk vanishing into the
-    // board's own near-black background (or into an identically-dark row
-    // right below it) gets one.
-    var rowborder = rowBorderFor(rowbg.replace("#", ""));
+    return { bg: rowbg, fg: rowfg };
+  }
+
+  function boardRowHTML(boardKey, row, idx, kind, nextRowBg) {
+    var status = rowStatus(row);
+    var colors = rowColorsFor(boardKey, row);
+    var rowbg = colors.bg, rowfg = colors.fg;
+    // Two differently-colored rows already read apart from each other
+    // with no line needed — only when this row and the one right below
+    // it would otherwise be the exact same color (two same-line rows
+    // back to back, same service/direction pair, etc.) does the boundary
+    // between them actually vanish, so a separator only shows up there.
+    var rowborder = (nextRowBg && nextRowBg.toLowerCase() === rowbg.toLowerCase())
+      ? rowSeparatorFor(rowbg.replace("#", ""))
+      : "none";
     var routeName = boardKey === "njt"
       ? (NJT_ROUTE_LABEL_OVERRIDES[row.routeShortName] || row.routeShortName || row.routeName)
       : row.routeName;
@@ -6836,7 +6844,8 @@ body {
     }
     var expanded = b.expanded[kind];
     var visible = expanded ? rows : rows.slice(0, BOARD_COLLAPSED_ROWS);
-    var html = visible.map(function (r, i) { return boardRowHTML(key, r, i, kind); }).join("");
+    var bgs = visible.map(function (r) { return rowColorsFor(key, r).bg; });
+    var html = visible.map(function (r, i) { return boardRowHTML(key, r, i, kind, bgs[i + 1]); }).join("");
     el.innerHTML = html + boardFootHTML(key, rows, expanded);
   }
 
@@ -8156,23 +8165,17 @@ body {
     var s = d / (1 - Math.abs(2 * l - 1));
     return h >= 35 && h <= 65 && s > 0.6;
   }
-  // A row's own background only needs a visible separator when it's dark
-  // or light enough to risk blending into either the board's near-black
-  // card background or an identically (near-)colored row right next to
-  // it — two differently-colored mid-tone rows already read apart from
-  // each other with no line needed. Dark rows (near-black, like LIRR's
-  // own Penn Station color) get a light line; light rows (white, or the
-  // northbound Regional/Acela rows' own white/pale-tint inversion) get a
-  // dark one — either one alone left the other half of this still
-  // invisible against its own kind.
-  function rowBorderFor(hex) {
+  // Which contrasting line (light or dark) actually shows up against a
+  // given row color — called only once boardRowHTML has already decided
+  // a separator is needed at all (see nextRowBg there), so this just
+  // picks the side of the color that reads against it, not whether one
+  // is needed.
+  function rowSeparatorFor(hex) {
     var r = parseInt(hex.slice(0, 2), 16);
     var g = parseInt(hex.slice(2, 4), 16);
     var b = parseInt(hex.slice(4, 6), 16);
     var lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    if (lum < 50) return "1px solid rgba(255,255,255,0.3)";
-    if (lum > 200) return "1px solid rgba(0,0,0,0.3)";
-    return "none";
+    return lum < 128 ? "1px solid rgba(255,255,255,0.3)" : "1px solid rgba(0,0,0,0.3)";
   }
 
   var AMTRAK_EWR_STOP_CODE = "EWR"; // Newark Airport, Amtrak's own code for it
@@ -8185,8 +8188,10 @@ body {
     return '<span class="board-badge" title="Stops at Newark Airport">' + BADGE_PLANE_SVG + '</span>';
   }
 
-  function boardRowHTML(row, idx, kind) {
-    var status = rowStatus(row);
+  // All of a row's color logic, pulled out so the render loop can look
+  // one row ahead (see boardRowHTML's nextRowBg) without duplicating
+  // these rules.
+  function rowColorsFor(row) {
     var rowbg = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
     var stdHex = rowbg.replace("#", "").toLowerCase();
     var rowfg = isYellowish(stdHex) ? "#121212" : "#ffffff";
@@ -8210,11 +8215,20 @@ body {
     } else if (row.direction === "north" && row.serviceType === "empire") {
       rowbg = "#0b6644";
     }
-    // Two differently-colored rows already read apart from each other with
-    // no line needed — only a row dark enough to risk vanishing into the
-    // board's own near-black background (or into an identically-dark row
-    // right below it) gets one.
-    var rowborder = rowBorderFor(rowbg.replace("#", ""));
+    return { bg: rowbg, fg: rowfg };
+  }
+
+  function boardRowHTML(row, idx, kind, nextRowBg) {
+    var status = rowStatus(row);
+    var colors = rowColorsFor(row);
+    var rowbg = colors.bg, rowfg = colors.fg;
+    // Two differently-colored rows already read apart from each other
+    // with no line needed — only when this row and the one right below
+    // it would otherwise be the exact same color does the boundary
+    // between them actually vanish, so a separator only shows up there.
+    var rowborder = (nextRowBg && nextRowBg.toLowerCase() === rowbg.toLowerCase())
+      ? rowSeparatorFor(rowbg.replace("#", ""))
+      : "none";
     return '<div class="board-row" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + '; --rowborder:' + rowborder + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(row.routeName) + '</span></span>' +
@@ -8242,7 +8256,8 @@ body {
     }
     var expanded = boardExpanded[kind];
     var visible = expanded ? rows : rows.slice(0, BOARD_COLLAPSED_ROWS);
-    el.innerHTML = visible.map(function (r, i) { return boardRowHTML(r, i, kind); }).join("");
+    var bgs = visible.map(function (r) { return rowColorsFor(r).bg; });
+    el.innerHTML = visible.map(function (r, i) { return boardRowHTML(r, i, kind, bgs[i + 1]); }).join("");
     if (moreBtn) {
       if (rows.length > BOARD_COLLAPSED_ROWS) {
         moreBtn.style.display = "inline-block";
@@ -9365,26 +9380,20 @@ body {
     return html ? '<span class="c-badges">' + html + '</span>' : '';
   }
 
-  // A row's own background only needs a visible separator when it's dark
-  // or light enough to risk blending into either the board's near-black
-  // card background or an identically (near-)colored row right next to
-  // it — two differently-colored mid-tone rows already read apart from
-  // each other with no line needed. Dark rows (near-black, like LIRR's
-  // own Penn Station color) get a light line; light rows (white, or the
-  // northbound Regional/Acela rows' own white/pale-tint inversion) get a
-  // dark one — either one alone left the other half of this still
-  // invisible against its own kind.
-  function rowBorderFor(hex) {
+  // Which contrasting line (light or dark) actually shows up against a
+  // given row color — called only once boardRowHTML has already decided
+  // a separator is needed at all (see nextRowBg there), so this just
+  // picks the side of the color that reads against it, not whether one
+  // is needed.
+  function rowSeparatorFor(hex) {
     var r = parseInt(hex.slice(0, 2), 16);
     var g = parseInt(hex.slice(2, 4), 16);
     var b = parseInt(hex.slice(4, 6), 16);
     var lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    if (lum < 50) return "1px solid rgba(255,255,255,0.3)";
-    if (lum > 200) return "1px solid rgba(0,0,0,0.3)";
-    return "none";
+    return lum < 128 ? "1px solid rgba(255,255,255,0.3)" : "1px solid rgba(0,0,0,0.3)";
   }
 
-  function boardRowHTML(row, idx, kind) {
+  function boardRowHTML(row, idx, kind, nextRowBg) {
     var status = njtStatus(row);
     // Unlike the Amtrak board's small fixed service-type palette, NJT's own
     // GTFS already supplies a distinct official color per rail line
@@ -9392,7 +9401,13 @@ body {
     // rather than bucketed into a small palette or reduced to an accent bar.
     var rowbg = "#" + (row.color || "0039a6");
     var rowfg = "#" + (row.textColor || "ffffff");
-    var rowborder = rowBorderFor(rowbg.replace("#", ""));
+    // Two differently-colored rows already read apart from each other
+    // with no line needed — only when this row and the one right below
+    // it would otherwise be the exact same color (the same line running
+    // twice in a row) does the boundary between them actually vanish.
+    var rowborder = (nextRowBg && nextRowBg.toLowerCase() === rowbg.toLowerCase())
+      ? rowSeparatorFor(rowbg.replace("#", ""))
+      : "none";
     return '<div class="board-row" data-kind="njt" data-event="' + kind + '" data-idx="' + idx + '" style="--rowbg:' + rowbg + '; --rowfg:' + rowfg + '; --rowborder:' + rowborder + ';">' +
       '<span class="c-time">' + fmtBoardTime(row.schedMs) + '</span>' +
       '<span class="c-train"><span class="nm">' + esc(row.trainNum) + " " + esc(shortRouteName(row.routeName, row.routeShortName)) + '</span>' + stationBadgesHTML(row) + '</span>' +
@@ -9424,7 +9439,8 @@ body {
     }
     var expanded = boardExpanded[kind];
     var visible = expanded ? rows : rows.slice(0, BOARD_COLLAPSED_ROWS);
-    el.innerHTML = visible.map(function (r, i) { return boardRowHTML(r, i, kind); }).join("");
+    var bgs = visible.map(function (r) { return "#" + (r.color || "0039a6"); });
+    el.innerHTML = visible.map(function (r, i) { return boardRowHTML(r, i, kind, bgs[i + 1]); }).join("");
     if (moreBtn) {
       if (rows.length > BOARD_COLLAPSED_ROWS) {
         moreBtn.style.display = "inline-block";
