@@ -6755,6 +6755,8 @@ body {
       rowbg = "#b00e2d";
     } else if (boardKey === "amtrak" && row.direction === "north" && row.serviceType === "longdist") {
       rowbg = "#e6274a";
+    } else if (boardKey === "amtrak" && row.direction === "north" && row.serviceType === "empire") {
+      rowbg = "#0b6644";
     }
     // Two differently-colored rows already read apart from each other with
     // no line needed — only a row dark enough to risk vanishing into the
@@ -8205,6 +8207,8 @@ body {
       rowbg = "#b00e2d";
     } else if (row.direction === "north" && row.serviceType === "longdist") {
       rowbg = "#e6274a";
+    } else if (row.direction === "north" && row.serviceType === "empire") {
+      rowbg = "#0b6644";
     }
     // Two differently-colored rows already read apart from each other with
     // no line needed — only a row dark enough to risk vanishing into the
