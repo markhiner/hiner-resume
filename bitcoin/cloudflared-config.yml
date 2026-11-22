@@ -1,0 +1,21 @@
+# Cloudflare Tunnel config for btc.hiner.nyc
+# If you already have a config.yml running (e.g. for amtrak.hiner.nyc from
+# the trains/ project), just add the "btc.hiner.nyc" block below into its
+# existing `ingress:` list instead of using this file standalone — a single
+# cloudflared daemon can serve multiple hostnames to multiple local ports.
+#
+# Copy this file to ~/.cloudflared/config.yml on your Mac (or merge the
+# ingress rule into your existing one).
+# Replace YOUR_TUNNEL_ID with your actual tunnel ID (from `cloudflared tunnel list`)
+# Replace /Users/YOUR_USER with your actual home directory path
+
+tunnel: YOUR_TUNNEL_ID
+credentials-file: /Users/YOUR_USER/.cloudflared/YOUR_TUNNEL_ID.json
+
+ingress:
+  - hostname: btc.hiner.nyc
+    service: http://localhost:3001
+  - service: http_status:404
+
+# Don't forget to add the DNS record once:
+#   cloudflared tunnel route dns YOUR_TUNNEL_ID btc.hiner.nyc
