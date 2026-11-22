@@ -4139,6 +4139,7 @@ function getActiveNationalTrains() {
         trainNum: train.trainNum,
         routeName: amtrakDisplayRouteName(train.routeName),
         serviceType: amtrakServiceType(train.routeName),
+        direction: amtrakRowDirection(stations),
         lat,
         lon,
         heading: numericBearing,
@@ -10560,6 +10561,17 @@ const amtrakNECMapPage = `<!DOCTYPE html>
       empire:   "#00985f",
       longdist: "#c60c30",
     };
+    // The moving map marker gets the same color a train would show as a
+    // board row — base SERVICE_COLORS, with Acela/Regional's own north-vs-
+    // south split layered on top — rather than the separate "realistic
+    // livery" palette this used to carry.
+    function markerColorFor(train) {
+      const base = SERVICE_COLORS[train.serviceType] || SERVICE_COLORS.longdist;
+      if (train.serviceType === "regional" && train.direction === "north") return "#03a3df";
+      if (train.serviceType === "regional" && train.direction === "south") return "#006ec7";
+      if (train.serviceType === "acela" && train.direction === "north") return "#a626aa";
+      return base;
+    }
     function isYellowish(hex) {
       const r = parseInt(hex.slice(0, 2), 16) / 255;
       const g = parseInt(hex.slice(2, 4), 16) / 255;
@@ -10802,20 +10814,7 @@ const amtrakNECMapPage = `<!DOCTYPE html>
 
         // Add new markers
         for (const train of trains) {
-          const color = {
-            acela: "#58b8b6",
-            regional: "#292196",
-            keystone: "#ffd51f",
-            empire: "#358f54",
-            surfliner: "#64c0e8",
-            capitolcorridor: "#ffd51f",
-            sanjoaquin: "#9ef0bb",
-            heartlandflyer: "#8c74e3",
-            autotrain: "#7510e0",
-            longdist: "#9c1c25",
-          }[train.serviceType] || "#9c1c25";
-
-          const icon = createArrowMarker(train.lat, train.lon, train.heading, color);
+          const icon = createArrowMarker(train.lat, train.lon, train.heading, markerColorFor(train));
           const marker = L.marker([train.lat, train.lon], { icon })
             .addTo(map)
             .on("click", () => showTrain(train, true));
