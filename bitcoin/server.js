@@ -6736,15 +6736,16 @@ body {
     var stdHex = standardizeLineColor(boardKey, rawHex);
     rowbg = "#" + stdHex;
     var rowfg = (isYellowish(stdHex) || DARK_TEXT_COLORS[stdHex]) ? "#121212" : "#ffffff";
-    // Northbound Northeast Regional gets the inverse of its usual look —
-    // white background, the line's own blue as the text — so the two
-    // directions read apart from each other at a glance. Southbound stays
-    // exactly as every other line already renders (blue background, white
-    // text). Acela is the one exception: it gets its own distinct shade
-    // each way instead of an inversion.
+    // Northeast Regional borrows its two direction colors from other
+    // operators' own real line colors, so the two directions read apart
+    // from each other at a glance: northbound gets NJT's North Jersey
+    // Coast Line blue (the Long Branch line), southbound gets LIRR's Port
+    // Jefferson Branch blue (the Huntington line). Acela is its own
+    // distinct shade each way instead.
     if (boardKey === "amtrak" && row.direction === "north" && row.serviceType === "regional") {
-      rowfg = rowbg;
-      rowbg = "#ffffff";
+      rowbg = "#03a3df";
+    } else if (boardKey === "amtrak" && row.direction === "south" && row.serviceType === "regional") {
+      rowbg = "#006ec7";
     } else if (boardKey === "amtrak" && row.direction === "north" && row.serviceType === "acela") {
       rowbg = "#a626aa";
     }
@@ -8187,15 +8188,16 @@ body {
     var rowbg = SERVICE_COLORS[row.serviceType] || SERVICE_COLORS.longdist;
     var stdHex = rowbg.replace("#", "").toLowerCase();
     var rowfg = isYellowish(stdHex) ? "#121212" : "#ffffff";
-    // Northbound Northeast Regional gets the inverse of its usual look —
-    // white background, the line's own blue as the text — so the two
-    // directions read apart from each other at a glance. Southbound stays
-    // exactly as before (blue background, white text). Acela is the one
-    // exception: it gets its own distinct shade each way instead of an
-    // inversion.
+    // Northeast Regional borrows its two direction colors from other
+    // operators' own real line colors, so the two directions read apart
+    // from each other at a glance: northbound gets NJT's North Jersey
+    // Coast Line blue (the Long Branch line), southbound gets LIRR's Port
+    // Jefferson Branch blue (the Huntington line). Acela is its own
+    // distinct shade each way instead.
     if (row.direction === "north" && row.serviceType === "regional") {
-      rowfg = rowbg;
-      rowbg = "#ffffff";
+      rowbg = "#03a3df";
+    } else if (row.direction === "south" && row.serviceType === "regional") {
+      rowbg = "#006ec7";
     } else if (row.direction === "north" && row.serviceType === "acela") {
       rowbg = "#a626aa";
     }
