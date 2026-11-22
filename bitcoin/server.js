@@ -9354,13 +9354,20 @@ body {
   function stationBadgesHTML(row) {
     if (!row.stations || !row.stations.length) return "";
     var html = "";
-    var hasSec = row.stations.some(function (s) { return s.code === SEC_STOP_CODE; });
-    var hasEwr = row.stations.some(function (s) { return s.code === EWR_STOP_CODE; });
-    // Redundant (and a little silly) to flag "stops at Secaucus" on a board
-    // you're already viewing from Secaucus, so skip a badge for whichever
-    // station is the board's current reference point.
-    if (hasSec && state.station !== SEC_STOP_CODE) html += '<span class="board-badge sec" title="Stops at Secaucus">S</span>';
-    if (hasEwr && state.station !== EWR_STOP_CODE) html += '<span class="board-badge ewr" title="Stops at Newark Airport">' + EWR_PLANE_SVG + '</span>';
+    // row.stations is the whole trip in stop order, so a transfer point
+    // earlier in that list than the board's own reference station is one
+    // this train has already passed by the time it's here — flagging it
+    // would be telling a rider at Secaucus they can still catch a train
+    // the train left behind several stops ago. Only a transfer point still
+    // later in the list (still ahead of where this row is right now) earns
+    // the badge.
+    var curIdx = row.stations.findIndex(function (s) { return s.code === state.station; });
+    var secIdx = row.stations.findIndex(function (s) { return s.code === SEC_STOP_CODE; });
+    var ewrIdx = row.stations.findIndex(function (s) { return s.code === EWR_STOP_CODE; });
+    var hasSec = secIdx !== -1 && (curIdx === -1 || secIdx > curIdx);
+    var hasEwr = ewrIdx !== -1 && (curIdx === -1 || ewrIdx > curIdx);
+    if (hasSec) html += '<span class="board-badge sec" title="Stops at Secaucus">S</span>';
+    if (hasEwr) html += '<span class="board-badge ewr" title="Stops at Newark Airport">' + EWR_PLANE_SVG + '</span>';
     // Grouped in one nowrap wrapper so the two icons can never land on
     // different lines from each other — the pair moves as a unit.
     return html ? '<span class="c-badges">' + html + '</span>' : '';
